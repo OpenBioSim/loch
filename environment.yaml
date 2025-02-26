@@ -1,0 +1,9 @@
+name: loch
+
+channels:
+  - conda-forge
+  - openbiosim/label/dev
+
+dependencies:
+  - pycuda
+  - sire
