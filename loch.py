@@ -58,7 +58,7 @@ def uniform_random_rotation(x):
     return ((x - mean_coord) @ M) + mean_coord @ M
 
 
-def generate_waters(template, cell, num_waters):
+def generate_waters(template, cell, num_waters, target=None, distance=1.0):
     """
     Generate a set of water positions in a box.
 
@@ -73,6 +73,13 @@ def generate_waters(template, cell, num_waters):
 
     num_waters: int
         The number of water molecules to generate.
+
+    target: numpy.ndarray
+        The target position to generate the water molecules around.
+
+    distance: float
+        The distance in Angstrom around the target position to generate
+        the water molecules.
 
     Returns
     -------
@@ -102,7 +109,10 @@ def generate_waters(template, cell, num_waters):
         water = uniform_random_rotation(water)
 
         # Generate a random position in the cell.
-        xyz = np.random.rand(3) * dimensions
+        if target is not None:
+            xyz = target + np.random.rand(3) * distance
+        else:
+            xyz = np.random.rand(3) * dimensions
 
         # Place the oxygen (first atom) at the random position.
         water[0] = xyz
@@ -119,8 +129,28 @@ def generate_waters(template, cell, num_waters):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GCMC benchmarking")
-    parser.add_argument("input", type=str, help="Input file(s)", nargs="+")
-    parser.add_argument("--num-insertions", type=int, default=1000, required=False)
+    parser.add_argument("input", help="Input file(s)", type=str, nargs="+")
+    parser.add_argument(
+        "--num-insertions",
+        help="The number of insertions to attempt.",
+        type=int,
+        default=1000,
+        required=False,
+    )
+    parser.add_argument(
+        "--target",
+        help="Coordinates for targetting insertions, in Angstrom",
+        type=float,
+        nargs=3,
+        required=False,
+    )
+    parser.add_argument(
+        "--max-distance",
+        help="Maximum distance from the target, in Angstrom",
+        type=float,
+        default=1.0,
+        required=False,
+    )
 
     args = parser.parse_args()
 
@@ -154,7 +184,13 @@ if __name__ == "__main__":
 
     # Initialise the water position array.
     try:
-        waters = generate_waters(water_positions, dimensions, num_insertions)
+        waters = generate_waters(
+            water_positions,
+            dimensions,
+            num_insertions,
+            target=args.target,
+            distance=args.max_distance,
+        )
     except Exception as e:
         raise RuntimeError(f"Could not generate water positions: {e}")
 
