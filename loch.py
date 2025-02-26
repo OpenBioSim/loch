@@ -273,57 +273,66 @@ if __name__ == "__main__":
                 float y1 = positions[3 * idx_atom + 1];
                 float z1 = positions[3 * idx_atom + 2];
 
-                // Get the water position.
-                float x2 = waters[3 * idx_water];
-                float y2 = waters[3 * idx_water + 1];
-                float z2 = waters[3 * idx_water + 2];
+                // Store the charge on the atom.
+                auto c11 = charges[idx_atom] * charges[idx_atom];
 
-                // Calculate the distance.
-                float dx = x1 - x2;
-                float dy = y1 - y2;
-                float dz = z1 - z2;
+                // Zero the result.
+                result[idx] = 0.0;
 
-                // Apply periodic boundary conditions.
-                if (dx >= 0.5*dimensions[0])
+                // Loop over all atoms in the water molecule.
+                for (int i = 0; i < 3; i++)
                 {
-                    dx -= dimensions[0];
-                }
-                else if (dx < -0.5*dimensions[0])
-                {
-                    dx += dimensions[0];
-                }
-                if (dy >= 0.5*dimensions[1])
-                {
-                    dy -= dimensions[1];
-                }
-                else if (dy < -0.5*dimensions[1])
-                {
-                    dy += dimensions[1];
-                }
-                if (dz >= 0.5*dimensions[2])
-                {
-                    dz -= dimensions[2];
-                }
-                else if (dz < -0.5*dimensions[2])
-                {
-                    dz += dimensions[2];
-                }
+                    // Get the water atom position.
+                    float x2 = waters[3 * (idx_water + i)];
+                    float y2 = waters[3 * (idx_water + i) + 1];
+                    float z2 = waters[3 * (idx_water + i) + 2];
 
-                // Calculate the distance squared.
-                float r2 = dx * dx + dy * dy + dz * dz;
+                    // Calculate the distance.
+                    float dx = x1 - x2;
+                    float dy = y1 - y2;
+                    float dz = z1 - z2;
 
-                // Don't divide by zero.
-                if (r2 < 1e-6)
-                {
-                    result[idx] = 1e6;
-                }
-                else
-                {
-                    // Calculate the squared energy. We can take the square root of the total
-                    // energy and rescale at the end.
-                    auto c1 = charges[idx_atom];
-                    auto c2 = charge_water[idx_water];
-                    result[idx] = (c1*c1 * c2*c2) / r2;
+                    // Apply periodic boundary conditions.
+                    if (dx >= 0.5*dimensions[0])
+                    {
+                        dx -= dimensions[0];
+                    }
+                    else if (dx < -0.5*dimensions[0])
+                    {
+                        dx += dimensions[0];
+                    }
+                    if (dy >= 0.5*dimensions[1])
+                    {
+                        dy -= dimensions[1];
+                    }
+                    else if (dy < -0.5*dimensions[1])
+                    {
+                        dy += dimensions[1];
+                    }
+                    if (dz >= 0.5*dimensions[2])
+                    {
+                        dz -= dimensions[2];
+                    }
+                    else if (dz < -0.5*dimensions[2])
+                    {
+                        dz += dimensions[2];
+                    }
+
+                    // Calculate the distance squared.
+                    float r2 = dx * dx + dy * dy + dz * dz;
+
+                    // Don't divide by zero.
+                    if (r2 < 1e-6)
+                    {
+                        result[idx] = 1e6;
+                    }
+                    else
+                    {
+                        // Accumulate the squared energy. We can take the square
+                        // root of the total energy and rescale at the end.
+                        auto c2 = charge_water[idx_water];
+                        result[idx] += (c11 * c2*c2) / r2;
+                    }
                 }
             }
         }
