@@ -206,10 +206,19 @@ if __name__ == "__main__":
     # Get the charges on all the atoms.
     try:
         # Loop over the molecules and get the charges.
-        charges = []
-        for mol in system:
-            charges_mol = [charge.value() for charge in mol.property("charge")]
-            charges.extend(charges_mol)
+        if args.target is None:
+            charges = []
+            for mol in system:
+                charges_mol = [charge.value() for charge in mol.property("charge")]
+                charges.extend(charges_mol)
+        # Loop over the selection to get the charges.
+        else:
+            charges = [
+                atom.charge().value()
+                for atom in system[
+                    f"atoms within {args.cut_off} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
+                ].atoms()
+            ]
         # Convert to a NumPy array.
         charges = np.array(charges)
     except Exception as e:
@@ -237,8 +246,16 @@ if __name__ == "__main__":
     # Set the max threads per block.
     max_threads_per_block = 1024
 
-    # Work out the number of blocks to use.
-    num_blocks = num_atoms // max_threads_per_block + 1
+    # Work out the number of blocks to use. We parallelise over the the largest
+    # dimension, i.e. atoms or insertions.
+    if num_atoms > num_insertions:
+        num_blocks = num_atoms // max_threads_per_block + 1
+        idx_max = num_atoms
+        idx_min = num_insertions
+    else:
+        num_blocks = num_insertions // max_threads_per_block + 1
+        idx_max = num_insertions
+        idx_min = num_atoms
 
     # Create an array to hold the results.
     result = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
@@ -247,8 +264,8 @@ if __name__ == "__main__":
     # Create a kernel to calculate the Coulomb energy.
     mod = SourceModule(
         """
-        __global__ void coulomb_energy(
-            int num_atoms,
+        __global__ void coulomb_energy0(
+            int idx_max,
             float* dimensions,
             float *charges,
             float* charge_water,
@@ -257,16 +274,106 @@ if __name__ == "__main__":
             float* result)
         {
             // Work out the atom index.
-            int idx_atom = gridDim.x * blockIdx.x + threadIdx.x;
+            int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
 
             // Make sure we're in bounds.
-            if (idx_atom < num_atoms)
+            if (idx_atom < idx_max)
             {
                 // Work out the water index.
-                int idx_water = blockIdx.y;
+                int idx_water = threadIdx.y + blockDim.y * blockIdx.y;
 
                 // Work out the index for the result.
-                int idx = (idx_water * num_atoms) + idx_atom;
+                int idx = (idx_water * idx_max) + idx_atom;
+
+                // Get the atom position.
+                float x1 = positions[3 * idx_atom];
+                float y1 = positions[3 * idx_atom + 1];
+                float z1 = positions[3 * idx_atom + 2];
+
+                // Store the charge on the atom.
+                auto c11 = charges[idx_atom] * charges[idx_atom];
+
+                // Zero the result.
+                result[idx] = 0.0;
+
+                // Loop over all atoms in the water molecule.
+                for (int i = 0; i < 3; i++)
+                {
+                    // Get the water atom position.
+                    float x2 = waters[3 * (idx_water + i)];
+                    float y2 = waters[3 * (idx_water + i) + 1];
+                    float z2 = waters[3 * (idx_water + i) + 2];
+
+                    // Calculate the distance.
+                    float dx = x1 - x2;
+                    float dy = y1 - y2;
+                    float dz = z1 - z2;
+
+                    // Apply periodic boundary conditions.
+                    if (dx >= 0.5*dimensions[0])
+                    {
+                        dx -= dimensions[0];
+                    }
+                    else if (dx < -0.5*dimensions[0])
+                    {
+                        dx += dimensions[0];
+                    }
+                    if (dy >= 0.5*dimensions[1])
+                    {
+                        dy -= dimensions[1];
+                    }
+                    else if (dy < -0.5*dimensions[1])
+                    {
+                        dy += dimensions[1];
+                    }
+                    if (dz >= 0.5*dimensions[2])
+                    {
+                        dz -= dimensions[2];
+                    }
+                    else if (dz < -0.5*dimensions[2])
+                    {
+                        dz += dimensions[2];
+                    }
+
+                    // Calculate the distance squared.
+                    float r2 = dx * dx + dy * dy + dz * dz;
+
+                    // Don't divide by zero.
+                    if (r2 < 1e-6)
+                    {
+                        result[idx] = 1e6;
+                    }
+                    else
+                    {
+                        // Accumulate the squared energy. We can take the square
+                        // root of the total energy and rescale at the end.
+                        auto c2 = charge_water[idx_water];
+                        result[idx] += (c11 * c2*c2) / r2;
+                    }
+                }
+            }
+        }
+
+        __global__ void coulomb_energy1(
+            int idx_max,
+            float* dimensions,
+            float *charges,
+            float* charge_water,
+            float* positions,
+            float* waters,
+            float* result)
+        {
+            // Work out the water index.
+            int idx_water = threadIdx.x + blockDim.x * blockIdx.x;
+
+            // Make sure we're in bounds.
+            if (idx_water < idx_max)
+            {
+                // Work out the atom index.
+                int idx_atom = threadIdx.y + blockDim.y * blockIdx.y;
+
+                // Work out the index for the result.
+                int idx = (idx_water * gridDim.y) + idx_atom;
 
                 // Get the atom position.
                 float x1 = positions[3 * idx_atom];
@@ -340,7 +447,10 @@ if __name__ == "__main__":
     )
 
     # Get the kernel.
-    coulomb_energy = mod.get_function("coulomb_energy")
+    if num_atoms > num_insertions:
+        coulomb_energy = mod.get_function("coulomb_energy0")
+    else:
+        coulomb_energy = mod.get_function("coulomb_energy1")
 
     # Loop over the batches.
     for i in range(args.num_batches):
@@ -364,7 +474,7 @@ if __name__ == "__main__":
 
         # Run the kernel.
         coulomb_energy(
-            np.int32(num_atoms),
+            np.int32(idx_max),
             dimensions_gpu,
             charges_gpu,
             charge_water_gpu,
@@ -372,7 +482,7 @@ if __name__ == "__main__":
             waters_gpu,
             result,
             block=(max_threads_per_block, 1, 1),
-            grid=(num_blocks, num_insertions, 1),
+            grid=(num_blocks, idx_min, 1),
         )
 
         end = time.time()
