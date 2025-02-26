@@ -13,7 +13,16 @@ conda create -f environment.yml
 Attempt 10000 random insertions within the periodic box of the system:
 
 ```bash
-python loch.py examples/scytalone-dehydratase/outputs/*7 --num-insertions 10000
+python loch.py examples/scytalone-dehydratase/outputs/*7 \
+    --num-insertions 10000
+```
+
+To run 10 batches of the above command in serial:
+
+```bash
+python loch.py examples/scytalone-dehydratase/outputs/*7 \
+    --num-insertions 10000 \
+    --num-batches 10
 ```
 
 Attempt 10000 random insertions targeted at the hydration site:

@@ -138,6 +138,13 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
+        "--num-batches",
+        help="The number of batches to run.",
+        type=int,
+        default=1,
+        required=False,
+    )
+    parser.add_argument(
         "--target",
         help="Coordinates for targetting insertions, in Angstrom",
         type=float,
@@ -182,18 +189,6 @@ if __name__ == "__main__":
     # Get the positions as a numpy array.
     water_positions = sr.io.get_coords_array(water)
 
-    # Initialise the water position array.
-    try:
-        waters = generate_waters(
-            water_positions,
-            dimensions,
-            num_insertions,
-            target=args.target,
-            distance=args.max_distance,
-        )
-    except Exception as e:
-        raise RuntimeError(f"Could not generate water positions: {e}")
-
     # Get the charge on the water.
     try:
         charge_water = [charge.value() for charge in water.property("charge")]
@@ -224,7 +219,6 @@ if __name__ == "__main__":
     charges_gpu = gpuarray.to_gpu(charges.astype(np.float32))
     charge_water_gpu = gpuarray.to_gpu(np.array(charge_water).astype(np.float32))
     positions_gpu = gpuarray.to_gpu(positions.flatten().astype(np.float32))
-    waters_gpu = gpuarray.to_gpu(waters.flatten().astype(np.float32))
 
     # Store the number of atoms.
     num_atoms = len(charges)
@@ -328,36 +322,51 @@ if __name__ == "__main__":
     # Get the kernel.
     coulomb_energy = mod.get_function("coulomb_energy")
 
-    start = time.time()
+    # Loop over the batches.
+    for i in range(args.num_batches):
 
-    # Run the kernel.
-    coulomb_energy(
-        np.int32(num_atoms),
-        dimensions_gpu,
-        charges_gpu,
-        charge_water_gpu,
-        positions_gpu,
-        waters_gpu,
-        result,
-        block=(max_threads_per_block, 1, 1),
-        grid=(num_blocks, num_insertions, 1),
-    )
+        # Initialise the water position array.
+        try:
+            waters = generate_waters(
+                water_positions,
+                dimensions,
+                num_insertions,
+                target=args.target,
+                distance=args.max_distance,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Could not generate water positions: {e}")
 
-    end = time.time()
+        # Copy the waters to the GPU.
+        waters_gpu = gpuarray.to_gpu(waters.flatten().astype(np.float32))
 
-    # Copy the results back.
-    result = result.get()
+        start = time.time()
 
-    # Get a view of the results.
-    result = result.reshape(num_insertions, num_atoms)
+        # Run the kernel.
+        coulomb_energy(
+            np.int32(num_atoms),
+            dimensions_gpu,
+            charges_gpu,
+            charge_water_gpu,
+            positions_gpu,
+            waters_gpu,
+            result,
+            block=(max_threads_per_block, 1, 1),
+            grid=(num_blocks, num_insertions, 1),
+        )
 
-    # Calculate the energies.
-    energies = np.sum(result, axis=1) / (sr.units.epsilon0.value() * 4 * np.pi)
+        end = time.time()
 
-    # Print the indices and energy for the 10 lowest energy configurations.
-    print("Lowest energy configurations:")
-    for i in np.argsort(energies)[:10]:
-        print(f"  idx {i}: {energies[i]:.3f} kcal/mol")
+        # Copy the results back to the CPU.
+        result_cpu = result.get().reshape(num_insertions, num_atoms)
 
-    # Print the timing for the insertion calculation.
-    print(f"Time taken: {1000*(end - start):.2f} ms")
+        # Calculate the energies.
+        energies = np.sum(result_cpu, axis=1) / (sr.units.epsilon0.value() * 4 * np.pi)
+
+        # Print the indices and energy for the 10 lowest energy configurations.
+        print("Lowest energy configurations:")
+        for j in np.argsort(energies)[:10]:
+            print(f"  idx {j}: {energies[j]:.3f} kcal/mol")
+
+        # Print the timing for the insertion calculation.
+        print(f"Time taken: {1000*(end - start):.2f} ms")
