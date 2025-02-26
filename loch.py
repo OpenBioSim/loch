@@ -158,6 +158,13 @@ if __name__ == "__main__":
         default=1.0,
         required=False,
     )
+    parser.add_argument(
+        "--cut-off",
+        help="The cut-off distance for the Coulomb interaction, in Angstrom.",
+        type=float,
+        default=10.0,
+        required=False,
+    )
 
     args = parser.parse_args()
 
@@ -210,7 +217,11 @@ if __name__ == "__main__":
 
     # Get the positions of all the atoms.
     try:
-        positions = sr.io.get_coords_array(system)
+        if args.target is None:
+            positions = sr.io.get_coords_array(system)
+        else:
+            search = f"atoms within {args.cut_off} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
+            positions = sr.io.get_coords_array(system[search])
     except Exception as e:
         raise ValueError(f"Could not get the positions of the atoms: {e}")
 
