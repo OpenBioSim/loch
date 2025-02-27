@@ -469,6 +469,12 @@ if __name__ == "__main__":
     else:
         coulomb_energy = mod.get_function("coulomb_energy1")
 
+    # Set the dielectric constant.
+    dielectric = 78.5
+
+    # Energy conversion factor.
+    kcal_per_mol_to_kt = 1 / (sr.units.k_boltz.to("kcal/(mol*kelvin)") * 298)
+
     # Loop over the batches.
     for i in range(args.num_batches):
 
@@ -507,13 +513,17 @@ if __name__ == "__main__":
         # Copy the results back to the CPU.
         result_cpu = result.get().reshape(num_insertions, num_atoms)
 
-        # Calculate the energies.
-        energies = np.sum(result_cpu, axis=1) / (sr.units.epsilon0.value() * 4 * np.pi)
+        # Calculate the energies in kT.
+        energies = (
+            kcal_per_mol_to_kt
+            * np.sum(result_cpu, axis=1)
+            / (4 * np.pi * sr.units.epsilon0.value() * dielectric)
+        )
 
         # Print the indices and energy for the 10 lowest energy configurations.
         print("Lowest energy configurations:")
         for j in np.argsort(energies)[:10]:
-            print(f"  idx {j}: {energies[j]:.3f} kcal/mol")
+            print(f"  idx {j}: {energies[j]:.3f} kT")
 
         # Print the timing for the insertion calculation.
         print(f"Time taken: {1000*(end - start):.2f} ms")
