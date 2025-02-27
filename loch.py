@@ -183,7 +183,7 @@ if __name__ == "__main__":
         "--tolerance",
         help="The tolerance for the minimum insertion energy, in kT.",
         type=float,
-        default=1,
+        default=5,
         required=False,
     )
 
