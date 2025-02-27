@@ -523,7 +523,7 @@ if __name__ == "__main__":
         # Calculate the energies in kT.
         energies = (
             kcal_per_mol_to_kt
-            * np.sum(result_cpu, axis=1)
+            * np.sqrt(np.sum(result_cpu, axis=1))
             / (4 * np.pi * sr.units.epsilon0.value() * dielectric)
         )
 
