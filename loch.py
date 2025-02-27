@@ -179,6 +179,13 @@ if __name__ == "__main__":
         default=10.0,
         required=False,
     )
+    parser.add_argument(
+        "--tolerance",
+        help="The tolerance for the minimum insertion energy, in kT.",
+        type=float,
+        default=1,
+        required=False,
+    )
 
     args = parser.parse_args()
 
@@ -520,10 +527,22 @@ if __name__ == "__main__":
             / (4 * np.pi * sr.units.epsilon0.value() * dielectric)
         )
 
+        # Get the indices of the sorted energies.
+        idxs = np.argsort(energies)
+
         # Print the indices and energy for the 10 lowest energy configurations.
         print("Lowest energy configurations:")
-        for j in np.argsort(energies)[:10]:
+        for j in idxs[:10]:
             print(f"  idx {j}: {energies[j]:.3f} kT")
 
         # Print the timing for the insertion calculation.
         print(f"Time taken: {1000*(end - start):.2f} ms")
+
+        # If the minimum energy is less than the tolerance, print the water
+        # coordinates.
+        j = 0
+        if energies[idxs[0]] < args.tolerance:
+            print(f"Candidate water coordinates:")
+        while energies[idxs[j]] < args.tolerance:
+            print(f"{waters[j]}")
+            j += 1
