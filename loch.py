@@ -220,7 +220,6 @@ if __name__ == "__main__":
     # Get the charge on the water.
     try:
         charge_water = [charge.value() for charge in water.property("charge")]
-        charge_water = np.tile(charge_water, (num_insertions, 1))
     except Exception as e:
         raise ValueError(f"Could not get the charge on the water: {e}")
 
@@ -365,7 +364,7 @@ if __name__ == "__main__":
                     {
                         // Accumulate the squared energy. We can take the square
                         // root of the total energy and rescale at the end.
-                        auto c2 = charge_water[idx_water];
+                        auto c2 = charge_water[i];
                         result[idx] += (c11 * c2*c2) / r2;
                     }
                 }
@@ -455,7 +454,7 @@ if __name__ == "__main__":
                     {
                         // Accumulate the squared energy. We can take the square
                         // root of the total energy and rescale at the end.
-                        auto c2 = charge_water[idx_water];
+                        auto c2 = charge_water[i];
                         result[idx] += (c11 * c2*c2) / r2;
                     }
                 }
