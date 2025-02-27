@@ -236,7 +236,7 @@ if __name__ == "__main__":
             charges = [
                 atom.charge().value()
                 for atom in system[
-                    f"atoms within {args.cut_off} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
+                    f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
                 ].atoms()
             ]
         # Convert to a NumPy array.
@@ -249,7 +249,7 @@ if __name__ == "__main__":
         if args.target is None:
             positions = sr.io.get_coords_array(system)
         else:
-            search = f"atoms within {args.cut_off} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
+            search = f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
             positions = sr.io.get_coords_array(system[search])
     except Exception as e:
         raise ValueError(f"Could not get the positions of the atoms: {e}")
