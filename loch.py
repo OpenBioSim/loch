@@ -324,9 +324,9 @@ if __name__ == "__main__":
                 for (int i = 0; i < 3; i++)
                 {
                     // Get the water atom position.
-                    float x2 = waters[3 * (idx_water + i)];
-                    float y2 = waters[3 * (idx_water + i) + 1];
-                    float z2 = waters[3 * (idx_water + i) + 2];
+                    float x2 = waters[9 * idx_water + 3 * i];
+                    float y2 = waters[9 * idx_water + 3 * i + 1];
+                    float z2 = waters[9 * idx_water + 3 * i + 2];
 
                     // Calculate the distance.
                     float dx = x1 - x2;
@@ -414,9 +414,9 @@ if __name__ == "__main__":
                 for (int i = 0; i < 3; i++)
                 {
                     // Get the water atom position.
-                    float x2 = waters[3 * (idx_water + i)];
-                    float y2 = waters[3 * (idx_water + i) + 1];
-                    float z2 = waters[3 * (idx_water + i) + 2];
+                    float x2 = waters[9 * idx_water + 3 * i];
+                    float y2 = waters[9 * idx_water + 3 * i + 1];
+                    float z2 = waters[9 * idx_water + 3 * i + 2];
 
                     // Calculate the distance.
                     float dx = x1 - x2;
