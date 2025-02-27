@@ -145,6 +145,13 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
+        "--num-threads",
+        help="The number of threads per block. Must be a multiple of 32.",
+        type=int,
+        default=1024,
+        required=False,
+    )
+    parser.add_argument(
         "--target",
         help="Coordinates for targetting insertions, in Angstrom",
         type=float,
@@ -167,6 +174,13 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    # Set the max threads per block.
+    threads_per_block = args.num_threads
+
+    # Make sure it's a multiple of 32.
+    if threads_per_block % 32 != 0:
+        raise ValueError("The number of threads per block must be a multiple of 32.")
 
     # Try to load the system.
     try:
@@ -243,17 +257,14 @@ if __name__ == "__main__":
     # Store the number of atoms.
     num_atoms = len(charges)
 
-    # Set the max threads per block.
-    max_threads_per_block = 1024
-
     # Work out the number of blocks to use. We parallelise over the the largest
     # dimension, i.e. atoms or insertions.
     if num_atoms > num_insertions:
-        num_blocks = num_atoms // max_threads_per_block + 1
+        num_blocks = num_atoms // threads_per_block + 1
         idx_max = num_atoms
         idx_min = num_insertions
     else:
-        num_blocks = num_insertions // max_threads_per_block + 1
+        num_blocks = num_insertions // threads_per_block + 1
         idx_max = num_insertions
         idx_min = num_atoms
 
@@ -481,7 +492,7 @@ if __name__ == "__main__":
             positions_gpu,
             waters_gpu,
             result,
-            block=(max_threads_per_block, 1, 1),
+            block=(threads_per_block, 1, 1),
             grid=(num_blocks, idx_min, 1),
         )
 
