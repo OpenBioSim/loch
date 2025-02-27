@@ -89,11 +89,7 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
     """
 
     # Initialize the array to store the water positions.
-    waters = np.zeros((num_waters, 3))
-
-    # Calculate the displacements of the hydrogens from the oxygen.
-    dh1 = template[1] - template[0]
-    dh2 = template[2] - template[0]
+    waters = np.zeros((num_waters, 3, 3))
 
     for i in range(num_waters):
         # Water index.
@@ -108,9 +104,20 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
         # Rotate the water randomly.
         water = uniform_random_rotation(water)
 
+        # Calculate the distance between the oxygen and the hydrogens.
+        dh1 = water[1] - water[0]
+        dh2 = water[2] - water[0]
+
         # Generate a random position in the cell.
         if target is not None:
-            xyz = target + np.random.rand(3) * distance
+            xyz = target + (2.0 * np.random.rand() - 1.0) * distance * np.array(
+                [1, 1, 1]
+            )
+            for k in range(3):
+                if xyz[k] < 0.0:
+                    xyz[k] += dimensions[k]
+                elif xyz[k] > dimensions[k]:
+                    xyz[k] -= dimensions[k]
         else:
             xyz = np.random.rand(3) * dimensions
 
@@ -122,7 +129,7 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
         water[2] = xyz + dh2
 
         # Store the water in the array.
-        waters[i] = water[0]
+        waters[i] = water
 
     return waters
 
