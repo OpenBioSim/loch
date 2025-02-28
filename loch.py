@@ -666,3 +666,7 @@ if __name__ == "__main__":
             j += 1
             if j == num_insertions:
                 break
+        # Write the candidates to file and exit.
+        if energies[idxs[0]] < args.tolerance:
+            np.savetxt("candidates.txt", waters[:j])
+            break
