@@ -304,7 +304,7 @@ if __name__ == "__main__":
             if (idx_atom < idx_max)
             {
                 // Work out the water index.
-                int idx_water = threadIdx.y + blockDim.y * blockIdx.y;
+                int idx_water = blockIdx.y;
 
                 // Work out the index for the result.
                 int idx = (idx_water * idx_max) + idx_atom;
