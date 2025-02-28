@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import pickle
 import time
 
 import pycuda.gpuarray as gpuarray
@@ -134,6 +135,232 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
     return waters
 
 
+def get_atom_properties(system, search="all"):
+    """
+    Get the required atomic properties for the atoms in the system.
+
+    Parameters
+    ----------
+
+    system: sire.system.System
+        The molecular system.
+
+    search: str
+        A selection string for the atoms of interest.
+
+    Returns
+    -------
+
+    charges: numpy.ndarray
+        The charges on the atoms.
+
+    sigmas: numpy.ndarray
+        The LJ sigma parameters for the atoms.
+
+    epsilons: numpy.ndarray
+        The LJ epsilon parameters for the atoms.
+
+    positions: numpy.ndarray
+        The positions of the atoms.
+    """
+
+    # Get the charges on all the atoms.
+    try:
+        if search == "all":
+            charges = []
+            for mol in system:
+                charges_mol = [charge.value() for charge in mol.property("charge")]
+                charges.extend(charges_mol)
+        # Loop over the selection to get the charges.
+        else:
+            charges = [atom.charge().value() for atom in system[search].atoms()]
+
+        # Convert to a NumPy array.
+        charges = np.array(charges)
+
+    except Exception as e:
+        raise ValueError(f"Could not get the charges on the atoms: {e}")
+
+    # Try to get the sigma and epsilon for the atoms.
+    try:
+        # Loop over the molecules and get the sigma and epsilon.
+        if search == "all":
+            sigmas = []
+            epsilons = []
+            for mol in system:
+                for lj in mol.property("LJ"):
+                    sigmas.append(lj.sigma().value())
+                    epsilons.append(lj.epsilon().value())
+        # Loop over the selection to get the sigma and epsilon.
+        else:
+            sigmas = []
+            epsilons = []
+            for atom in system[search].atoms():
+                lj = atom.property("LJ")
+                sigmas.append(lj.sigma().value())
+                epsilons.append(lj.epsilon().value())
+
+        # Convert to a NumPy array.
+        sigmas = np.array(sigmas)
+        epsilons = np.array(epsilons)
+
+    except Exception as e:
+        raise ValueError(f"Could not get the LJ parameters: {e}")
+
+    # Get the positions of all the atoms.
+    try:
+        if search == "all":
+            positions = sr.io.get_coords_array(system)
+        else:
+            positions = sr.io.get_coords_array(system[search])
+
+    except Exception as e:
+        raise ValueError(f"Could not get the positions of the atoms: {e}")
+
+    return charges, sigmas, epsilons, positions
+
+
+def create_gpu_memory(
+    num_insertions,
+    dimensions,
+    charges,
+    charge_water,
+    sigmas,
+    sigma_water,
+    epsilons,
+    epsilon_water,
+    positions,
+    threads_per_block,
+):
+    """
+    Create the GPU memory for the atomic properties.
+
+    Parameters
+    ----------
+
+    num_insertions: int
+        The number of insertions to attempt.
+
+    dimensions: numpy.ndarray
+        The box cell dimensions.
+
+    charges: numpy.ndarray
+        The charges on the atoms.
+
+    charge_water: numpy.ndarray
+        The charge on the water atoms.
+
+    sigmas: numpy.ndarray
+        The LJ sigma parameters for the atoms.
+
+    sigma_water: numpy.ndarray
+        The LJ sigma parameters for the water atoms.
+
+    epsilons: numpy.ndarray
+        The LJ epsilon parameters for the atoms.
+
+    epsilon_water: numpy.ndarray
+        The LJ epsilon parameters for the water atoms.
+
+    positions: numpy.ndarray
+        The positions of the atoms.
+
+    threads_per_block: int
+        The number of threads per block.
+
+    Returns
+    -------
+
+    dimensions_gpu: pycuda.gpuarray.GPUArray
+        The box cell dimensions.
+
+    charges_gpu: pycuda.gpuarray.GPUArray
+        The charges on the atoms.
+
+    charge_water_gpu: pycuda.gpuarray.GPUArray
+        The charge on the water atoms.
+
+    sigmas_gpu: pycuda.gpuarray.GPUArray
+        The LJ sigma parameters for the atoms.
+
+    sigma_water_gpu: pycuda.gpuarray.GPUArray
+        The LJ sigma parameters for the water atoms.
+
+    epsilons_gpu: pycuda.gpuarray.GPUArray
+        The LJ epsilon parameters for the atoms.
+
+    epsilon_water_gpu: pycuda.gpuarray.GPUArray
+        The LJ epsilon parameters for the water atoms.
+
+    positions_gpu: pycuda.gpuarray.GPUArray
+        The positions of the atoms.
+
+    energy_coul: pycuda.gpuarray.GPUArray
+        The Coulomb energy.
+
+    energy_lj: pycuda.gpuarray.GPUArray
+        The LJ energy.
+
+    num_atoms: int
+        The number of atoms.
+
+    num_blocks: int
+        The number of blocks to use.
+
+    idx_max: int
+        The maximum index to use.
+
+    idx_min: int
+        The minimum index to use.
+    """
+
+    # Place the arrays on the GPU.
+    dimensions_gpu = gpuarray.to_gpu(np.array(dimensions).astype(np.float32))
+    charges_gpu = gpuarray.to_gpu(charges.astype(np.float32))
+    charge_water_gpu = gpuarray.to_gpu(np.array(charge_water).astype(np.float32))
+    sigmas_gpu = gpuarray.to_gpu(sigmas.astype(np.float32))
+    sigma_water_gpu = gpuarray.to_gpu(np.array(sigma_water).astype(np.float32))
+    epsilons_gpu = gpuarray.to_gpu(epsilons.astype(np.float32))
+    epsilon_water_gpu = gpuarray.to_gpu(np.array(epsilon_water).astype(np.float32))
+    positions_gpu = gpuarray.to_gpu(positions.flatten().astype(np.float32))
+
+    # Store the number of atoms.
+    num_atoms = len(charges)
+
+    # Work out the number of blocks to use. We parallelise over the the largest
+    # dimension, i.e. atoms or insertions.
+    if num_atoms > num_insertions:
+        num_blocks = num_atoms // threads_per_block + 1
+        idx_max = num_atoms
+        idx_min = num_insertions
+    else:
+        num_blocks = num_insertions // threads_per_block + 1
+        idx_max = num_insertions
+        idx_min = num_atoms
+
+    # Create an array to hold the results.
+    result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
+    energy_coul = gpuarray.to_gpu(result_array)
+    energy_lj = gpuarray.to_gpu(result_array)
+
+    return (
+        dimensions_gpu,
+        charges_gpu,
+        charge_water_gpu,
+        sigmas_gpu,
+        sigma_water_gpu,
+        epsilons_gpu,
+        epsilon_water_gpu,
+        positions_gpu,
+        energy_coul,
+        energy_lj,
+        num_atoms,
+        num_blocks,
+        idx_max,
+        idx_min,
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GCMC benchmarking")
     parser.add_argument("input", help="Input file(s)", type=str, nargs="+")
@@ -169,7 +396,7 @@ if __name__ == "__main__":
         "--max-distance",
         help="Maximum distance from the target, in Angstrom",
         type=float,
-        default=1.0,
+        default=10.0,
         required=False,
     )
     parser.add_argument(
@@ -185,6 +412,13 @@ if __name__ == "__main__":
         type=float,
         default=5,
         required=False,
+    )
+    parser.add_argument(
+        "--adaptive",
+        help="Adaptively search for the optimal insertion position.",
+        action=argparse.BooleanOptionalAction,
+        required=False,
+        default=False,
     )
 
     args = parser.parse_args()
@@ -238,93 +472,46 @@ if __name__ == "__main__":
     except Exception as e:
         raise ValueError(f"Could not get the atomic properties of the water: {e}")
 
-    # Store the search string.
+    # Create the atom search string.
     if args.target is not None:
-        search = f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
-
-    # Get the charges on all the atoms.
-    try:
-        # Loop over the molecules and get the charges.
-        if args.target is None:
-            charges = []
-            for mol in system:
-                charges_mol = [charge.value() for charge in mol.property("charge")]
-                charges.extend(charges_mol)
-        # Loop over the selection to get the charges.
-        else:
-            charges = [atom.charge().value() for atom in system[search].atoms()]
-
-        # Convert to a NumPy array.
-        charges = np.array(charges)
-
-    except Exception as e:
-        raise ValueError(f"Could not get the charges on the atoms: {e}")
-
-    # Try to get the sigma and epsilon for the atoms.
-    try:
-        # Loop over the molecules and get the sigma and epsilon.
-        if args.target is None:
-            sigmas = []
-            epsilons = []
-            for mol in system:
-                for lj in mol.property("LJ"):
-                    sigmas.append(lj.sigma().value())
-                    epsilons.append(lj.epsilon().value())
-        # Loop over the selection to get the sigma and epsilon.
-        else:
-            sigmas = []
-            epsilons = []
-            for atom in system[search].atoms():
-                lj = atom.property("LJ")
-                sigmas.append(lj.sigma().value())
-                epsilons.append(lj.epsilon().value())
-
-        # Convert to a NumPy array.
-        sigmas = np.array(sigmas)
-        epsilons = np.array(epsilons)
-
-    except Exception as e:
-        raise ValueError(f"Could not get the LJ parameters: {e}")
-
-    # Get the positions of all the atoms.
-    try:
-        if args.target is None:
-            positions = sr.io.get_coords_array(system)
-        else:
-            search = f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
-            positions = sr.io.get_coords_array(system[search])
-
-    except Exception as e:
-        raise ValueError(f"Could not get the positions of the atoms: {e}")
-
-    # Place the arrays on the GPU.
-    dimensions_gpu = gpuarray.to_gpu(np.array(dimensions).astype(np.float32))
-    charges_gpu = gpuarray.to_gpu(charges.astype(np.float32))
-    charge_water_gpu = gpuarray.to_gpu(np.array(charge_water).astype(np.float32))
-    sigmas_gpu = gpuarray.to_gpu(sigmas.astype(np.float32))
-    sigma_water_gpu = gpuarray.to_gpu(np.array(sigma_water).astype(np.float32))
-    epsilons_gpu = gpuarray.to_gpu(epsilons.astype(np.float32))
-    epsilon_water_gpu = gpuarray.to_gpu(np.array(epsilon_water).astype(np.float32))
-    positions_gpu = gpuarray.to_gpu(positions.flatten().astype(np.float32))
-
-    # Store the number of atoms.
-    num_atoms = len(charges)
-
-    # Work out the number of blocks to use. We parallelise over the the largest
-    # dimension, i.e. atoms or insertions.
-    if num_atoms > num_insertions:
-        num_blocks = num_atoms // threads_per_block + 1
-        idx_max = num_atoms
-        idx_min = num_insertions
+        search = (
+            f"atoms within {args.cut_off + args.max_distance} of "
+            f"{args.target[0]}, {args.target[1]}, {args.target[2]}"
+        )
     else:
-        num_blocks = num_insertions // threads_per_block + 1
-        idx_max = num_insertions
-        idx_min = num_atoms
+        search = "all"
 
-    # Create an array to hold the results.
-    result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
-    energy_coul = gpuarray.to_gpu(result_array)
-    energy_lj = gpuarray.to_gpu(result_array)
+    # Get the atomic properties.
+    charges, sigmas, epsilons, positions = get_atom_properties(system, search=search)
+
+    # Create the GPU memory.
+    (
+        dimensions_gpu,
+        charges_gpu,
+        charge_water_gpu,
+        sigmas_gpu,
+        sigma_water_gpu,
+        epsilons_gpu,
+        epsilon_water_gpu,
+        positions_gpu,
+        energy_coul,
+        energy_lj,
+        num_atoms,
+        num_blocks,
+        idx_max,
+        idx_min,
+    ) = create_gpu_memory(
+        num_insertions,
+        dimensions,
+        charges,
+        charge_water,
+        sigmas,
+        sigma_water,
+        epsilons,
+        epsilon_water,
+        positions,
+        threads_per_block,
+    )
 
     # Create a kernel to calculate the non-bonded energy.
     mod = SourceModule(
@@ -574,8 +761,10 @@ if __name__ == "__main__":
     # Get the kernel.
     if num_atoms > num_insertions:
         energy_kernel = mod.get_function("energy0")
+        kernel = 0
     else:
         energy_kernel = mod.get_function("energy1")
+        kernel = 1
 
     # Set the dielectric constant.
     dielectric = 78.5
@@ -643,6 +832,9 @@ if __name__ == "__main__":
         # Get the indices of the sorted energies.
         idxs = np.argsort(energies)
 
+        # Get the minumum energy.
+        min_energy = energies[idxs[0]]
+
         # Print the indices and energy for the 10 lowest energy configurations.
         print(f"Batch {i+1}")
         print("Lowest energy configurations:")
@@ -656,17 +848,94 @@ if __name__ == "__main__":
         # Print the timing for the insertion calculation.
         print(f"Time taken: {1000*(end - start):.2f} ms")
 
-        # If the minimum energy is less than the tolerance, print the water
-        # coordinates.
+        # Store candidate insertions.
         j = 0
-        if energies[idxs[0]] < args.tolerance:
-            print(f"Candidate water coordinates:")
+        candidates = []
         while energies[idxs[j]] < args.tolerance:
-            print(f"{waters[j]}")
+            candidates.append(waters[j])
             j += 1
             if j == num_insertions:
                 break
-        # Write the candidates to file and exit.
-        if energies[idxs[0]] < args.tolerance:
-            np.savetxt("candidates.txt", waters[:j])
+        # Write the candidates to a pickle file and exit.
+        if min_energy < args.tolerance:
+            print(f"Found {len(candidates)} candidates. Writing to candidates.pkl")
+            with open("candidates.pkl", "wb") as f:
+                pickle.dump(np.array(candidates), f)
             break
+
+        if args.adaptive and args.num_batches > 1:
+            # Update the maximum distance.
+            if i > 1:
+                energy_difference = min_energy - previous_energy
+            else:
+                energy_difference = 0
+                previous_energy = min_energy
+
+            # Increase or decrease the maximum distance based on the energy
+            # difference.
+            if energy_difference <= 0:
+                if i > 1 and args.max_distance > 0.1:
+                    args.max_distance *= 0.5
+                if args.max_distance < 0.1:
+                    args.max_distance = 0.1
+
+                # Update the target position to the oxgen atom of the lowest
+                # energy configuration.
+                args.target = waters[idxs[0]][0]
+
+                print(f"New target position: {args.target}")
+            else:
+                if args.max_distance < 10.0:
+                    args.max_distance *= 2.0
+                if args.max_distance > 10.0:
+                    args.max_distance = 10.0
+
+            print(f"New search distance: {args.max_distance:.2f} Angstrom")
+
+            # Update the atom search string.
+            search = (
+                f"atoms within {args.cut_off + args.max_distance} of "
+                f"{args.target[0]}, {args.target[1]}, {args.target[2]}"
+            )
+
+            # Recalculate the the atom positions.
+            charges, sigmas, epsilons, positions = get_atom_properties(
+                system, search=search
+            )
+
+            # Create the GPU memory.
+            (
+                dimensions_gpu,
+                charges_gpu,
+                charge_water_gpu,
+                sigmas_gpu,
+                sigma_water_gpu,
+                epsilons_gpu,
+                epsilon_water_gpu,
+                positions_gpu,
+                energy_coul,
+                energy_lj,
+                num_atoms,
+                num_blocks,
+                idx_max,
+                idx_min,
+            ) = create_gpu_memory(
+                num_insertions,
+                dimensions,
+                charges,
+                charge_water,
+                sigmas,
+                sigma_water,
+                epsilons,
+                epsilon_water,
+                positions,
+                threads_per_block,
+            )
+
+            # Switch the kernel if necessary.
+            if num_atoms < num_insertions and kernel == 0:
+                energy_kernel = mod.get_function("energy1")
+                kernel = 1
+
+            # Store the current minimum energy.
+            previous_energy = min_energy
