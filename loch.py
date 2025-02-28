@@ -174,7 +174,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--cut-off",
-        help="The cut-off distance for the Coulomb interaction, in Angstrom.",
+        help="The cut-off distance for the non-bonded interaction, in Angstrom.",
         type=float,
         default=10.0,
         required=False,
@@ -224,11 +224,23 @@ if __name__ == "__main__":
     # Get the positions as a numpy array.
     water_positions = sr.io.get_coords_array(water)
 
-    # Get the charge on the water.
+    # Get the water properties.
     try:
-        charge_water = [charge.value() for charge in water.property("charge")]
+        charge_water = []
+        sigma_water = []
+        epsilon_water = []
+        for atom in water.atoms():
+            charge_water.append(atom.charge().value())
+            lj = atom.property("LJ")
+            sigma_water.append(lj.sigma().value())
+            epsilon_water.append(lj.epsilon().value())
+
     except Exception as e:
-        raise ValueError(f"Could not get the charge on the water: {e}")
+        raise ValueError(f"Could not get the atomic properties of the water: {e}")
+
+    # Store the search string.
+    if args.target is not None:
+        search = f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
 
     # Get the charges on all the atoms.
     try:
@@ -240,16 +252,39 @@ if __name__ == "__main__":
                 charges.extend(charges_mol)
         # Loop over the selection to get the charges.
         else:
-            charges = [
-                atom.charge().value()
-                for atom in system[
-                    f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
-                ].atoms()
-            ]
+            charges = [atom.charge().value() for atom in system[search].atoms()]
+
         # Convert to a NumPy array.
         charges = np.array(charges)
+
     except Exception as e:
         raise ValueError(f"Could not get the charges on the atoms: {e}")
+
+    # Try to get the sigma and epsilon for the atoms.
+    try:
+        # Loop over the molecules and get the sigma and epsilon.
+        if args.target is None:
+            sigmas = []
+            epsilons = []
+            for mol in system:
+                for lj in mol.property("LJ"):
+                    sigmas.append(lj.sigma().value())
+                    epsilons.append(lj.epsilon().value())
+        # Loop over the selection to get the sigma and epsilon.
+        else:
+            sigmas = []
+            epsilons = []
+            for atom in system[search].atoms():
+                lj = atom.property("LJ")
+                sigmas.append(lj.sigma().value())
+                epsilons.append(lj.epsilon().value())
+
+        # Convert to a NumPy array.
+        sigmas = np.array(sigmas)
+        epsilons = np.array(epsilons)
+
+    except Exception as e:
+        raise ValueError(f"Could not get the LJ parameters: {e}")
 
     # Get the positions of all the atoms.
     try:
@@ -258,6 +293,7 @@ if __name__ == "__main__":
         else:
             search = f"atoms within {args.cut_off + args.max_distance} of {args.target[0]}, {args.target[1]}, {args.target[2]}"
             positions = sr.io.get_coords_array(system[search])
+
     except Exception as e:
         raise ValueError(f"Could not get the positions of the atoms: {e}")
 
@@ -265,6 +301,10 @@ if __name__ == "__main__":
     dimensions_gpu = gpuarray.to_gpu(np.array(dimensions).astype(np.float32))
     charges_gpu = gpuarray.to_gpu(charges.astype(np.float32))
     charge_water_gpu = gpuarray.to_gpu(np.array(charge_water).astype(np.float32))
+    sigmas_gpu = gpuarray.to_gpu(sigmas.astype(np.float32))
+    sigma_water_gpu = gpuarray.to_gpu(np.array(sigma_water).astype(np.float32))
+    epsilons_gpu = gpuarray.to_gpu(epsilons.astype(np.float32))
+    epsilon_water_gpu = gpuarray.to_gpu(np.array(epsilon_water).astype(np.float32))
     positions_gpu = gpuarray.to_gpu(positions.flatten().astype(np.float32))
 
     # Store the number of atoms.
@@ -282,20 +322,26 @@ if __name__ == "__main__":
         idx_min = num_atoms
 
     # Create an array to hold the results.
-    result = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
-    result = gpuarray.to_gpu(result)
+    result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
+    energy_coul = gpuarray.to_gpu(result_array)
+    energy_lj = gpuarray.to_gpu(result_array)
 
-    # Create a kernel to calculate the Coulomb energy.
+    # Create a kernel to calculate the non-bonded energy.
     mod = SourceModule(
         """
-        __global__ void coulomb_energy0(
+        __global__ void energy0(
             int idx_max,
             float* dimensions,
             float *charges,
             float* charge_water,
+            float* sigmas,
+            float* sigma_water,
+            float* epsilons,
+            float* epsilon_water,
             float* positions,
             float* waters,
-            float* result)
+            float* energy_coul,
+            float* energy_lj)
         {
             // Work out the atom index.
             int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
@@ -317,8 +363,13 @@ if __name__ == "__main__":
                 // Store the charge on the atom.
                 auto c11 = charges[idx_atom] * charges[idx_atom];
 
-                // Zero the result.
-                result[idx] = 0.0;
+                // Store the epsilon and sigma for the atom.
+                float s1 = sigmas[idx_atom];
+                float e1 = epsilons[idx_atom];
+
+                // Zero the energies.
+                energy_coul[idx] = 0.0;
+                energy_lj[idx] = 0.0;
 
                 // Loop over all atoms in the water molecule.
                 for (int i = 0; i < 3; i++)
@@ -365,27 +416,44 @@ if __name__ == "__main__":
                     // Don't divide by zero.
                     if (r2 < 1e-6)
                     {
-                        result[idx] = 1e6;
+                        energy_coul[idx] = 1e6;
                     }
                     else
                     {
-                        // Accumulate the squared energy. We can take the square
-                        // root of the total energy and rescale at the end.
+                        // Accumulate the squared Coulomb energy. We can take
+                        // the square root of the total energy and rescale at
+                        // the end.
                         auto c2 = charge_water[i];
-                        result[idx] += (c11 * c2*c2) / r2;
+                        energy_coul[idx] += (c11 * c2*c2) / r2;
+
+                        // Accumulate the LJ energy.
+                        auto s2 = sigma_water[i];
+                        auto e2 = epsilon_water[i];
+                        auto s = 0.5 * (s1 + s2);
+                        auto e = 0.5 * (e1 * e2);
+                        s2 = s * s;
+                        auto sr2 = s2 / r2;
+                        auto sr6 = sr2 * sr2 * sr2;
+                        auto sr12 = sr6 * sr6;
+                        energy_lj[idx] += 4 * e * (sr12 - sr6);
                     }
                 }
             }
         }
 
-        __global__ void coulomb_energy1(
+        __global__ void energy1(
             int idx_max,
             float* dimensions,
             float *charges,
             float* charge_water,
+            float* sigmas,
+            float* sigma_water,
+            float* epsilons,
+            float* epsilon_water,
             float* positions,
             float* waters,
-            float* result)
+            float* energy_coul,
+            float* energy_lj)
         {
             // Work out the water index.
             int idx_water = threadIdx.x + blockDim.x * blockIdx.x;
@@ -407,8 +475,13 @@ if __name__ == "__main__":
                 // Store the charge on the atom.
                 auto c11 = charges[idx_atom] * charges[idx_atom];
 
-                // Zero the result.
-                result[idx] = 0.0;
+                // Store the epsilon and sigma for the atom.
+                float s1 = sigmas[idx_atom];
+                float e1 = epsilons[idx_atom];
+
+                // Zero the energies.
+                energy_coul[idx] = 0.0;
+                energy_lj[idx] = 0.0;
 
                 // Loop over all atoms in the water molecule.
                 for (int i = 0; i < 3; i++)
@@ -455,14 +528,26 @@ if __name__ == "__main__":
                     // Don't divide by zero.
                     if (r2 < 1e-6)
                     {
-                        result[idx] = 1e6;
+                        energy_coul[idx] = 1e6;
                     }
                     else
                     {
-                        // Accumulate the squared energy. We can take the square
-                        // root of the total energy and rescale at the end.
+                        // Accumulate the squared Coulomb energy. We can take
+                        // the square root of the total energy and rescale at
+                        // the end.
                         auto c2 = charge_water[i];
-                        result[idx] += (c11 * c2*c2) / r2;
+                        energy_coul[idx] += (c11 * c2*c2) / r2;
+
+                        // Accumulate the LJ energy.
+                        auto s2 = sigma_water[i];
+                        auto e2 = epsilon_water[i];
+                        auto s = 0.5 * (s1 + s2);
+                        auto e = 0.5 * (e1 * e2);
+                        s2 = s * s;
+                        auto sr2 = s2 / r2;
+                        auto sr6 = sr2 * sr2 * sr2;
+                        auto sr12 = sr6 * sr6;
+                        energy_lj[idx] += 4 * e * (sr12 - sr6);
                     }
                 }
             }
@@ -472,9 +557,9 @@ if __name__ == "__main__":
 
     # Get the kernel.
     if num_atoms > num_insertions:
-        coulomb_energy = mod.get_function("coulomb_energy0")
+        energy_kernel = mod.get_function("energy0")
     else:
-        coulomb_energy = mod.get_function("coulomb_energy1")
+        energy_kernel = mod.get_function("energy1")
 
     # Set the dielectric constant.
     dielectric = 78.5
@@ -484,7 +569,6 @@ if __name__ == "__main__":
 
     # Loop over the batches.
     for i in range(args.num_batches):
-
         # Initialise the water position array.
         try:
             waters = generate_waters(
@@ -503,14 +587,19 @@ if __name__ == "__main__":
         start = time.time()
 
         # Run the kernel.
-        coulomb_energy(
+        energy_kernel(
             np.int32(idx_max),
             dimensions_gpu,
             charges_gpu,
             charge_water_gpu,
+            sigmas_gpu,
+            sigma_water_gpu,
+            epsilons_gpu,
+            epsilon_water_gpu,
             positions_gpu,
             waters_gpu,
-            result,
+            energy_coul,
+            energy_lj,
             block=(threads_per_block, 1, 1),
             grid=(num_blocks, idx_min, 1),
         )
@@ -518,21 +607,28 @@ if __name__ == "__main__":
         end = time.time()
 
         # Copy the results back to the CPU.
-        result_cpu = result.get().reshape(num_insertions, num_atoms)
+        energy_coul_cpu = energy_coul.get().reshape(num_insertions, num_atoms)
+        energy_lj_cpu = energy_lj.get().reshape(num_insertions, num_atoms)
 
-        # Calculate the energies in kT.
-        energies = (
+        # Calculate sum of the Couloumb energy for each water in kT.
+        result_coul = (
             kcal_per_mol_to_kt
-            * np.sqrt(np.sum(result_cpu, axis=1))
+            * np.sqrt(np.sum(energy_coul_cpu, axis=1))
             / (4 * np.pi * sr.units.epsilon0.value() * dielectric)
         )
+
+        # Calculate the sum of the LJ energy for each water in kT.
+        result_lj = kcal_per_mol_to_kt * np.sum(energy_lj_cpu, axis=1)
+
+        # Sum the energies.
+        energies = result_coul + result_lj
 
         # Get the indices of the sorted energies.
         idxs = np.argsort(energies)
 
         # Print the indices and energy for the 10 lowest energy configurations.
         print(f"Batch {i+1}")
-        print("Lowest energy configurations:")
+        print("Lowest Couloumb energy configurations:")
         for j in idxs[:10]:
             print(f"  idx {j}: {energies[j]:.3f} kT")
 
