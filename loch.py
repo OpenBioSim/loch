@@ -647,7 +647,11 @@ if __name__ == "__main__":
         print(f"Batch {i+1}")
         print("Lowest energy configurations:")
         for j in idxs[:10]:
-            print(f"  idx {j}: {energies[j]:.3f} kT")
+            print(
+                f"  idx {j}: Coulomb: {result_coul[j]:.3f} kT, "
+                f"LJ: {result_lj[j]:.3f} kT, "
+                f"Total: {energies[j]:.3f} kT"
+            )
 
         # Print the timing for the insertion calculation.
         print(f"Time taken: {1000*(end - start):.2f} ms")
