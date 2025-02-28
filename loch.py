@@ -645,7 +645,7 @@ if __name__ == "__main__":
 
         # Print the indices and energy for the 10 lowest energy configurations.
         print(f"Batch {i+1}")
-        print("Lowest Couloumb energy configurations:")
+        print("Lowest energy configurations:")
         for j in idxs[:10]:
             print(f"  idx {j}: {energies[j]:.3f} kT")
 
