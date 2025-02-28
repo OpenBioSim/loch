@@ -331,6 +331,7 @@ if __name__ == "__main__":
         """
         __global__ void energy0(
             int idx_max,
+            float cutoff,
             float* dimensions,
             float *charges,
             float* charge_water,
@@ -349,6 +350,9 @@ if __name__ == "__main__":
             // Make sure we're in bounds.
             if (idx_atom < idx_max)
             {
+                // Store the squared cut-off distance.
+                auto cutoff2 = cutoff * cutoff;
+
                 // Work out the water index.
                 int idx_water = blockIdx.y;
 
@@ -413,29 +417,33 @@ if __name__ == "__main__":
                     // Calculate the distance squared.
                     float r2 = dx * dx + dy * dy + dz * dz;
 
-                    // Don't divide by zero.
-                    if (r2 < 1e-6)
+                    // The distance is within the cut-off.
+                    if (r2 < cutoff2)
                     {
-                        energy_coul[idx] = 1e6;
-                    }
-                    else
-                    {
-                        // Accumulate the squared Coulomb energy. We can take
-                        // the square root of the total energy and rescale at
-                        // the end.
-                        auto c2 = charge_water[i];
-                        energy_coul[idx] += (c11 * c2*c2) / r2;
+                        // Don't divide by zero.
+                        if (r2 < 1e-6)
+                        {
+                            energy_coul[idx] = 1e6;
+                        }
+                        else
+                        {
+                            // Accumulate the squared Coulomb energy. We can take
+                            // the square root of the total energy and rescale at
+                            // the end.
+                            auto c2 = charge_water[i];
+                            energy_coul[idx] += (c11 * c2*c2) / r2;
 
-                        // Accumulate the LJ energy.
-                        auto s2 = sigma_water[i];
-                        auto e2 = epsilon_water[i];
-                        auto s = 0.5 * (s1 + s2);
-                        auto e = 0.5 * (e1 * e2);
-                        s2 = s * s;
-                        auto sr2 = s2 / r2;
-                        auto sr6 = sr2 * sr2 * sr2;
-                        auto sr12 = sr6 * sr6;
-                        energy_lj[idx] += 4 * e * (sr12 - sr6);
+                            // Accumulate the LJ energy.
+                            auto s2 = sigma_water[i];
+                            auto e2 = epsilon_water[i];
+                            auto s = 0.5 * (s1 + s2);
+                            auto e = 0.5 * (e1 * e2);
+                            s2 = s * s;
+                            auto sr2 = s2 / r2;
+                            auto sr6 = sr2 * sr2 * sr2;
+                            auto sr12 = sr6 * sr6;
+                            energy_lj[idx] += 4 * e * (sr12 - sr6);
+                        }
                     }
                 }
             }
@@ -443,6 +451,7 @@ if __name__ == "__main__":
 
         __global__ void energy1(
             int idx_max,
+            float cutoff,
             float* dimensions,
             float *charges,
             float* charge_water,
@@ -461,6 +470,9 @@ if __name__ == "__main__":
             // Make sure we're in bounds.
             if (idx_water < idx_max)
             {
+                // Store the squared cut-off distance.
+                auto cutoff2 = cutoff * cutoff;
+
                 // Work out the atom index.
                 int idx_atom = threadIdx.y + blockDim.y * blockIdx.y;
 
@@ -525,29 +537,33 @@ if __name__ == "__main__":
                     // Calculate the distance squared.
                     float r2 = dx * dx + dy * dy + dz * dz;
 
-                    // Don't divide by zero.
-                    if (r2 < 1e-6)
+                    // The distance is within the cut-off.
+                    if (r2 < cutoff2)
                     {
-                        energy_coul[idx] = 1e6;
-                    }
-                    else
-                    {
-                        // Accumulate the squared Coulomb energy. We can take
-                        // the square root of the total energy and rescale at
-                        // the end.
-                        auto c2 = charge_water[i];
-                        energy_coul[idx] += (c11 * c2*c2) / r2;
+                        // Don't divide by zero.
+                        if (r2 < 1e-6)
+                        {
+                            energy_coul[idx] = 1e6;
+                        }
+                        else
+                        {
+                            // Accumulate the squared Coulomb energy. We can take
+                            // the square root of the total energy and rescale at
+                            // the end.
+                            auto c2 = charge_water[i];
+                            energy_coul[idx] += (c11 * c2*c2) / r2;
 
-                        // Accumulate the LJ energy.
-                        auto s2 = sigma_water[i];
-                        auto e2 = epsilon_water[i];
-                        auto s = 0.5 * (s1 + s2);
-                        auto e = 0.5 * (e1 * e2);
-                        s2 = s * s;
-                        auto sr2 = s2 / r2;
-                        auto sr6 = sr2 * sr2 * sr2;
-                        auto sr12 = sr6 * sr6;
-                        energy_lj[idx] += 4 * e * (sr12 - sr6);
+                            // Accumulate the LJ energy.
+                            auto s2 = sigma_water[i];
+                            auto e2 = epsilon_water[i];
+                            auto s = 0.5 * (s1 + s2);
+                            auto e = 0.5 * (e1 * e2);
+                            s2 = s * s;
+                            auto sr2 = s2 / r2;
+                            auto sr6 = sr2 * sr2 * sr2;
+                            auto sr12 = sr6 * sr6;
+                            energy_lj[idx] += 4 * e * (sr12 - sr6);
+                        }
                     }
                 }
             }
@@ -589,6 +605,7 @@ if __name__ == "__main__":
         # Run the kernel.
         energy_kernel(
             np.int32(idx_max),
+            np.float32(args.cut_off),
             dimensions_gpu,
             charges_gpu,
             charge_water_gpu,
