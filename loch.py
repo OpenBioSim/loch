@@ -660,3 +660,5 @@ if __name__ == "__main__":
         while energies[idxs[j]] < args.tolerance:
             print(f"{waters[j]}")
             j += 1
+            if j == num_insertions:
+                break
