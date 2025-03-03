@@ -5,5 +5,5 @@ channels:
   - openbiosim/label/dev
 
 dependencies:
+  - biosimspace
   - pycuda
-  - sire
