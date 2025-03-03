@@ -8,6 +8,7 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 
+import BioSimSpace as BSS
 import sire as sr
 
 
@@ -358,6 +359,118 @@ def create_gpu_memory(
     )
 
 
+def evaluate_candidate(system, candidate_position, context=None):
+    """
+    Evaluate the energy of candidate water insertion into the system.
+
+    Parameters
+    ----------
+
+    system: sire.system.System
+        The molecular system.
+
+    candidate_position: numpy.ndarray
+        The coordinates of the water molecule to insert.
+
+    context: openmm.Context
+        The OpenMM context to use.
+
+    Returns
+    -------
+
+    energy: float
+        The energy of the water insertion, in kcal/mol.
+
+    context: openmm.Context
+        The OpenMM context used for the evaluation.
+    """
+
+    if context is None:
+        # Find the first water in the system.
+        water = system["water"][0]
+
+        # Convert the system and water to BioSimSpace objects.
+        system_bss = BSS._SireWrappers.System(system._system)
+        water_bss = BSS._SireWrappers.Molecule(water)
+
+        # Renumber the water.
+        water_bss = water_bss.copy()
+
+        # Update the water coordinates.
+        cursor = water_bss._sire_object.cursor()
+        for i, atom in enumerate(cursor.atoms()):
+            atom["coordinates"] = candidate_position[i].tolist()
+        water_bss._sire_object = cursor.commit()
+
+        # Add the water to the system and convert to a Sire object.
+        system_bss += water_bss
+        system_sire = sr.system.System(system_bss._sire_object)
+
+        # Create a dynamics object.
+        d = system_sire.dynamics()
+
+        # Get the energy of the system.
+        energy = d.current_potential_energy().value()
+
+        # Get the OpenMM context.
+        context = d._d._omm_mols
+    else:
+        from openmm.unit import kilocalorie_per_mole, nanometer, Quantity
+
+        # Get the current positions.
+        positions = context.getState(getPositions=True).getPositions(asNumpy=True)
+
+        # Replace the water coordinates.
+        for i in range(3):
+            positions[-3 + i] = Quantity(0.1 * candidate_position[i], nanometer)
+
+        # Update the positions.
+        context.setPositions(positions)
+
+        # Get the energy.
+        energy = (
+            context.getState(getEnergy=True)
+            .getPotentialEnergy()
+            .value_in_unit(kilocalorie_per_mole)
+        )
+
+    return energy, context
+
+
+def print_energy_components(context):
+    """
+    Print the energy components of the OpenMM system.
+
+    Parameters
+    ----------
+
+    context : openmm.Context
+        The current OpenMM context.
+    """
+
+    from copy import deepcopy
+    import openmm
+
+    # Get the current context and system.
+    system = deepcopy(context.getSystem())
+
+    # Add each force to a unique group.
+    for i, f in enumerate(system.getForces()):
+        f.setForceGroup(i)
+
+    # Create a new context.
+    new_context = openmm.Context(system, deepcopy(context.getIntegrator()))
+    new_context.setPositions(context.getState(getPositions=True).getPositions())
+
+    # Process the records.
+    print("Energy components:")
+    for i, f in enumerate(system.getForces()):
+        state = new_context.getState(getEnergy=True, groups={i})
+        print(
+            f"{f.getName()}: {state.getPotentialEnergy().value_in_unit(openmm.unit.kilocalories_per_mole):.2f} kcal/mol"
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GCMC benchmarking")
     parser.add_argument("input", help="Input file(s)", type=str, nargs="+")
@@ -383,17 +496,15 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
-        "--target",
-        help="Coordinates for targetting insertions, in Angstrom",
-        type=float,
-        nargs=3,
-        required=False,
+        "--reference",
+        help="A search string for the reference atoms used to target the insertion.",
+        type=str,
     )
     parser.add_argument(
         "--max-distance",
         help="Maximum distance from the target, in Angstrom",
         type=float,
-        default=10.0,
+        default=4.0,
         required=False,
     )
     parser.add_argument(
@@ -403,25 +514,14 @@ if __name__ == "__main__":
         default=10.0,
         required=False,
     )
-    parser.add_argument(
-        "--tolerance",
-        help="The tolerance for the minimum insertion energy, in kT.",
-        type=float,
-        default=5,
-        required=False,
-    )
-    parser.add_argument(
-        "--adaptive",
-        help="Adaptively search for the optimal insertion position.",
-        action=argparse.BooleanOptionalAction,
-        required=False,
-        default=False,
-    )
 
     args = parser.parse_args()
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
+
+    # Energy conversion factor.
+    kcal_per_mol_to_kt = 1 / (sr.units.k_boltz.to("kcal/(mol*kelvin)") * 298)
 
     # Make sure it's a multiple of 32.
     if threads_per_block % 32 != 0:
@@ -445,6 +545,13 @@ if __name__ == "__main__":
         dimensions = [x.value() for x in space.dimensions()]
     except Exception as e:
         raise ValuError(f"System does not contain a periodic box information!")
+
+    # Get the initial energy in kT.
+    try:
+        d = system.dynamics()
+        original_energy = kcal_per_mol_to_kt * d.current_potential_energy().value()
+    except Exception as e:
+        raise ValueError(f"Could not get the initial energy: {e}")
 
     # Get the number of insertions.
     num_insertions = args.num_insertions
@@ -470,13 +577,23 @@ if __name__ == "__main__":
         raise ValueError(f"Could not get the atomic properties of the water: {e}")
 
     # Create the atom search string.
-    if args.target is not None:
+    if args.reference is not None:
+        # Try to locate the target position.
+        try:
+            target = [
+                x.value() for x in system[args.reference].atoms()[0].coordinates()
+            ]
+            print(f"Target position: {target}")
+        except Exception as e:
+            raise ValueError(f"Could not locate the target position: {e}")
+
         search = (
             f"atoms within {args.cut_off + args.max_distance} of "
-            f"{args.target[0]}, {args.target[1]}, {args.target[2]}"
+            f"{target[0]}, {target[1]}, {target[2]}"
         )
     else:
         search = "all"
+        target = None
 
     # Get the atomic properties.
     charges, sigmas, epsilons, positions = get_atom_properties(system, search=search)
@@ -766,8 +883,8 @@ if __name__ == "__main__":
     # Set the dielectric constant.
     dielectric = 78.5
 
-    # Energy conversion factor.
-    kcal_per_mol_to_kt = 1 / (sr.units.k_boltz.to("kcal/(mol*kelvin)") * 298)
+    # Set a null context.
+    context = None
 
     # Loop over the batches.
     for i in range(args.num_batches):
@@ -777,7 +894,7 @@ if __name__ == "__main__":
                 water_positions,
                 dimensions,
                 num_insertions,
-                target=args.target,
+                target=target,
                 distance=args.max_distance,
             )
         except Exception as e:
@@ -826,113 +943,35 @@ if __name__ == "__main__":
         # Sum the energies.
         energies = result_coul + result_lj
 
-        # Get the indices of the sorted energies.
-        idxs = np.argsort(energies)
+        # Get the indices of the sorted Lennard-Jones energy.
+        idxs = np.argsort(result_lj)
 
         # Get the minumum energy.
         min_energy = energies[idxs[0]]
 
-        # Print the indices and energy for the 10 lowest energy configurations.
+        # Print the batch number.
         print(f"Batch {i+1}")
-        print("Lowest energy configurations:")
-        for j in idxs[:10]:
-            print(
-                f"  idx {j}: Coulomb: {result_coul[j]:.3f} kT, "
-                f"LJ: {result_lj[j]:.3f} kT, "
-                f"Total: {energies[j]:.3f} kT"
-            )
 
         # Print the timing for the insertion calculation.
         print(f"Time taken: {1000*(end - start):.2f} ms")
 
-        # Store candidate insertions.
-        j = 0
-        candidates = []
-        while energies[idxs[j]] < args.tolerance:
-            candidates.append(waters[j])
-            j += 1
-            if j == num_insertions:
-                break
-        # Write the candidates to a pickle file and exit.
-        if min_energy < args.tolerance:
-            print(f"Found {len(candidates)} candidates. Writing to candidates.pkl")
-            with open("candidates.pkl", "wb") as f:
-                pickle.dump(np.array(candidates), f)
-            break
-
-        if args.adaptive and args.num_batches > 1:
-            # Update the maximum distance.
-            if i > 1:
-                energy_difference = min_energy - previous_energy
-            else:
-                energy_difference = 0
-                previous_energy = min_energy
-
-            # Increase or decrease the maximum distance based on the energy
-            # difference.
-            if energy_difference <= 0:
-                if i > 1 and args.max_distance > 0.1:
-                    args.max_distance *= 0.5
-                if args.max_distance < 0.1:
-                    args.max_distance = 0.1
-
-                # Update the target position to the oxgen atom of the lowest
-                # energy configuration.
-                args.target = waters[idxs[0]][0]
-
-                print(f"New target position: {args.target}")
-            else:
-                if args.max_distance < 10.0:
-                    args.max_distance *= 2.0
-                if args.max_distance > 10.0:
-                    args.max_distance = 10.0
-
-            print(f"New search distance: {args.max_distance:.2f} Angstrom")
-
-            # Update the atom search string.
-            search = (
-                f"atoms within {args.cut_off + args.max_distance} of "
-                f"{args.target[0]}, {args.target[1]}, {args.target[2]}"
+        # Evaluate the energy for the best candidate insertion.
+        try:
+            new_energy, context = evaluate_candidate(
+                system, waters[idxs[0]], context=context
             )
+            new_energy *= kcal_per_mol_to_kt
+        except Exception as e:
+            raise RuntimeError(f"Could not evaluate the candidate insertion: {e}")
 
-            # Recalculate the the atom positions.
-            charges, sigmas, epsilons, positions = get_atom_properties(
-                system, search=search
-            )
-
-            # Create the GPU memory.
-            (
-                dimensions_gpu,
-                charges_gpu,
-                charge_water_gpu,
-                sigmas_gpu,
-                sigma_water_gpu,
-                epsilons_gpu,
-                epsilon_water_gpu,
-                positions_gpu,
-                energy_coul,
-                energy_lj,
-                num_atoms,
-                num_blocks,
-                idx_max,
-                idx_min,
-            ) = create_gpu_memory(
-                num_insertions,
-                dimensions,
-                charges,
-                charge_water,
-                sigmas,
-                sigma_water,
-                epsilons,
-                epsilon_water,
-                positions,
-                threads_per_block,
-            )
-
-            # Switch the kernel if necessary.
-            if num_atoms < num_insertions and kernel == 0:
-                energy_kernel = mod.get_function("energy1")
-                kernel = 1
-
-            # Store the current minimum energy.
-            previous_energy = min_energy
+        # Print the energies.
+        print(
+            f"Energies: before {original_energy:.3f} kT, "
+            f"after {new_energy:.3f} kT, "
+            f"change {new_energy - original_energy:.3f} kT, "
+            f"estimated {min_energy:.3f} kT"
+        )
+        # Print the components of the energy.
+        print(
+            f"Coul: {result_coul[idxs[0]]:.3f} kT, " f"LJ: {result_lj[idxs[0]]:.3f} kT"
+        )
