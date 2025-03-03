@@ -501,8 +501,8 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
-        "--max-distance",
-        help="Maximum distance from the target, in Angstrom",
+        "--radius",
+        help="Radius of the GCMC region, in Angstrom",
         type=float,
         default=4.0,
         required=False,
@@ -588,7 +588,7 @@ if __name__ == "__main__":
             raise ValueError(f"Could not locate the target position: {e}")
 
         search = (
-            f"atoms within {args.cut_off + args.max_distance} of "
+            f"atoms within {args.cut_off + args.radius} of "
             f"{target[0]}, {target[1]}, {target[2]}"
         )
     else:
@@ -895,7 +895,7 @@ if __name__ == "__main__":
                 dimensions,
                 num_insertions,
                 target=target,
-                distance=args.max_distance,
+                distance=args.radius,
             )
         except Exception as e:
             raise RuntimeError(f"Could not generate water positions: {e}")

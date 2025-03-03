@@ -30,13 +30,13 @@ Attempt 10000 random insertions targeted at the hydration site:
 ```bash
 python loch.py examples/scytalone-dehydratase/outputs/*7 \
     --num-insertions 10000 \
-    --target x y z \
+    --reference "(residx 22 or residx 42) and (atomname OH)" \ 
     --max-distance d
 ```
 
-Here `x`, `y`, and `z` are the coordinates of the target site in Angstrom, and `d`
-is the maximum distance from the target site, i.e. insertions will only be
-attempted within a cube of side length `2d` centered at the target site.
+Here `reference` is a selection string used to specify the atoms whose center
+of geometry will be used as the target site for insertions and `radius` is the
+maximum distance from the target site in Angstroms.
 
 The code parallelises work over blocks of GPU threads in batches. Parallelism
 is performed across the *largest* dimension, i.e. the number of insertions if
