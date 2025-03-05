@@ -3,6 +3,8 @@ import numpy as np
 import pickle
 import time
 
+from numba import njit, prange
+
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import pycuda.autoinit
@@ -12,7 +14,8 @@ import BioSimSpace as BSS
 import sire as sr
 
 
-def uniform_random_rotation(x):
+@njit
+def uniform_random_rotation(x, rand):
     """
     Apply a random rotation in 3D, with a distribution uniform over the
     sphere.
@@ -23,43 +26,47 @@ def uniform_random_rotation(x):
     Parameters
     ----------
 
-        x:  numpy.ndarray
-            Vector or set of vectors with dimension (n, 3), where n is the
-            number of vectors
+    x:  numpy.ndarray
+        Vector or set of vectors with dimension (n, 3), where n is the
+        number of vectors
+
+    rand: numpy.ndarray
+        Pre-computed random numbers to use for the rotation.
 
     Returns
     -------
 
-        Array of shape (n, 3) containing the randomly rotated vectors of x,
-        about the mean coordinate of x.
+    Array of shape (n, 3) containing the randomly rotated vectors of x,
+    about the mean coordinate of x.
 
     Algorithm taken from "Fast Random Rotation Matrices" (James Avro, 1992):
     https://doi.org/10.1016/B978-0-08-050755-2.50034-8
     """
 
-    def generate_random_z_axis_rotation():
+    def generate_random_z_axis_rotation(rand):
         """Generate random rotation matrix about the z axis."""
         R = np.eye(3)
-        x1 = np.random.rand()
+        x1 = rand
         R[0, 0] = R[1, 1] = np.cos(2 * np.pi * x1)
         R[0, 1] = -np.sin(2 * np.pi * x1)
         R[1, 0] = np.sin(2 * np.pi * x1)
         return R
 
     # There are two random variables in [0, 1) here (naming is same as paper)
-    x2 = 2 * np.pi * np.random.rand()
-    x3 = np.random.rand()
+    x2 = 2 * np.pi * rand[0]
+    x3 = rand[1]
 
     # Rotation of all points around x axis using matrix
-    R = generate_random_z_axis_rotation()
+    R = generate_random_z_axis_rotation(rand[2])
     v = np.array([np.cos(x2) * np.sqrt(x3), np.sin(x2) * np.sqrt(x3), np.sqrt(1 - x3)])
     H = np.eye(3) - (2 * np.outer(v, v))
     M = -(H @ R)
     x = x.reshape((-1, 3))
-    mean_coord = np.mean(x, axis=0)
+    mean_coord = np.array([x[:, i].mean() for i in prange(x.shape[1])])
     return ((x - mean_coord) @ M) + mean_coord @ M
 
 
+@njit
 def generate_waters(template, cell, num_waters, target=None, distance=1.0):
     """
     Generate a set of water positions in a box.
@@ -93,10 +100,12 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
     # Initialize the array to store the water positions.
     waters = np.zeros((num_waters, 3, 3))
 
-    for i in range(num_waters):
-        # Water index.
-        j = i % 3
+    # Pre-compute the random numbers.
+    rand_normal = np.random.randn(num_waters, 3)
+    rand_orientation = np.random.rand(num_waters, 3)
+    rand_position = np.random.rand(num_waters)
 
+    for i in prange(num_waters):
         # Copy the template.
         water = template.copy()
 
@@ -104,21 +113,17 @@ def generate_waters(template, cell, num_waters, target=None, distance=1.0):
         water -= template[0]
 
         # Rotate the water randomly.
-        water = uniform_random_rotation(water)
+        water = uniform_random_rotation(water, rand_orientation[i])
 
         # Calculate the distance between the oxygen and the hydrogens.
         dh1 = water[1] - water[0]
         dh2 = water[2] - water[0]
 
         # Generate a random position around the target.
-        if target is not None:
-            xyz = np.random.randn(3)
-            xyz /= np.linalg.norm(xyz)
-            r = distance * np.power(np.random.rand(), 1.0 / 3.0)
-            xyz = target + r * xyz
-        # Generate a random position in the cell.
-        else:
-            xyz = np.random.rand(3) * dimensions
+        xyz = rand_normal[i]
+        xyz /= np.linalg.norm(xyz)
+        r = distance * np.power(rand_position[i], 1.0 / 3.0)
+        xyz = target + r * xyz
 
         # Place the oxygen (first atom) at the random position.
         water[0] = xyz
@@ -475,6 +480,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GCMC benchmarking")
     parser.add_argument("input", help="Input file(s)", type=str, nargs="+")
     parser.add_argument(
+        "reference", help="A search string for the reference atoms.", type=str
+    )
+    parser.add_argument(
         "--num-insertions",
         help="The number of insertions to attempt.",
         type=int,
@@ -494,11 +502,6 @@ if __name__ == "__main__":
         type=int,
         default=1024,
         required=False,
-    )
-    parser.add_argument(
-        "--reference",
-        help="A search string for the reference atoms used to target the insertion.",
-        type=str,
     )
     parser.add_argument(
         "--radius",
@@ -542,7 +545,7 @@ if __name__ == "__main__":
     # Get the box.
     try:
         space = system.property("space")
-        dimensions = [x.value() for x in space.dimensions()]
+        dimensions = np.array([x.value() for x in space.dimensions()])
     except Exception as e:
         raise ValuError(f"System does not contain a periodic box information!")
 
@@ -576,28 +579,28 @@ if __name__ == "__main__":
     except Exception as e:
         raise ValueError(f"Could not get the atomic properties of the water: {e}")
 
-    # Create the atom search string.
-    if args.reference is not None:
-        # Try to locate the target position.
-        try:
-            target = [
-                x.value() for x in system[args.reference].atoms()[0].coordinates()
-            ]
-            print(f"Target position: {target}")
-        except Exception as e:
-            raise ValueError(f"Could not locate the target position: {e}")
-
-        search = (
-            f"atoms within {args.cut_off + args.radius} of "
-            f"{target[0]}, {target[1]}, {target[2]}"
+    # Try to locate the target position.
+    try:
+        target = np.array(
+            [x.value() for x in system[args.reference].atoms()[0].coordinates()]
         )
-    else:
-        search = "all"
-        target = None
+        print(f"Target position: {target}")
+    except Exception as e:
+        raise ValueError(f"Could not locate the target position: {e}")
+
+    # Create the search string.
+    search = (
+        f"atoms within {args.cut_off + args.radius} of "
+        f"{target[0]}, {target[1]}, {target[2]}"
+    )
 
     # Get the atomic properties.
+    start = time.time()
     charges, sigmas, epsilons, positions = get_atom_properties(system, search=search)
+    end = time.time()
+    print(f"Time taken to get atomic properties: {1000*(end - start):.2f} ms")
 
+    start = time.time()
     # Create the GPU memory.
     (
         dimensions_gpu,
@@ -626,6 +629,8 @@ if __name__ == "__main__":
         positions,
         threads_per_block,
     )
+    end = time.time()
+    print(f"Time taken to create GPU memory: {1000*(end - start):.2f} ms")
 
     # Create a kernel to calculate the non-bonded energy.
     mod = SourceModule(
@@ -875,10 +880,8 @@ if __name__ == "__main__":
     # Get the kernel.
     if num_atoms > num_insertions:
         energy_kernel = mod.get_function("energy0")
-        kernel = 0
     else:
         energy_kernel = mod.get_function("energy1")
-        kernel = 1
 
     # Set the dielectric constant.
     dielectric = 78.5
@@ -890,12 +893,17 @@ if __name__ == "__main__":
     for i in range(args.num_batches):
         # Initialise the water position array.
         try:
+            start = time.time()
             waters = generate_waters(
                 water_positions,
                 dimensions,
                 num_insertions,
                 target=target,
                 distance=args.radius,
+            )
+            end = time.time()
+            print(
+                f"Time taken to generate water positions: {1000*(end - start):.2f} ms"
             )
         except Exception as e:
             raise RuntimeError(f"Could not generate water positions: {e}")
