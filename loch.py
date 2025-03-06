@@ -340,8 +340,18 @@ if __name__ == "__main__":
         default=10.0,
         required=False,
     )
+    parser.add_argument(
+        "--seed",
+        help="The seed for the random number generator.",
+        type=int,
+        required=False,
+    )
 
     args = parser.parse_args()
+
+    # Seed the random number generator.
+    if args.seed is not None:
+        np.random.seed(args.seed)
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
