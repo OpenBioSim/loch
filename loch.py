@@ -3,8 +3,6 @@ import numpy as np
 import pickle
 import time
 
-from numba import njit, prange
-
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import pycuda.autoinit
@@ -13,129 +11,7 @@ from pycuda.compiler import SourceModule
 import BioSimSpace as BSS
 import sire as sr
 
-
-@njit
-def uniform_random_rotation(x, rand):
-    """
-    Apply a random rotation in 3D, with a distribution uniform over the
-    sphere.
-
-    Adapted from:
-    https://www.blopig.com/blog/2021/08/uniformly-sampled-3d-rotation-matrices/
-
-    Parameters
-    ----------
-
-    x:  numpy.ndarray
-        Vector or set of vectors with dimension (n, 3), where n is the
-        number of vectors
-
-    rand: numpy.ndarray
-        Pre-computed random numbers to use for the rotation.
-
-    Returns
-    -------
-
-    Array of shape (n, 3) containing the randomly rotated vectors of x,
-    about the mean coordinate of x.
-
-    Algorithm taken from "Fast Random Rotation Matrices" (James Avro, 1992):
-    https://doi.org/10.1016/B978-0-08-050755-2.50034-8
-    """
-
-    def generate_random_z_axis_rotation(rand):
-        """Generate random rotation matrix about the z axis."""
-        R = np.eye(3)
-        x1 = rand
-        R[0, 0] = R[1, 1] = np.cos(2 * np.pi * x1)
-        R[0, 1] = -np.sin(2 * np.pi * x1)
-        R[1, 0] = np.sin(2 * np.pi * x1)
-        return R
-
-    # There are two random variables in [0, 1) here (naming is same as paper)
-    x2 = 2 * np.pi * rand[0]
-    x3 = rand[1]
-
-    # Rotation of all points around x axis using matrix
-    R = generate_random_z_axis_rotation(rand[2])
-    v = np.array([np.cos(x2) * np.sqrt(x3), np.sin(x2) * np.sqrt(x3), np.sqrt(1 - x3)])
-    H = np.eye(3) - (2 * np.outer(v, v))
-    M = -(H @ R)
-    x = x.reshape((-1, 3))
-    mean_coord = np.array([x[:, i].mean() for i in prange(x.shape[1])])
-    return ((x - mean_coord) @ M) + mean_coord @ M
-
-
-@njit
-def generate_waters(template, cell, num_waters, target=None, distance=1.0):
-    """
-    Generate a set of water positions in a box.
-
-    Parameters
-    ----------
-
-    template: numpy.ndarray
-        The position of the template water molecule.
-
-    dimensions: numpy.ndarray
-        The box cell dimensions.
-
-    num_waters: int
-        The number of water molecules to generate.
-
-    target: numpy.ndarray
-        The target position to generate the water molecules around.
-
-    distance: float
-        The distance in Angstrom around the target position to generate
-        the water molecules.
-
-    Returns
-    -------
-
-    waters: numpy.ndarray
-        The positions of the generated water molecules.
-    """
-
-    # Initialize the array to store the water positions.
-    waters = np.zeros((num_waters, 3, 3))
-
-    # Pre-compute the random numbers.
-    rand_normal = np.random.randn(num_waters, 3)
-    rand_orientation = np.random.rand(num_waters, 3)
-    rand_position = np.random.rand(num_waters)
-
-    for i in prange(num_waters):
-        # Copy the template.
-        water = template.copy()
-
-        # Translate to the origin.
-        water -= template[0]
-
-        # Rotate the water randomly.
-        water = uniform_random_rotation(water, rand_orientation[i])
-
-        # Calculate the distance between the oxygen and the hydrogens.
-        dh1 = water[1] - water[0]
-        dh2 = water[2] - water[0]
-
-        # Generate a random position around the target.
-        xyz = rand_normal[i]
-        xyz /= np.linalg.norm(xyz)
-        r = distance * np.power(rand_position[i], 1.0 / 3.0)
-        xyz = target + r * xyz
-
-        # Place the oxygen (first atom) at the random position.
-        water[0] = xyz
-
-        # Shift the hydrogens by the appropriate amount.
-        water[1] = xyz + dh1
-        water[2] = xyz + dh2
-
-        # Store the water in the array.
-        waters[i] = water
-
-    return waters
+from _kernels import code
 
 
 def get_atom_properties(system, search="all"):
@@ -169,14 +45,10 @@ def get_atom_properties(system, search="all"):
 
     # Get the charges on all the atoms.
     try:
-        if search == "all":
-            charges = []
-            for mol in system:
-                charges_mol = [charge.value() for charge in mol.property("charge")]
-                charges.extend(charges_mol)
-        # Loop over the selection to get the charges.
-        else:
-            charges = [atom.charge().value() for atom in system[search].atoms()]
+        charges = []
+        for mol in system:
+            charges_mol = [charge.value() for charge in mol.property("charge")]
+            charges.extend(charges_mol)
 
         # Convert to a NumPy array.
         charges = np.array(charges)
@@ -186,20 +58,10 @@ def get_atom_properties(system, search="all"):
 
     # Try to get the sigma and epsilon for the atoms.
     try:
-        # Loop over the molecules and get the sigma and epsilon.
-        if search == "all":
-            sigmas = []
-            epsilons = []
-            for mol in system:
-                for lj in mol.property("LJ"):
-                    sigmas.append(lj.sigma().value())
-                    epsilons.append(lj.epsilon().value())
-        # Loop over the selection to get the sigma and epsilon.
-        else:
-            sigmas = []
-            epsilons = []
-            for atom in system[search].atoms():
-                lj = atom.property("LJ")
+        sigmas = []
+        epsilons = []
+        for mol in system:
+            for lj in mol.property("LJ"):
                 sigmas.append(lj.sigma().value())
                 epsilons.append(lj.epsilon().value())
 
@@ -212,10 +74,7 @@ def get_atom_properties(system, search="all"):
 
     # Get the positions of all the atoms.
     try:
-        if search == "all":
-            positions = sr.io.get_coords_array(system)
-        else:
-            positions = sr.io.get_coords_array(system[search])
+        positions = sr.io.get_coords_array(system)
 
     except Exception as e:
         raise ValueError(f"Could not get the positions of the atoms: {e}")
@@ -224,8 +83,6 @@ def get_atom_properties(system, search="all"):
 
 
 def create_gpu_memory(
-    num_insertions,
-    dimensions,
     charges,
     charge_water,
     sigmas,
@@ -240,12 +97,6 @@ def create_gpu_memory(
 
     Parameters
     ----------
-
-    num_insertions: int
-        The number of insertions to attempt.
-
-    dimensions: numpy.ndarray
-        The box cell dimensions.
 
     charges: numpy.ndarray
         The charges on the atoms.
@@ -273,9 +124,6 @@ def create_gpu_memory(
 
     Returns
     -------
-
-    dimensions_gpu: pycuda.gpuarray.GPUArray
-        The box cell dimensions.
 
     charges_gpu: pycuda.gpuarray.GPUArray
         The charges on the atoms.
@@ -306,19 +154,9 @@ def create_gpu_memory(
 
     num_atoms: int
         The number of atoms.
-
-    num_blocks: int
-        The number of blocks to use.
-
-    idx_max: int
-        The maximum index to use.
-
-    idx_min: int
-        The minimum index to use.
     """
 
     # Place the arrays on the GPU.
-    dimensions_gpu = gpuarray.to_gpu(np.array(dimensions).astype(np.float32))
     charges_gpu = gpuarray.to_gpu(charges.astype(np.float32))
     charge_water_gpu = gpuarray.to_gpu(np.array(charge_water).astype(np.float32))
     sigmas_gpu = gpuarray.to_gpu(sigmas.astype(np.float32))
@@ -330,24 +168,12 @@ def create_gpu_memory(
     # Store the number of atoms.
     num_atoms = len(charges)
 
-    # Work out the number of blocks to use. We parallelise over the the largest
-    # dimension, i.e. atoms or insertions.
-    if num_atoms > num_insertions:
-        num_blocks = num_atoms // threads_per_block + 1
-        idx_max = num_atoms
-        idx_min = num_insertions
-    else:
-        num_blocks = num_insertions // threads_per_block + 1
-        idx_max = num_insertions
-        idx_min = num_atoms
-
     # Create an array to hold the results.
     result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
     energy_coul = gpuarray.to_gpu(result_array)
     energy_lj = gpuarray.to_gpu(result_array)
 
     return (
-        dimensions_gpu,
         charges_gpu,
         charge_water_gpu,
         sigmas_gpu,
@@ -358,9 +184,6 @@ def create_gpu_memory(
         energy_coul,
         energy_lj,
         num_atoms,
-        num_blocks,
-        idx_max,
-        idx_min,
     )
 
 
@@ -545,7 +368,30 @@ if __name__ == "__main__":
     # Get the box.
     try:
         space = system.property("space")
-        dimensions = np.array([x.value() for x in space.dimensions()])
+        cell_matrix = space.box_matrix()
+        cell_matrix_inverse = cell_matrix.inverse()
+        M = cell_matrix.transpose() * cell_matrix
+
+        # Convert to NumPy.
+        row0 = [x.value() for x in cell_matrix.row0()]
+        row1 = [x.value() for x in cell_matrix.row1()]
+        row2 = [x.value() for x in cell_matrix.row2()]
+        cell_matrix = np.array([row0, row1, row2])
+        row0 = [x.value() for x in cell_matrix_inverse.row0()]
+        row1 = [x.value() for x in cell_matrix_inverse.row1()]
+        row2 = [x.value() for x in cell_matrix_inverse.row2()]
+        cell_matrix_inverse = np.array([row0, row1, row2])
+        row0 = [x.value() for x in M.row0()]
+        row1 = [x.value() for x in M.row1()]
+        row2 = [x.value() for x in M.row2()]
+        M = np.array([row0, row1, row2])
+
+        # Convert to GPU memory.
+        cell_matrix = gpuarray.to_gpu(cell_matrix.flatten().astype(np.float32))
+        cell_matrix_inverse = gpuarray.to_gpu(
+            cell_matrix_inverse.flatten().astype(np.float32)
+        )
+        M = gpuarray.to_gpu(M.flatten().astype(np.float32))
     except Exception as e:
         raise ValuError(f"System does not contain a periodic box information!")
 
@@ -563,7 +409,9 @@ if __name__ == "__main__":
     water = waters[0]
 
     # Get the positions as a numpy array.
-    water_positions = sr.io.get_coords_array(water)
+    template = gpuarray.to_gpu(
+        sr.io.get_coords_array(water).flatten().astype(np.float32)
+    )
 
     # Get the water properties.
     try:
@@ -584,6 +432,7 @@ if __name__ == "__main__":
         target = np.array(
             [x.value() for x in system[args.reference].atoms()[0].coordinates()]
         )
+        target = gpuarray.to_gpu(target.astype(np.float32))
         print(f"Target position: {target}")
     except Exception as e:
         raise ValueError(f"Could not locate the target position: {e}")
@@ -603,7 +452,6 @@ if __name__ == "__main__":
     start = time.time()
     # Create the GPU memory.
     (
-        dimensions_gpu,
         charges_gpu,
         charge_water_gpu,
         sigmas_gpu,
@@ -614,12 +462,7 @@ if __name__ == "__main__":
         energy_coul,
         energy_lj,
         num_atoms,
-        num_blocks,
-        idx_max,
-        idx_min,
     ) = create_gpu_memory(
-        num_insertions,
-        dimensions,
         charges,
         charge_water,
         sigmas,
@@ -632,292 +475,64 @@ if __name__ == "__main__":
     end = time.time()
     print(f"Time taken to create GPU memory: {1000*(end - start):.2f} ms")
 
-    # Create a kernel to calculate the non-bonded energy.
-    mod = SourceModule(
-        """
-        __global__ void energy0(
-            int idx_max,
-            float cutoff,
-            float* dimensions,
-            float *charges,
-            float* charge_water,
-            float* sigmas,
-            float* sigma_water,
-            float* epsilons,
-            float* epsilon_water,
-            float* positions,
-            float* waters,
-            float* energy_coul,
-            float* energy_lj)
-        {
-            // Work out the atom index.
-            int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
-
-            // Make sure we're in bounds.
-            if (idx_atom < idx_max)
-            {
-                // Store the squared cut-off distance.
-                auto cutoff2 = cutoff * cutoff;
-
-                // Work out the water index.
-                int idx_water = blockIdx.y;
-
-                // Work out the index for the result.
-                int idx = (idx_water * idx_max) + idx_atom;
-
-                // Get the atom position.
-                float x1 = positions[3 * idx_atom];
-                float y1 = positions[3 * idx_atom + 1];
-                float z1 = positions[3 * idx_atom + 2];
-
-                // Store the charge on the atom.
-                auto c11 = charges[idx_atom] * charges[idx_atom];
-
-                // Store the epsilon and sigma for the atom.
-                float s1 = sigmas[idx_atom];
-                float e1 = epsilons[idx_atom];
-
-                // Zero the energies.
-                energy_coul[idx] = 0.0;
-                energy_lj[idx] = 0.0;
-
-                // Loop over all atoms in the water molecule.
-                for (int i = 0; i < 3; i++)
-                {
-                    // Get the water atom position.
-                    float x2 = waters[9 * idx_water + 3 * i];
-                    float y2 = waters[9 * idx_water + 3 * i + 1];
-                    float z2 = waters[9 * idx_water + 3 * i + 2];
-
-                    // Calculate the distance.
-                    float dx = x1 - x2;
-                    float dy = y1 - y2;
-                    float dz = z1 - z2;
-
-                    // Apply periodic boundary conditions.
-                    if (dx >= 0.5*dimensions[0])
-                    {
-                        dx -= dimensions[0];
-                    }
-                    else if (dx < -0.5*dimensions[0])
-                    {
-                        dx += dimensions[0];
-                    }
-                    if (dy >= 0.5*dimensions[1])
-                    {
-                        dy -= dimensions[1];
-                    }
-                    else if (dy < -0.5*dimensions[1])
-                    {
-                        dy += dimensions[1];
-                    }
-                    if (dz >= 0.5*dimensions[2])
-                    {
-                        dz -= dimensions[2];
-                    }
-                    else if (dz < -0.5*dimensions[2])
-                    {
-                        dz += dimensions[2];
-                    }
-
-                    // Calculate the distance squared.
-                    float r2 = dx * dx + dy * dy + dz * dz;
-
-                    // The distance is within the cut-off.
-                    if (r2 < cutoff2)
-                    {
-                        // Don't divide by zero.
-                        if (r2 < 1e-6)
-                        {
-                            energy_coul[idx] = 1e6;
-                        }
-                        else
-                        {
-                            // Accumulate the squared Coulomb energy. We can take
-                            // the square root of the total energy and rescale at
-                            // the end.
-                            auto c2 = charge_water[i];
-                            energy_coul[idx] += (c11 * c2*c2) / r2;
-
-                            // Accumulate the LJ energy.
-                            auto s2 = sigma_water[i];
-                            auto e2 = epsilon_water[i];
-                            auto s = 0.5 * (s1 + s2);
-                            auto e = 0.5 * (e1 * e2);
-                            s2 = s * s;
-                            auto sr2 = s2 / r2;
-                            auto sr6 = sr2 * sr2 * sr2;
-                            auto sr12 = sr6 * sr6;
-                            energy_lj[idx] += 4 * e * (sr12 - sr6);
-                        }
-                    }
-                }
-            }
-        }
-
-        __global__ void energy1(
-            int idx_max,
-            float cutoff,
-            float* dimensions,
-            float *charges,
-            float* charge_water,
-            float* sigmas,
-            float* sigma_water,
-            float* epsilons,
-            float* epsilon_water,
-            float* positions,
-            float* waters,
-            float* energy_coul,
-            float* energy_lj)
-        {
-            // Work out the water index.
-            int idx_water = threadIdx.x + blockDim.x * blockIdx.x;
-
-            // Make sure we're in bounds.
-            if (idx_water < idx_max)
-            {
-                // Store the squared cut-off distance.
-                auto cutoff2 = cutoff * cutoff;
-
-                // Work out the atom index.
-                int idx_atom = threadIdx.y + blockDim.y * blockIdx.y;
-
-                // Work out the index for the result.
-                int idx = (idx_water * gridDim.y) + idx_atom;
-
-                // Get the atom position.
-                float x1 = positions[3 * idx_atom];
-                float y1 = positions[3 * idx_atom + 1];
-                float z1 = positions[3 * idx_atom + 2];
-
-                // Store the charge on the atom.
-                auto c11 = charges[idx_atom] * charges[idx_atom];
-
-                // Store the epsilon and sigma for the atom.
-                float s1 = sigmas[idx_atom];
-                float e1 = epsilons[idx_atom];
-
-                // Zero the energies.
-                energy_coul[idx] = 0.0;
-                energy_lj[idx] = 0.0;
-
-                // Loop over all atoms in the water molecule.
-                for (int i = 0; i < 3; i++)
-                {
-                    // Get the water atom position.
-                    float x2 = waters[9 * idx_water + 3 * i];
-                    float y2 = waters[9 * idx_water + 3 * i + 1];
-                    float z2 = waters[9 * idx_water + 3 * i + 2];
-
-                    // Calculate the distance.
-                    float dx = x1 - x2;
-                    float dy = y1 - y2;
-                    float dz = z1 - z2;
-
-                    // Apply periodic boundary conditions.
-                    if (dx >= 0.5*dimensions[0])
-                    {
-                        dx -= dimensions[0];
-                    }
-                    else if (dx < -0.5*dimensions[0])
-                    {
-                        dx += dimensions[0];
-                    }
-                    if (dy >= 0.5*dimensions[1])
-                    {
-                        dy -= dimensions[1];
-                    }
-                    else if (dy < -0.5*dimensions[1])
-                    {
-                        dy += dimensions[1];
-                    }
-                    if (dz >= 0.5*dimensions[2])
-                    {
-                        dz -= dimensions[2];
-                    }
-                    else if (dz < -0.5*dimensions[2])
-                    {
-                        dz += dimensions[2];
-                    }
-
-                    // Calculate the distance squared.
-                    float r2 = dx * dx + dy * dy + dz * dz;
-
-                    // The distance is within the cut-off.
-                    if (r2 < cutoff2)
-                    {
-                        // Don't divide by zero.
-                        if (r2 < 1e-6)
-                        {
-                            energy_coul[idx] = 1e6;
-                        }
-                        else
-                        {
-                            // Accumulate the squared Coulomb energy. We can take
-                            // the square root of the total energy and rescale at
-                            // the end.
-                            auto c2 = charge_water[i];
-                            energy_coul[idx] += (c11 * c2*c2) / r2;
-
-                            // Accumulate the LJ energy.
-                            auto s2 = sigma_water[i];
-                            auto e2 = epsilon_water[i];
-                            auto s = 0.5 * (s1 + s2);
-                            auto e = 0.5 * (e1 * e2);
-                            s2 = s * s;
-                            auto sr2 = s2 / r2;
-                            auto sr6 = sr2 * sr2 * sr2;
-                            auto sr12 = sr6 * sr6;
-                            energy_lj[idx] += 4 * e * (sr12 - sr6);
-                        }
-                    }
-                }
-            }
-        }
-        """
-    )
-
-    # Get the kernel.
-    if num_atoms > num_insertions:
-        energy_kernel = mod.get_function("energy0")
-    else:
-        energy_kernel = mod.get_function("energy1")
-
     # Set the dielectric constant.
     dielectric = 78.5
 
     # Set a null context.
     context = None
 
+    mod = SourceModule(
+        code.replace("NUM_WATERS", str(num_insertions)), no_extern_c=True
+    )
+    cell_func = mod.get_function("setCellMatrix")
+    rng_func = mod.get_function("initialiseRNG")
+    water_func = mod.get_function("generateWater")
+    energy_func = mod.get_function("computeEnergy")
+
+    # Initialise the cell.
+    cell_func(cell_matrix, cell_matrix_inverse, M, block=(1, 1, 1), grid=(1, 1, 1))
+
+    # Initialise the random number generator.
+    water_blocks = num_insertions // threads_per_block + 1
+    rng_func(
+        gpuarray.to_gpu(
+            np.random.randint(np.iinfo(np.int32).max, size=(1, num_insertions)).astype(
+                np.int32
+            )
+        ),
+        block=(threads_per_block, 1, 1),
+        grid=(water_blocks, 1, 1),
+    )
+
+    # Initialise the memory to store the water positions.
+    water_positions = gpuarray.empty((num_insertions, 9), np.float32)
+
+    # Work out the number of blocks to process the atoms.
+    atom_blocks = num_atoms // threads_per_block + 1
+
     # Loop over the batches.
     for i in range(args.num_batches):
+        # Print the batch number.
+        print(f"Batch {i+1}")
+
         # Initialise the water position array.
-        try:
-            start = time.time()
-            waters = generate_waters(
-                water_positions,
-                dimensions,
-                num_insertions,
-                target=target,
-                distance=args.radius,
-            )
-            end = time.time()
-            print(
-                f"Time taken to generate water positions: {1000*(end - start):.2f} ms"
-            )
-        except Exception as e:
-            raise RuntimeError(f"Could not generate water positions: {e}")
-
-        # Copy the waters to the GPU.
-        waters_gpu = gpuarray.to_gpu(waters.flatten().astype(np.float32))
-
         start = time.time()
+        water_func(
+            template,
+            target,
+            np.float32(args.radius),
+            water_positions,
+            block=(threads_per_block, 1, 1),
+            grid=(water_blocks, 1, 1),
+        )
+        end = time.time()
+        print(f"Time taken to generate water positions: {1000*(end - start):.2f} ms")
 
-        # Run the kernel.
-        energy_kernel(
-            np.int32(idx_max),
+        # Run the energy calculation.
+        start = time.time()
+        energy_func(
+            np.int32(num_atoms),
             np.float32(args.cut_off),
-            dimensions_gpu,
             charges_gpu,
             charge_water_gpu,
             sigmas_gpu,
@@ -925,14 +540,16 @@ if __name__ == "__main__":
             epsilons_gpu,
             epsilon_water_gpu,
             positions_gpu,
-            waters_gpu,
+            water_positions,
             energy_coul,
             energy_lj,
             block=(threads_per_block, 1, 1),
-            grid=(num_blocks, idx_min, 1),
+            grid=(atom_blocks, num_insertions, 1),
         )
-
         end = time.time()
+
+        # Print the timing for the insertion calculation.
+        print(f"Time taken to evaluate interactions: {1000*(end - start):.2f} ms")
 
         # Copy the results back to the CPU.
         energy_coul_cpu = energy_coul.get().reshape(num_insertions, num_atoms)
@@ -957,14 +574,9 @@ if __name__ == "__main__":
         # Get the minumum energy.
         min_energy = energies[idxs[0]]
 
-        # Print the batch number.
-        print(f"Batch {i+1}")
-
-        # Print the timing for the insertion calculation.
-        print(f"Time taken: {1000*(end - start):.2f} ms")
-
         # Evaluate the energy for the best candidate insertion.
         try:
+            waters = water_positions.get().reshape(num_insertions, 3, 3)
             new_energy, context = evaluate_candidate(
                 system, waters[idxs[0]], context=context
             )
