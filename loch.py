@@ -187,7 +187,7 @@ def create_gpu_memory(
     )
 
 
-def evaluate_candidate(system, candidate_position, context=None):
+def evaluate_candidate(system, candidate_position, cutoff, context=None):
     """
     Evaluate the energy of candidate water insertion into the system.
 
@@ -199,6 +199,9 @@ def evaluate_candidate(system, candidate_position, context=None):
 
     candidate_position: numpy.ndarray
         The coordinates of the water molecule to insert.
+
+    cutoff: float
+        The cut-off distance for the non-bonded interactions.
 
     context: openmm.Context
         The OpenMM context to use.
@@ -235,7 +238,7 @@ def evaluate_candidate(system, candidate_position, context=None):
         system_sire = sr.system.System(system_bss._sire_object)
 
         # Create a dynamics object.
-        d = system_sire.dynamics()
+        d = system_sire.dynamics(cutoff=f"{cutoff} A", cutoff_type="rf")
 
         # Get the energy of the system.
         energy = d.current_potential_energy().value()
@@ -407,7 +410,7 @@ if __name__ == "__main__":
 
     # Get the initial energy in kT.
     try:
-        d = system.dynamics()
+        d = system.dynamics(cutoff=f"{args.cut_off} A", cutoff_type="rf")
         original_energy = kcal_per_mol_to_kt * d.current_potential_energy().value()
     except Exception as e:
         raise ValueError(f"Could not get the initial energy: {e}")
@@ -486,7 +489,7 @@ if __name__ == "__main__":
     print(f"Time taken to create GPU memory: {1000*(end - start):.2f} ms")
 
     # Set the dielectric constant.
-    dielectric = 78.5
+    dielectric = 78.3
 
     # Set a null context.
     context = None
@@ -494,17 +497,18 @@ if __name__ == "__main__":
     mod = SourceModule(
         code.replace("NUM_WATERS", str(num_insertions)), no_extern_c=True
     )
-    cell_func = mod.get_function("setCellMatrix")
-    rng_func = mod.get_function("initialiseRNG")
-    water_func = mod.get_function("generateWater")
-    energy_func = mod.get_function("computeEnergy")
+    cell_kernel = mod.get_function("setCellMatrix")
+    rng_kernel = mod.get_function("initialiseRNG")
+    rf_kernel = mod.get_function("setReactionField")
+    water_kernel = mod.get_function("generateWater")
+    energy_kernel = mod.get_function("computeEnergy")
 
     # Initialise the cell.
-    cell_func(cell_matrix, cell_matrix_inverse, M, block=(1, 1, 1), grid=(1, 1, 1))
+    cell_kernel(cell_matrix, cell_matrix_inverse, M, block=(1, 1, 1), grid=(1, 1, 1))
 
     # Initialise the random number generator.
     water_blocks = num_insertions // threads_per_block + 1
-    rng_func(
+    rng_kernel(
         gpuarray.to_gpu(
             np.random.randint(np.iinfo(np.int32).max, size=(1, num_insertions)).astype(
                 np.int32
@@ -512,6 +516,14 @@ if __name__ == "__main__":
         ),
         block=(threads_per_block, 1, 1),
         grid=(water_blocks, 1, 1),
+    )
+
+    # Initialise the reaction field.
+    rf_kernel(
+        np.float32(args.cut_off),
+        np.float32(dielectric),
+        block=(1, 1, 1),
+        grid=(1, 1, 1),
     )
 
     # Initialise the memory to store the water positions.
@@ -527,7 +539,7 @@ if __name__ == "__main__":
 
         # Initialise the water position array.
         start = time.time()
-        water_func(
+        water_kernel(
             template,
             target,
             np.float32(args.radius),
@@ -540,9 +552,8 @@ if __name__ == "__main__":
 
         # Run the energy calculation.
         start = time.time()
-        energy_func(
+        energy_kernel(
             np.int32(num_atoms),
-            np.float32(args.cut_off),
             charges_gpu,
             charge_water_gpu,
             sigmas_gpu,
@@ -568,8 +579,8 @@ if __name__ == "__main__":
         # Calculate sum of the Couloumb energy for each water in kT.
         result_coul = (
             kcal_per_mol_to_kt
-            * np.sqrt(np.sum(energy_coul_cpu, axis=1))
-            / (4 * np.pi * sr.units.epsilon0.value() * dielectric)
+            * np.sum(energy_coul_cpu, axis=1)
+            / (4 * np.pi * sr.units.epsilon0.value())
         )
 
         # Calculate the sum of the LJ energy for each water in kT.
@@ -578,8 +589,8 @@ if __name__ == "__main__":
         # Sum the energies.
         energies = result_coul + result_lj
 
-        # Get the indices of the sorted Lennard-Jones energy.
-        idxs = np.argsort(result_lj)
+        # Get the indices of the sorted energies.
+        idxs = np.argsort(energies)
 
         # Get the minumum energy.
         min_energy = energies[idxs[0]]
@@ -588,7 +599,7 @@ if __name__ == "__main__":
         try:
             waters = water_positions.get().reshape(num_insertions, 3, 3)
             new_energy, context = evaluate_candidate(
-                system, waters[idxs[0]], context=context
+                system, waters[idxs[0]], cutoff=args.cut_off, context=context
             )
             new_energy *= kcal_per_mol_to_kt
         except Exception as e:
@@ -599,9 +610,6 @@ if __name__ == "__main__":
             f"Energies: before {original_energy:.3f} kT, "
             f"after {new_energy:.3f} kT, "
             f"change {new_energy - original_energy:.3f} kT, "
-            f"estimated {min_energy:.3f} kT"
-        )
-        # Print the components of the energy.
-        print(
-            f"Coul: {result_coul[idxs[0]]:.3f} kT, " f"LJ: {result_lj[idxs[0]]:.3f} kT"
+            f"estimated {min_energy:.3f} kT, "
+            f"difference {min_energy - (new_energy - original_energy):.3f} kT"
         )

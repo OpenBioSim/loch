@@ -8,6 +8,11 @@ code = """
     const float pi = 3.14159265359f;
     const int num_waters = NUM_WATERS;
 
+    __device__ float rf_dielectric;
+    __device__ float rf_kappa;
+    __device__ float rf_cutoff;
+    __device__ float rf_correction;
+
     __device__ curandState_t* states[num_waters];
     __device__ float cell_matrix[3][3];
     __device__ float cell_matrix_inverse[3][3];
@@ -42,6 +47,16 @@ code = """
                     M[i][j] = m[i * 3 + j];
                 }
             }
+        }
+
+        __global__ void setReactionField(float cutoff, float dielectric)
+        {
+            rf_dielectric = dielectric;
+            rf_cutoff = cutoff;
+            const auto rf_cutoff2 = cutoff * cutoff;
+            const auto rf_cutoff3_inv = 1.0f / (rf_cutoff * rf_cutoff2);
+            rf_kappa = rf_cutoff3_inv * (dielectric - 1.0f) / (2.0f * dielectric + 1.0f);
+            rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
         }
 
         __device__ void wrapDelta(float* v0, float* v1, float* delta_box)
@@ -363,7 +378,6 @@ code = """
 
         __global__ void computeEnergy(
                 int num_atoms,
-                float cutoff,
                 float *charges,
                 float* charge_water,
                 float* sigmas,
@@ -382,7 +396,7 @@ code = """
             if (idx_atom < num_atoms)
             {
                 // Store the squared cut-off distance.
-                auto cutoff2 = cutoff * cutoff;
+                const auto cutoff2 = rf_cutoff * rf_cutoff;
 
                 // Work out the water index.
                 int idx_water = blockIdx.y;
@@ -397,11 +411,11 @@ code = """
                 v0[2] = positions[3 * idx_atom + 2];
 
                 // Store the charge on the atom.
-                auto c11 = charges[idx_atom] * charges[idx_atom];
+                auto c0 = charges[idx_atom];
 
                 // Store the epsilon and sigma for the atom.
-                float s1 = sigmas[idx_atom];
-                float e1 = epsilons[idx_atom];
+                float s0 = sigmas[idx_atom];
+                float e0 = epsilons[idx_atom];
 
                 // Zero the energies.
                 energy_coul[idx] = 0.0;
@@ -423,29 +437,65 @@ code = """
                     // The distance is within the cut-off.
                     if (r2 < cutoff2)
                     {
-                        // Don't divide by zero.
-                        if (r2 < 1e-6)
+                        // Abort if the energy is already too large.
+                        if (energy_coul[idx] < 10 and energy_lj[idx] < 10)
                         {
-                            energy_coul[idx] = 1e6;
-                        }
-                        else
-                        {
-                            // Accumulate the squared Coulomb energy. We can take
-                            // the square root of the total energy and rescale at
-                            // the end.
-                            auto c2 = charge_water[i];
-                            energy_coul[idx] += (c11 * c2*c2) / r2;
+                            // Don't divide by zero.
+                            if (r2 < 1e-6)
+                            {
+                                energy_coul[idx] = 1e6;
+                                energy_lj[idx] = 1e6;
+                            }
+                            else
+                            {
+                                // Compute the LJ interaction.
+                                auto s1 = sigma_water[i];
+                                const auto e1 = epsilon_water[i];
+                                const auto s = 0.5 * (s0 + s1);
+                                const auto e = sqrtf(e0 * e1);
+                                const auto s2 = s * s;
+                                const auto sr2 = s2 / r2;
+                                const auto sr6 = sr2 * sr2 * sr2;
+                                const auto sr12 = sr6 * sr6;
+                                energy_lj[idx] += 4 * e * (sr12 - sr6);
 
-                            // Accumulate the LJ energy.
-                            auto s2 = sigma_water[i];
-                            auto e2 = epsilon_water[i];
-                            auto s = 0.5 * (s1 + s2);
-                            auto e = 0.5 * (e1 * e2);
-                            s2 = s * s;
-                            auto sr2 = s2 / r2;
-                            auto sr6 = sr2 * sr2 * sr2;
-                            auto sr12 = sr6 * sr6;
-                            energy_lj[idx] += 4 * e * (sr12 - sr6);
+                                if (energy_lj[idx] > 10)
+                                {
+                                    energy_coul[idx] = 1e6;
+                                    return;
+                                }
+
+                                // Compute the distance between the atoms.
+                                const auto r = sqrtf(r2);
+
+                                // Store the charge on the water atom.
+                                const auto c1 = charge_water[i];
+
+                                // Add the reaction field pair energy.
+                                energy_coul[idx] += (c0 * c1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                            }
+                        }
+                    }
+
+                    // Apply the reaction field correction for intra-water interactions.
+                    if (idx_atom == 0)
+                    {
+                        // Self interaction.
+                        const auto c1 = charge_water[i];
+                        energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
+
+                        // Pair interaction.
+                        for (int j = i+1; j < 3; j++)
+                        {
+                            const auto c2 = charges[j];
+                            float v2[3];
+                            v2[0] = water_positions[9 * idx_water + 3 * j];
+                            v2[1] = water_positions[9 * idx_water + 3 * j + 1];
+                            v2[2] = water_positions[9 * idx_water + 3 * j + 2];
+                            float r2;
+                            distance2(v1, v2, r2);
+                            const auto r = sqrtf(r2);
+                            energy_coul[idx] += 0.5f * (c1 * c2) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
                         }
                     }
                 }
