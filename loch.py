@@ -238,7 +238,11 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
         system_sire = sr.system.System(system_bss._sire_object)
 
         # Create a dynamics object.
-        d = system_sire.dynamics(cutoff=f"{cutoff} A", cutoff_type="rf")
+        d = system_sire.dynamics(
+            cutoff=f"{cutoff} A",
+            cutoff_type="rf",
+            map={"use_dispersion_correction": True},
+        )
 
         # Get the energy of the system.
         energy = d.current_potential_energy().value()
@@ -410,7 +414,11 @@ if __name__ == "__main__":
 
     # Get the initial energy in kT.
     try:
-        d = system.dynamics(cutoff=f"{args.cut_off} A", cutoff_type="rf")
+        d = system.dynamics(
+            cutoff=f"{args.cut_off} A",
+            cutoff_type="rf",
+            map={"use_dispersion_correction": True},
+        )
         original_energy = kcal_per_mol_to_kt * d.current_potential_energy().value()
     except Exception as e:
         raise ValueError(f"Could not get the initial energy: {e}")
