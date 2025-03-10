@@ -403,7 +403,7 @@ if __name__ == "__main__":
     # Store the exponential of the B value.
     exp_B = np.exp(B)
 
-    # Make sure it's a multiple of 32.
+    # Make sure the number of threads per block is a multiple of 32.
     if threads_per_block % 32 != 0:
         raise ValueError("The number of threads per block must be a multiple of 32.")
 
