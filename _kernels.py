@@ -33,6 +33,7 @@ code = """
 
     extern "C"
     {
+        // Initialisation of the random number generator state for each water thread.
         __global__ void initialiseRNG(int* seed)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -49,6 +50,7 @@ code = """
             }
         }
 
+        // Intialisation of the box cell information for triclinic boxes.
         __global__ void setCellMatrix(float* matrix, float* matrix_inverse, float* m)
         {
             for (int i = 0; i < 3; i++)
@@ -62,6 +64,7 @@ code = """
             }
         }
 
+        // Set the reaction field parameters.
         __global__ void setReactionField(float cutoff, float dielectric)
         {
             rf_dielectric = dielectric;
@@ -72,6 +75,7 @@ code = """
             rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
         }
 
+        // Set the properties of each atom.
         __global__ void setAtomProperties(float* charges, float* sigmas, float* epsilons)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -84,13 +88,18 @@ code = """
             }
         }
 
-        __global__ updateAtomProperties(int idx, float charge, float sigmas, float epsilon)
+        // Update the properties for a single water.
+        __global__ void updateAtomProperties(int start_idx, float* charge, float* sigmas, float* epsilon)
         {
-            charge[idx] = charge;
-            sigma[idx] = sigmas;
-            epsilon[idx] = epsilon;
+            for (int i = 0; i < num_points; i++)
+            {
+                charge_water[i] = charge[start_idx + i];
+                sigma_water[i] = sigmas[start_idx + i];
+                epsilon_water[i] = epsilon[start_idx + i];
+            }
         }
 
+        // Set the positions of each atom.
         __global__ void setAtomPositions(float* positions)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -103,6 +112,7 @@ code = """
             }
         }
 
+        // Set the properties of each water atom.
         __global__ void setWaterProperties(float* charges, float* sigmas, float* epsilons)
         {
             for (int i = 0; i < num_points; i++)
@@ -113,6 +123,8 @@ code = """
             }
         }
 
+        // Calculate the delta that needs to be subtracted from the interatomic distance
+        // so that the atoms are wrapped to the same periodic box.
         __device__ void wrapDelta(float* v0, float* v1, float* delta_box)
         {
             // Work out the positions of v0 and v1 in "box" space.
@@ -191,6 +203,7 @@ code = """
             }
         }
 
+        // Calculate the distance between two atoms within the periodic box.
         __device__ void distance2(
             float* v0,
             float* v1,
@@ -277,6 +290,7 @@ code = """
             dist2 = frac_x * delta_box[0] + frac_y * delta_box[1] + frac_z * delta_box[2];
         }
 
+        // Perform a random rotation about a unit sphere.
         __device__ void uniform_random_rotation(float* v, float r0, float r1, float r2)
         {
             /* Adapted from:
@@ -362,6 +376,7 @@ code = """
                 + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
         }
 
+        // Generate a random position and orientation within the GCMC sphere for each trial insertion.
         __global__ void generateWater(float* water_template, float* target, float radius, float* water_position)
         {
             // Work out the thread index.
@@ -431,6 +446,7 @@ code = """
             }
         }
 
+        // Compute the Lennard-Jones and reaction field Coulombic energies between the water and the atoms.
         __global__ void computeEnergy(float* water_position, float* energy_coul, float* energy_lj)
         {
             // Work out the atom index.
