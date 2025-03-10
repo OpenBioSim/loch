@@ -6,7 +6,9 @@ code = """
     #include <curand_kernel.h>
 
     const float pi = 3.14159265359f;
-    const int num_waters = NUM_WATERS;
+    const int num_points = %(NUM_POINTS)s;
+    const int num_waters = %(NUM_WATERS)s;
+    const int num_atoms = %(NUM_ATOMS)s;
 
     __device__ float rf_dielectric;
     __device__ float rf_kappa;
@@ -324,25 +326,26 @@ code = """
                 water[0] = 0.0f;
                 water[1] = 0.0f;
                 water[2] = 0.0f;
-                water[3] = water_template[3] - water_template[0];
-                water[4] = water_template[4] - water_template[1];
-                water[5] = water_template[5] - water_template[2];
-                water[6] = water_template[6] - water_template[0];
-                water[7] = water_template[7] - water_template[1];
-                water[8] = water_template[8] - water_template[2];
+
+                // Shift the other atoms by the appropriate amount.
+                for (int i = 0; i < 3; i++)
+                {
+                    water[i*3 + 0] = water_template[i*3 + 0] - water_template[0];
+                    water[i*3 + 1] = water_template[i*3 + 1] - water_template[1];
+                    water[i*3 + 2] = water_template[i*3 + 2] - water_template[2];
+                }
 
                 // Rotate the water randomly.
                 uniform_random_rotation(water, curand_uniform(&state), curand_uniform(&state), curand_uniform(&state));
 
                 // Calculate the distance between the oxygen and the hydrogens.
-                float dh1[3];
-                float dh2[3];
-                dh1[0] = water[3] - water[0];
-                dh1[1] = water[4] - water[1];
-                dh1[2] = water[5] - water[2];
-                dh2[0] = water[6] - water[0];
-                dh2[1] = water[7] - water[1];
-                dh2[2] = water[8] - water[2];
+                float dh[num_points][3];
+                for (int i = 0; i < num_points-1; i++)
+                {
+                    dh[i][0] = water[(i+1)*3] - water[0];
+                    dh[i][1] = water[(i+1)*3 + 1] - water[1];
+                    dh[i][2] = water[(i+1)*3 + 2] - water[2];
+                }
 
                 // Generate a random position around the target.
                 float xyz[3];
@@ -364,12 +367,12 @@ code = """
                 water_positions[tidx * 9 + 2] = xyz[2];
 
                 // Shift the hydrogens by the appropriate amount.
-                water_positions[tidx * 9 + 3] = xyz[0] + dh1[0];
-                water_positions[tidx * 9 + 4] = xyz[1] + dh1[1];
-                water_positions[tidx * 9 + 5] = xyz[2] + dh1[2];
-                water_positions[tidx * 9 + 6] = xyz[0] + dh2[0];
-                water_positions[tidx * 9 + 7] = xyz[1] + dh2[1];
-                water_positions[tidx * 9 + 8] = xyz[2] + dh2[2];
+                for (int i = 0; i < num_points-1; i++)
+                {
+                    water_positions[tidx * 9 + 3 + i*3] = xyz[0] + dh[i][0];
+                    water_positions[tidx * 9 + 4 + i*3] = xyz[1] + dh[i][1];
+                    water_positions[tidx * 9 + 5 + i*3] = xyz[2] + dh[i][2];
+                }
 
                 // Set the new state.
                 *states[tidx] = state;
@@ -422,7 +425,7 @@ code = """
                 energy_lj[idx] = 0.0;
 
                 // Loop over all atoms in the water molecule.
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < num_points; i++)
                 {
                     // Get the water atom position.
                     float v1[3];
@@ -485,7 +488,7 @@ code = """
                         energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
 
                         // Pair interaction.
-                        for (int j = i+1; j < 3; j++)
+                        for (int j = i+1; j < num_points; j++)
                         {
                             const auto c2 = charges[j];
                             float v2[3];

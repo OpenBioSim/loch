@@ -359,6 +359,7 @@ if __name__ == "__main__":
     # Seed the random number generator.
     if args.seed is not None:
         np.random.seed(args.seed)
+    np.random.seed(42)
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
@@ -503,7 +504,13 @@ if __name__ == "__main__":
     context = None
 
     mod = SourceModule(
-        code.replace("NUM_WATERS", str(num_insertions)), no_extern_c=True
+        code
+        % {
+            "NUM_POINTS": water.num_atoms(),
+            "NUM_WATERS": num_insertions,
+            "NUM_ATOMS": num_atoms,
+        },
+        no_extern_c=True,
     )
     cell_kernel = mod.get_function("setCellMatrix")
     rng_kernel = mod.get_function("initialiseRNG")
