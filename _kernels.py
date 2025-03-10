@@ -519,15 +519,8 @@ code = """
                         // Pair interaction.
                         for (int j = i+1; j < num_points; j++)
                         {
-                            const auto c2 = charges[j];
-                            float v2[3];
-                            v2[0] = water_positions[9 * idx_water + 3 * j];
-                            v2[1] = water_positions[9 * idx_water + 3 * j + 1];
-                            v2[2] = water_positions[9 * idx_water + 3 * j + 2];
-                            float r2;
-                            distance2(v1, v2, r2);
-                            const auto r = sqrtf(r2);
-                            energy_coul[idx] += 0.5f * (c1 * c2) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                            const auto c2 = charge_water[j];
+                            energy_coul[idx] -= (c1 * c2) * rf_correction;
                         }
                     }
                 }
