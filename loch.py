@@ -175,7 +175,7 @@ def create_gpu_memory(
     result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
     energy_coul = gpuarray.to_gpu(result_array)
     energy_lj = gpuarray.to_gpu(result_array)
-    probability = gpuarray.to_gpu(np.zeros((1, num_insertions)).astype(np.float32))
+    probability = gpuarray.to_gpu(np.zeros((1, num_insertions + 1)).astype(np.float32))
 
     return (
         charges_gpu,
@@ -277,7 +277,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-def trial_move(generator, probability, num_insertions):
+def trial_move(generator, states, probability, num_insertions):
     """
     Choose a trial move according to the probabilities.
 
@@ -297,19 +297,18 @@ def trial_move(generator, probability, num_insertions):
         The state to move to.
     """
 
+    # Zero the probability of staying in the same state.
+    probability[-1] = 0.0
+
     # Compute the total probability.
     total_probability = np.sum(probability)
 
-    # Add the probability of staying in the same state.
+    # Update the probability of staying in the same state.
     if total_probability < 1.0:
-        probability = np.append(probability, 1.0 - total_probability)
-    else:
-        probability = np.append(probability, 0.0)
+        probability[-1] = 1.0 - total_probability
 
     # Choose a state according to its probability.
-    return generator.choice(
-        np.arange(num_insertions + 1), p=probability / np.sum(probability)
-    )
+    return generator.choice(states, p=probability / np.sum(probability))
 
 
 def random_choice_numba(arr, prob):
@@ -618,6 +617,9 @@ if __name__ == "__main__":
     energy_kernel = mod.get_function("computeEnergy")
     probability_kernel = mod.get_function("computeAcceptanceProbability")
 
+    # Create memory to store the trial states.
+    states = np.arange(num_insertions + 1).astype(np.int32)
+
     # Initialise the cell.
     cell_kernel(cell_matrix, cell_matrix_inverse, M, block=(1, 1, 1), grid=(1, 1, 1))
 
@@ -769,7 +771,7 @@ if __name__ == "__main__":
         probability_cpu = probability.get().flatten()
 
         # Get the new state.
-        state = trial_move(generator, probability_cpu, num_insertions)
+        state = trial_move(generator, states, probability_cpu, num_insertions)
 
         end = time.time()
 
