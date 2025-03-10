@@ -505,6 +505,7 @@ code = """
                             {
                                 energy_coul[idx] = 1e6;
                                 energy_lj[idx] = 1e6;
+                                return;
                             }
                             else
                             {
@@ -521,6 +522,7 @@ code = """
 
                                 if (energy_lj[idx] > 10)
                                 {
+                                    energy_lj[idx] = 1e6;
                                     energy_coul[idx] = 1e6;
                                     return;
                                 }
