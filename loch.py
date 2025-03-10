@@ -8,6 +8,8 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 
+from numba import njit
+
 import BioSimSpace as BSS
 import sire as sr
 
@@ -277,6 +279,63 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
+@njit
+def trial_move(probability, num_insertions):
+    """
+    Choose a trial move according to the probabilities.
+
+    Parameters
+    ----------
+
+    probability: numpy.ndarray
+        The probabilities of each move.
+
+    num_insertions: int
+        The number of insertions.
+
+    Returns
+    -------
+
+    state: int
+        The state to move to.
+    """
+
+    # Compute the total probability.
+    total_probability = np.sum(probability)
+
+    # Add the probability of staying in the same state.
+    if total_probability < 1.0:
+        probability = np.append(probability, 1.0 - total_probability)
+    else:
+        probability = np.append(probability, 0.0)
+
+    # Choose a state according to its probability.
+    return random_choice_numba(np.arange(num_insertions + 1), probability)
+
+
+@njit
+def random_choice_numba(arr, prob):
+    """
+    Perform a random choice from an array with a given probability.
+
+    Parameters
+    ----------
+
+    arr: numpy.ndarray
+        The array of values to sample from.
+
+    prob: numpy.ndarray
+        The probabilities for the given samples.
+
+    Returns
+    -------
+
+    index: int
+        The index of the chosen value.
+    """
+    return arr[np.searchsorted(np.cumsum(prob), np.random.random(), side="right")]
+
+
 def print_energy_components(context):
     """
     Print the energy components of the OpenMM system.
@@ -400,7 +459,7 @@ if __name__ == "__main__":
         beta * args.excess_chemical_potential + np.log(volume / args.standard_volume)
     ) + args.adams_shift
 
-    # Store the exponential of the B value.
+    # Store the exponential of the Adams value.
     exp_B = np.exp(B)
 
     # Make sure the number of threads per block is a multiple of 32.
@@ -686,6 +745,8 @@ if __name__ == "__main__":
             f"difference {min_energy - (new_energy - original_energy):.3f} kT"
         )
 
+        start = time.time()
+
         # Compute the acceptance probabilities.
         probability_kernel(
             np.int32(0),
@@ -698,11 +759,23 @@ if __name__ == "__main__":
             grid=(water_blocks, 1, 1),
         )
 
+        end = time.time()
+
+        print(f"Time taken to compute probabilities: {1000*(end - start):.2f} ms")
+
+        start = time.time()
+
         # Copy the probabilities back to the CPU.
         probability_cpu = probability.get().flatten()
 
-        # Sort the probabilities. (Ascending order)
-        idxs = np.argsort(-probability_cpu)
+        # Get the new state.
+        state = trial_move(probability_cpu, num_insertions)
 
-        # Print the best insertion probability.
-        print(f"Best insertion probability: {probability_cpu[idxs[0]]:.6f}")
+        end = time.time()
+
+        print(f"Time taken to choose move: {1000*(end - start):.2f} ms")
+
+        if state == num_insertions:
+            print("Insertion rejected.")
+        else:
+            print(f"Insertion accepted: {state}, position {waters[idxs[state]]}")
