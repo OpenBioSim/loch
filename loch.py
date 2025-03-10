@@ -385,7 +385,6 @@ if __name__ == "__main__":
     # Seed the random number generator.
     if args.seed is not None:
         np.random.seed(args.seed)
-    np.random.seed(42)
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
