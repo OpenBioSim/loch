@@ -8,8 +8,6 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 
-from numba import njit
-
 import BioSimSpace as BSS
 import sire as sr
 
@@ -279,7 +277,6 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-@njit
 def trial_move(probability, num_insertions):
     """
     Choose a trial move according to the probabilities.
@@ -300,6 +297,8 @@ def trial_move(probability, num_insertions):
         The state to move to.
     """
 
+    from random import choices
+
     # Compute the total probability.
     total_probability = np.sum(probability)
 
@@ -310,7 +309,7 @@ def trial_move(probability, num_insertions):
         probability = np.append(probability, 0.0)
 
     # Choose a state according to its probability.
-    return random_choice_numba(np.arange(num_insertions + 1), probability)
+    return choices(np.arange(num_insertions + 1), k=1, weights=probability)[0]
 
 
 @njit
