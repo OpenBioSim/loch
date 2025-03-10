@@ -241,7 +241,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
         d = system_sire.dynamics(
             cutoff=f"{cutoff} A",
             cutoff_type="rf",
-            map={"use_dispersion_correction": True},
+            map={"use_dispersion_correction": False},
         )
 
         # Get the energy of the system.
@@ -418,7 +418,7 @@ if __name__ == "__main__":
         d = system.dynamics(
             cutoff=f"{args.cut_off} A",
             cutoff_type="rf",
-            map={"use_dispersion_correction": True},
+            map={"use_dispersion_correction": False},
         )
         original_energy = kcal_per_mol_to_kt * d.current_potential_energy().value()
     except Exception as e:
@@ -515,6 +515,8 @@ if __name__ == "__main__":
     cell_kernel = mod.get_function("setCellMatrix")
     rng_kernel = mod.get_function("initialiseRNG")
     rf_kernel = mod.get_function("setReactionField")
+    atom_setup_kernel = mod.get_function("setAtomProperties")
+    water_setup_kernel = mod.get_function("setWaterProperties")
     water_kernel = mod.get_function("generateWater")
     energy_kernel = mod.get_function("computeEnergy")
 
@@ -537,6 +539,25 @@ if __name__ == "__main__":
     rf_kernel(
         np.float32(args.cut_off),
         np.float32(dielectric),
+        block=(1, 1, 1),
+        grid=(1, 1, 1),
+    )
+
+    # Set the atomic properties.
+    atom_setup_kernel(
+        charges_gpu,
+        sigmas_gpu,
+        epsilons_gpu,
+        positions_gpu,
+        block=(threads_per_block, 1, 1),
+        grid=(num_atoms, 1, 1),
+    )
+
+    # Set the water properties.
+    water_setup_kernel(
+        charge_water_gpu,
+        sigma_water_gpu,
+        epsilon_water_gpu,
         block=(1, 1, 1),
         grid=(1, 1, 1),
     )
@@ -568,14 +589,6 @@ if __name__ == "__main__":
         # Run the energy calculation.
         start = time.time()
         energy_kernel(
-            np.int32(num_atoms),
-            charges_gpu,
-            charge_water_gpu,
-            sigmas_gpu,
-            sigma_water_gpu,
-            epsilons_gpu,
-            epsilon_water_gpu,
-            positions_gpu,
             water_positions,
             energy_coul,
             energy_lj,

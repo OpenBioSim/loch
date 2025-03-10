@@ -20,6 +20,17 @@ code = """
     __device__ float cell_matrix_inverse[3][3];
     __device__ float M[3][3];
 
+    // Atom properties.
+    __device__ float sigma[num_atoms];
+    __device__ float epsilon[num_atoms];
+    __device__ float charge[num_atoms];
+    __device__ float position[num_atoms * 3];
+
+    // Water properties.
+    __device__ float sigma_water[num_points];
+    __device__ float epsilon_water[num_points];
+    __device__ float charge_water[num_points];
+
     extern "C"
     {
         __global__ void initialiseRNG(int* seed)
@@ -59,6 +70,35 @@ code = """
             const auto rf_cutoff3_inv = 1.0f / (rf_cutoff * rf_cutoff2);
             rf_kappa = rf_cutoff3_inv * (dielectric - 1.0f) / (2.0f * dielectric + 1.0f);
             rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
+        }
+
+        __global__ void setAtomProperties(
+            float* charges,
+            float* sigmas,
+            float* epsilons,
+            float* positions)
+        {
+            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+
+            if (tidx < num_atoms)
+            {
+                charge[tidx] = charges[tidx];
+                sigma[tidx] = sigmas[tidx];
+                epsilon[tidx] = epsilons[tidx];
+                position[tidx * 3] = positions[tidx * 3];
+                position[tidx * 3 + 1] = positions[tidx * 3 + 1];
+                position[tidx * 3 + 2] = positions[tidx * 3 + 2];
+            }
+        }
+
+        __global__ void setWaterProperties(float* charges, float* sigmas, float* epsilons)
+        {
+            for (int i = 0; i < num_points; i++)
+            {
+                charge_water[i] = charges[i];
+                sigma_water[i] = sigmas[i];
+                epsilon_water[i] = epsilons[i];
+            }
         }
 
         __device__ void wrapDelta(float* v0, float* v1, float* delta_box)
@@ -310,7 +350,7 @@ code = """
                 + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
         }
 
-        __global__ void generateWater(float* water_template, float* target, float radius, float* water_positions)
+        __global__ void generateWater(float* water_template, float* target, float radius, float* water_position)
         {
             // Work out the thread index.
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -362,16 +402,16 @@ code = """
                 xyz[2] = target[2] + r * xyz[2];
 
                 // Place the oxygen (first atom) at the random position.
-                water_positions[tidx * 9] = xyz[0];
-                water_positions[tidx * 9 + 1] = xyz[1];
-                water_positions[tidx * 9 + 2] = xyz[2];
+                water_position[tidx * 9] = xyz[0];
+                water_position[tidx * 9 + 1] = xyz[1];
+                water_position[tidx * 9 + 2] = xyz[2];
 
                 // Shift the hydrogens by the appropriate amount.
                 for (int i = 0; i < num_points-1; i++)
                 {
-                    water_positions[tidx * 9 + 3 + i*3] = xyz[0] + dh[i][0];
-                    water_positions[tidx * 9 + 4 + i*3] = xyz[1] + dh[i][1];
-                    water_positions[tidx * 9 + 5 + i*3] = xyz[2] + dh[i][2];
+                    water_position[tidx * 9 + 3 + i*3] = xyz[0] + dh[i][0];
+                    water_position[tidx * 9 + 4 + i*3] = xyz[1] + dh[i][1];
+                    water_position[tidx * 9 + 5 + i*3] = xyz[2] + dh[i][2];
                 }
 
                 // Set the new state.
@@ -379,18 +419,7 @@ code = """
             }
         }
 
-        __global__ void computeEnergy(
-                int num_atoms,
-                float *charges,
-                float* charge_water,
-                float* sigmas,
-                float* sigma_water,
-                float* epsilons,
-                float* epsilon_water,
-                float* positions,
-                float* water_positions,
-                float* energy_coul,
-                float* energy_lj)
+        __global__ void computeEnergy(float* water_position, float* energy_coul, float* energy_lj)
         {
             // Work out the atom index.
             int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
@@ -409,16 +438,16 @@ code = """
 
                 // Get the atom position.
                 float v0[3];
-                v0[0] = positions[3 * idx_atom];
-                v0[1] = positions[3 * idx_atom + 1];
-                v0[2] = positions[3 * idx_atom + 2];
+                v0[0] = position[3 * idx_atom];
+                v0[1] = position[3 * idx_atom + 1];
+                v0[2] = position[3 * idx_atom + 2];
 
                 // Store the charge on the atom.
-                auto c0 = charges[idx_atom];
+                auto c0 = charge[idx_atom];
 
                 // Store the epsilon and sigma for the atom.
-                float s0 = sigmas[idx_atom];
-                float e0 = epsilons[idx_atom];
+                float s0 = sigma[idx_atom];
+                float e0 = epsilon[idx_atom];
 
                 // Zero the energies.
                 energy_coul[idx] = 0.0;
@@ -429,9 +458,9 @@ code = """
                 {
                     // Get the water atom position.
                     float v1[3];
-                    v1[0] = water_positions[9 * idx_water + 3 * i];
-                    v1[1] = water_positions[9 * idx_water + 3 * i + 1];
-                    v1[2] = water_positions[9 * idx_water + 3 * i + 2];
+                    v1[0] = water_position[9 * idx_water + 3 * i];
+                    v1[1] = water_position[9 * idx_water + 3 * i + 1];
+                    v1[2] = water_position[9 * idx_water + 3 * i + 2];
 
                     // Calculate the squared distance between the atoms.
                     float r2;
