@@ -72,11 +72,7 @@ code = """
             rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
         }
 
-        __global__ void setAtomProperties(
-            float* charges,
-            float* sigmas,
-            float* epsilons,
-            float* positions)
+        __global__ void setAtomProperties(float* charges, float* sigmas, float* epsilons)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -85,6 +81,15 @@ code = """
                 charge[tidx] = charges[tidx];
                 sigma[tidx] = sigmas[tidx];
                 epsilon[tidx] = epsilons[tidx];
+            }
+        }
+
+        __global__ void setAtomPositions(float* positions)
+        {
+            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+
+            if (tidx < num_atoms)
+            {
                 position[tidx * 3] = positions[tidx * 3];
                 position[tidx * 3 + 1] = positions[tidx * 3 + 1];
                 position[tidx * 3 + 2] = positions[tidx * 3 + 2];

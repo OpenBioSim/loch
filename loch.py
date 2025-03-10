@@ -515,8 +515,9 @@ if __name__ == "__main__":
     cell_kernel = mod.get_function("setCellMatrix")
     rng_kernel = mod.get_function("initialiseRNG")
     rf_kernel = mod.get_function("setReactionField")
-    atom_setup_kernel = mod.get_function("setAtomProperties")
-    water_setup_kernel = mod.get_function("setWaterProperties")
+    atom_properties_kernel = mod.get_function("setAtomProperties")
+    atom_positions_kernel = mod.get_function("setAtomPositions")
+    water_properties_kernel = mod.get_function("setWaterProperties")
     water_kernel = mod.get_function("generateWater")
     energy_kernel = mod.get_function("computeEnergy")
 
@@ -544,17 +545,23 @@ if __name__ == "__main__":
     )
 
     # Set the atomic properties.
-    atom_setup_kernel(
+    atom_properties_kernel(
         charges_gpu,
         sigmas_gpu,
         epsilons_gpu,
+        block=(threads_per_block, 1, 1),
+        grid=(num_atoms, 1, 1),
+    )
+
+    # Set the atomic positions.
+    atom_positions_kernel(
         positions_gpu,
         block=(threads_per_block, 1, 1),
         grid=(num_atoms, 1, 1),
     )
 
     # Set the water properties.
-    water_setup_kernel(
+    water_properties_kernel(
         charge_water_gpu,
         sigma_water_gpu,
         epsilon_water_gpu,
