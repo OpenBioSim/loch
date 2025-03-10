@@ -84,6 +84,13 @@ code = """
             }
         }
 
+        __global__ updateAtomProperties(int idx, float charge, float sigmas, float epsilon)
+        {
+            charge[idx] = charge;
+            sigma[idx] = sigmas;
+            epsilon[idx] = epsilon;
+        }
+
         __global__ void setAtomPositions(float* positions)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
