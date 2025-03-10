@@ -5,17 +5,22 @@ GCMC CUDA kernels.
 code = """
     #include <curand_kernel.h>
 
+    // Constants.
     const float pi = 3.14159265359f;
     const int num_points = %(NUM_POINTS)s;
     const int num_waters = %(NUM_WATERS)s;
     const int num_atoms = %(NUM_ATOMS)s;
 
+    // Random number generator state for each water thread.
+    __device__ curandState_t* states[num_waters];
+
+    // Reaction field parameters.
     __device__ float rf_dielectric;
     __device__ float rf_kappa;
     __device__ float rf_cutoff;
     __device__ float rf_correction;
 
-    __device__ curandState_t* states[num_waters];
+    // Triclinic box cell information.
     __device__ float cell_matrix[3][3];
     __device__ float cell_matrix_inverse[3][3];
     __device__ float M[3][3];
