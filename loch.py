@@ -277,7 +277,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-def trial_move(probability, num_insertions):
+def trial_move(generator, probability, num_insertions):
     """
     Choose a trial move according to the probabilities.
 
@@ -297,8 +297,6 @@ def trial_move(probability, num_insertions):
         The state to move to.
     """
 
-    from random import choices
-
     # Compute the total probability.
     total_probability = np.sum(probability)
 
@@ -309,10 +307,11 @@ def trial_move(probability, num_insertions):
         probability = np.append(probability, 0.0)
 
     # Choose a state according to its probability.
-    return choices(np.arange(num_insertions + 1), k=1, weights=probability)[0]
+    return generator.choice(
+        np.arange(num_insertions + 1), p=probability / np.sum(probability)
+    )
 
 
-@njit
 def random_choice_numba(arr, prob):
     """
     Perform a random choice from an array with a given probability.
@@ -443,6 +442,9 @@ if __name__ == "__main__":
     # Seed the random number generator.
     if args.seed is not None:
         np.random.seed(args.seed)
+
+    # Create a random number generator.
+    generator = np.random.Generator(np.random.PCG64())
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
@@ -767,7 +769,7 @@ if __name__ == "__main__":
         probability_cpu = probability.get().flatten()
 
         # Get the new state.
-        state = trial_move(probability_cpu, num_insertions)
+        state = trial_move(generator, probability_cpu, num_insertions)
 
         end = time.time()
 
