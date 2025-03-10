@@ -256,6 +256,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
 
         # Get the OpenMM context.
         context = d._d._omm_mols
+
     else:
         from openmm.unit import kilocalorie_per_mole, nanometer, Quantity
 
