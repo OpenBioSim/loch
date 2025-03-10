@@ -248,7 +248,6 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
         d = system_sire.dynamics(
             cutoff=f"{cutoff} A",
             cutoff_type="rf",
-            map={"use_dispersion_correction": False},
         )
 
         # Get the energy of the system.
@@ -514,7 +513,6 @@ if __name__ == "__main__":
         d = system.dynamics(
             cutoff=f"{args.cut_off} A",
             cutoff_type="rf",
-            map={"use_dispersion_correction": False},
         )
         original_energy = beta * d.current_potential_energy().value()
     except Exception as e:
