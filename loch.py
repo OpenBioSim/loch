@@ -152,6 +152,9 @@ def create_gpu_memory(
     energy_lj: pycuda.gpuarray.GPUArray
         The LJ energy.
 
+    probability: pycuda.gpuarray.GPUArray
+        The acceptance probability.
+
     num_atoms: int
         The number of atoms.
     """
@@ -172,6 +175,7 @@ def create_gpu_memory(
     result_array = np.zeros((1, num_insertions * num_atoms)).astype(np.float32)
     energy_coul = gpuarray.to_gpu(result_array)
     energy_lj = gpuarray.to_gpu(result_array)
+    probability = gpuarray.to_gpu(np.zeros((1, num_insertions)).astype(np.float32))
 
     return (
         charges_gpu,
@@ -183,6 +187,7 @@ def create_gpu_memory(
         positions_gpu,
         energy_coul,
         energy_lj,
+        probability,
         num_atoms,
     )
 
@@ -348,9 +353,30 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
+        "--excess-chemical-potential",
+        help="The excess chemical potential in kcal/mol.",
+        type=float,
+        default=-6.09,
+        required=False,
+    )
+    parser.add_argument(
+        "--standard-volume",
+        help="The standard volume of water in Angstrom^3.",
+        type=float,
+        default=30.345,
+        required=False,
+    )
+    parser.add_argument(
         "--seed",
         help="The seed for the random number generator.",
         type=int,
+        required=False,
+    )
+    parser.add_argument(
+        "--adams-shift",
+        help="The Adams shift.",
+        type=float,
+        default=0.0,
         required=False,
     )
 
@@ -365,7 +391,18 @@ if __name__ == "__main__":
     threads_per_block = args.num_threads
 
     # Energy conversion factor.
-    kcal_per_mol_to_kt = 1 / (sr.units.k_boltz.to("kcal/(mol*kelvin)") * 298)
+    beta = 1 / (sr.units.k_boltz.to("kcal/(mol*kelvin)") * 298)
+
+    # Work out the volume of the GCMC sphere.
+    volume = (4.0 * np.pi * args.radius**3) / 3.0
+
+    # Work out the Adams value.
+    B = (
+        beta * args.excess_chemical_potential + np.log(volume / args.standard_volume)
+    ) + args.adams_shift
+
+    # Store the exponential of the B value.
+    exp_B = np.exp(B)
 
     # Make sure it's a multiple of 32.
     if threads_per_block % 32 != 0:
@@ -420,7 +457,7 @@ if __name__ == "__main__":
             cutoff_type="rf",
             map={"use_dispersion_correction": False},
         )
-        original_energy = kcal_per_mol_to_kt * d.current_potential_energy().value()
+        original_energy = beta * d.current_potential_energy().value()
     except Exception as e:
         raise ValueError(f"Could not get the initial energy: {e}")
 
@@ -483,6 +520,7 @@ if __name__ == "__main__":
         positions_gpu,
         energy_coul,
         energy_lj,
+        probability,
         num_atoms,
     ) = create_gpu_memory(
         charges,
@@ -520,6 +558,7 @@ if __name__ == "__main__":
     water_properties_kernel = mod.get_function("setWaterProperties")
     water_kernel = mod.get_function("generateWater")
     energy_kernel = mod.get_function("computeEnergy")
+    probability_kernel = mod.get_function("computeAcceptanceProbability")
 
     # Initialise the cell.
     cell_kernel(cell_matrix, cell_matrix_inverse, M, block=(1, 1, 1), grid=(1, 1, 1))
@@ -544,20 +583,24 @@ if __name__ == "__main__":
         grid=(1, 1, 1),
     )
 
+    # Work out the number of blocks to process the atoms.
+    atom_blocks = num_atoms // threads_per_block + 1
+
     # Set the atomic properties.
     atom_properties_kernel(
         charges_gpu,
         sigmas_gpu,
         epsilons_gpu,
         block=(threads_per_block, 1, 1),
-        grid=(num_atoms, 1, 1),
+        grid=(atom_blocks, 1, 1),
     )
 
     # Set the atomic positions.
     atom_positions_kernel(
         positions_gpu,
+        np.float32(1.0),
         block=(threads_per_block, 1, 1),
-        grid=(num_atoms, 1, 1),
+        grid=(atom_blocks, 1, 1),
     )
 
     # Set the water properties.
@@ -571,9 +614,6 @@ if __name__ == "__main__":
 
     # Initialise the memory to store the water positions.
     water_positions = gpuarray.empty((num_insertions, 9), np.float32)
-
-    # Work out the number of blocks to process the atoms.
-    atom_blocks = num_atoms // threads_per_block + 1
 
     # Loop over the batches.
     for i in range(args.num_batches):
@@ -611,15 +651,13 @@ if __name__ == "__main__":
         energy_coul_cpu = energy_coul.get().reshape(num_insertions, num_atoms)
         energy_lj_cpu = energy_lj.get().reshape(num_insertions, num_atoms)
 
+        prefactor = 1.0 / (4.0 * np.pi * sr.units.epsilon0.value())
+
         # Calculate sum of the Couloumb energy for each water in kT.
-        result_coul = (
-            kcal_per_mol_to_kt
-            * np.sum(energy_coul_cpu, axis=1)
-            / (4 * np.pi * sr.units.epsilon0.value())
-        )
+        result_coul = beta * prefactor * np.sum(energy_coul_cpu, axis=1)
 
         # Calculate the sum of the LJ energy for each water in kT.
-        result_lj = kcal_per_mol_to_kt * np.sum(energy_lj_cpu, axis=1)
+        result_lj = beta * np.sum(energy_lj_cpu, axis=1)
 
         # Sum the energies.
         energies = result_coul + result_lj
@@ -636,7 +674,7 @@ if __name__ == "__main__":
             new_energy, context = evaluate_candidate(
                 system, waters[idxs[0]], cutoff=args.cut_off, context=context
             )
-            new_energy *= kcal_per_mol_to_kt
+            new_energy *= beta
         except Exception as e:
             raise RuntimeError(f"Could not evaluate the candidate insertion: {e}")
 
@@ -648,3 +686,24 @@ if __name__ == "__main__":
             f"estimated {min_energy:.3f} kT, "
             f"difference {min_energy - (new_energy - original_energy):.3f} kT"
         )
+
+        # Compute the acceptance probabilities.
+        probability_kernel(
+            np.int32(0),
+            np.float32(exp_B),
+            np.float32(beta),
+            energy_coul,
+            energy_lj,
+            probability,
+            block=(threads_per_block, 1, 1),
+            grid=(water_blocks, 1, 1),
+        )
+
+        # Copy the probabilities back to the CPU.
+        probability_cpu = probability.get().flatten()
+
+        # Sort the probabilities. (Ascending order)
+        idxs = np.argsort(-probability_cpu)
+
+        # Print the best insertion probability.
+        print(f"Best insertion probability: {probability_cpu[idxs[0]]:.6f}")

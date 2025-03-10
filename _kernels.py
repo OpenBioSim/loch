@@ -10,6 +10,7 @@ code = """
     const int num_points = %(NUM_POINTS)s;
     const int num_waters = %(NUM_WATERS)s;
     const int num_atoms = %(NUM_ATOMS)s;
+    const float prefactor = 332.0637090025476f;
 
     // Random number generator state for each water thread.
     __device__ curandState_t* states[num_waters];
@@ -105,15 +106,15 @@ code = """
         }
 
         // Set the positions of each atom.
-        __global__ void setAtomPositions(float* positions)
+        __global__ void setAtomPositions(float* positions, float scale=1.0)
         {
             int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             if (tidx < num_atoms)
             {
-                position[tidx * 3] = positions[tidx * 3];
-                position[tidx * 3 + 1] = positions[tidx * 3 + 1];
-                position[tidx * 3 + 2] = positions[tidx * 3 + 2];
+                position[tidx * 3] = scale * positions[tidx * 3];
+                position[tidx * 3 + 1] = scale * positions[tidx * 3 + 1];
+                position[tidx * 3 + 2] = scale * positions[tidx * 3 + 2];
             }
         }
 
@@ -559,6 +560,29 @@ code = """
                         }
                     }
                 }
+            }
+        }
+
+        // Compute the acceptance probability for each insertion.
+        __global__ void computeAcceptanceProbability(
+            int N, float expB, float beta, float* energy_coul, float* energy_lj, float* probability)
+        {
+            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+
+            if (tidx < num_waters)
+            {
+                // Zero the energy.
+                float energy = 0.0;
+
+                // Sum the energy contributions from all the atoms.
+                for (int i = 0; i < num_atoms; i++)
+                {
+                    int idx = (tidx * num_atoms) + i;
+                    energy += prefactor * energy_coul[idx] + energy_lj[idx];
+                }
+
+                // Calculate the acceptance probability.
+                probability[tidx] = expB * expf(-beta * energy) / (N + 1);
             }
         }
     }
