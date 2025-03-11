@@ -559,6 +559,9 @@ if __name__ == "__main__":
         f"{target[0]}, {target[1]}, {target[2]}"
     )
 
+    # Create a dictionary to store the timings.
+    timings = {}
+
     # Get the atomic properties.
     start = time.time()
     charges, sigmas, epsilons, positions = get_atom_properties(system, search=search)
@@ -675,10 +678,13 @@ if __name__ == "__main__":
     # Initialise the memory to store the water positions.
     water_positions = gpuarray.empty((num_insertions, 9), np.float32)
 
+    # Coulomb energy prefactor.
+    prefactor = 1.0 / (4.0 * np.pi * sr.units.epsilon0.value())
+
     # Loop over the batches.
     for i in range(args.num_batches):
         # Print the batch number.
-        print(f"Batch {i+1}")
+        print(f"\nBatch {i+1}")
 
         # Initialise the water position array.
         start = time.time()
@@ -691,7 +697,7 @@ if __name__ == "__main__":
             grid=(water_blocks, 1, 1),
         )
         end = time.time()
-        print(f"Time taken to generate water positions: {1000*(end - start):.2f} ms")
+        timings["water"] = 1000 * (end - start)
 
         # Run the energy calculation.
         start = time.time()
@@ -703,15 +709,11 @@ if __name__ == "__main__":
             grid=(atom_blocks, num_insertions, 1),
         )
         end = time.time()
-
-        # Print the timing for the insertion calculation.
-        print(f"Time taken to evaluate interactions: {1000*(end - start):.2f} ms")
+        timings["energy"] = 1000 * (end - start)
 
         # Copy the results back to the CPU.
         energy_coul_cpu = energy_coul.get().reshape(num_insertions, num_atoms)
         energy_lj_cpu = energy_lj.get().reshape(num_insertions, num_atoms)
-
-        prefactor = 1.0 / (4.0 * np.pi * sr.units.epsilon0.value())
 
         # Calculate sum of the Couloumb energy for each water in kT.
         result_coul = beta * prefactor * np.sum(energy_coul_cpu, axis=1)
@@ -739,17 +741,17 @@ if __name__ == "__main__":
             raise RuntimeError(f"Could not evaluate the candidate insertion: {e}")
 
         # Print the energies.
+        print("Best candidate:")
         print(
-            f"Energies: before {original_energy:.3f} kT, "
-            f"after {new_energy:.3f} kT, "
-            f"change {new_energy - original_energy:.3f} kT, "
-            f"estimated {min_energy:.3f} kT, "
-            f"difference {min_energy - (new_energy - original_energy):.3f} kT"
+            f"  before {original_energy:.3f} kT\n"
+            f"  after {new_energy:.3f} kT\n"
+            f"  change {new_energy - original_energy:.3f} kT\n"
+            f"  estimated {min_energy:.3f} kT\n"
+            f"  difference {min_energy - (new_energy - original_energy):.3f} kT"
         )
 
-        start = time.time()
-
         # Compute the acceptance probabilities.
+        start = time.time()
         probability_kernel(
             np.int32(0),
             np.float32(exp_B),
@@ -760,24 +762,24 @@ if __name__ == "__main__":
             block=(threads_per_block, 1, 1),
             grid=(water_blocks, 1, 1),
         )
-
         end = time.time()
+        timings["probability"] = 1000 * (end - start)
 
-        print(f"Time taken to compute probabilities: {1000*(end - start):.2f} ms")
-
+        # Get the probabilities and choose a new state.
         start = time.time()
-
-        # Copy the probabilities back to the CPU.
         probability_cpu = probability.get().flatten()
-
-        # Get the new state.
         state = trial_move(generator, states, probability_cpu, num_insertions)
-
         end = time.time()
-
-        print(f"Time taken to choose move: {1000*(end - start):.2f} ms")
+        timings["choose"] = 1000 * (end - start)
 
         if state == num_insertions:
             print("Insertion rejected.")
         else:
-            print(f"Insertion accepted: {state}, position {waters[idxs[state]]}")
+            print("Insertion accepted:")
+            print(f"  state: {state}")
+            print(f"  position: {waters[state].tolist()}")
+
+        # Print the timings.
+        print("Timings:")
+        for key, value in timings.items():
+            print(f" {key}: {value:.2f} ms")
