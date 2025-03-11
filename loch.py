@@ -277,7 +277,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-def choose_state(rng, states, probability, num_insertions):
+def choose_state(rng, states, probability, num_insertions, threshold=1e-6):
     """
     Choose a trial move according to the probabilities.
 
@@ -312,6 +312,11 @@ def choose_state(rng, states, probability, num_insertions):
     # Update the probability of staying in the same state.
     if total_probability < 1.0:
         probability[-1] = 1.0 - total_probability
+
+    # Remove entries with low probability.
+    mask = probability > threshold
+    states = states[mask]
+    probability = probability[mask]
 
     # Choose a state according to its probability.
     return rng.choice(states, p=probability / np.sum(probability))
