@@ -277,7 +277,7 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-def trial_move(rng, states, probability, num_insertions):
+def choose_state(rng, states, probability, num_insertions):
     """
     Choose a trial move according to the probabilities.
 
@@ -777,7 +777,7 @@ if __name__ == "__main__":
         # Get the probabilities and choose a new state.
         start = time.time()
         probability_cpu = probability.get().flatten()
-        state = trial_move(rng, states, probability_cpu, num_insertions)
+        state = choose_state(rng, states, probability_cpu, num_insertions)
         end = time.time()
         timings["choose"] = 1000 * (end - start)
 
