@@ -277,12 +277,18 @@ def evaluate_candidate(system, candidate_position, cutoff, context=None):
     return energy, context
 
 
-def trial_move(generator, states, probability, num_insertions):
+def trial_move(rng, states, probability, num_insertions):
     """
     Choose a trial move according to the probabilities.
 
     Parameters
     ----------
+
+    rng: numpy.random.Generator
+        The random number generator.
+
+    states: numpy.ndarray
+        The states to choose from.
 
     probability: numpy.ndarray
         The probabilities of each move.
@@ -308,7 +314,7 @@ def trial_move(generator, states, probability, num_insertions):
         probability[-1] = 1.0 - total_probability
 
     # Choose a state according to its probability.
-    return generator.choice(states, p=probability / np.sum(probability))
+    return rng.choice(states, p=probability / np.sum(probability))
 
 
 def random_choice_numba(arr, prob):
@@ -443,7 +449,7 @@ if __name__ == "__main__":
         np.random.seed(args.seed)
 
     # Create a random number generator.
-    generator = np.random.Generator(np.random.PCG64())
+    rng = np.random.default_rng()
 
     # Set the max threads per block.
     threads_per_block = args.num_threads
@@ -771,7 +777,7 @@ if __name__ == "__main__":
         # Get the probabilities and choose a new state.
         start = time.time()
         probability_cpu = probability.get().flatten()
-        state = trial_move(generator, states, probability_cpu, num_insertions)
+        state = trial_move(rng, states, probability_cpu, num_insertions)
         end = time.time()
         timings["choose"] = 1000 * (end - start)
 
