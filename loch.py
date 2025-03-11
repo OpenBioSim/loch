@@ -681,6 +681,9 @@ if __name__ == "__main__":
     # Coulomb energy prefactor.
     prefactor = 1.0 / (4.0 * np.pi * sr.units.epsilon0.value())
 
+    # Number of accepted insertions.
+    accepted = 0
+
     # Loop over the batches.
     for i in range(args.num_batches):
         # Print the batch number.
@@ -778,8 +781,13 @@ if __name__ == "__main__":
             print("Insertion accepted:")
             print(f"  state: {state}")
             print(f"  position: {waters[state].tolist()}")
+            accepted += 1
 
         # Print the timings.
         print("Timings:")
         for key, value in timings.items():
             print(f" {key}: {value:.2f} ms")
+
+    # Print the acceptance probability.
+    print(f"\nNumber of accepted insertions: {accepted}")
+    print(f"Acceptance probability: {accepted/(args.num_batches*num_insertions):.5f}")
