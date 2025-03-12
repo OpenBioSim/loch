@@ -45,7 +45,7 @@ code = """
         // Initialisation of the random number generator state for each water thread.
         __global__ void initialiseRNG(int* seed)
         {
-            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             if (tidx < num_attempts)
             {
@@ -87,7 +87,7 @@ code = """
         // Set the properties of each atom.
         __global__ void setAtomProperties(float* charges, float* sigmas, float* epsilons)
         {
-            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             if (tidx < num_atoms)
             {
@@ -97,21 +97,10 @@ code = """
             }
         }
 
-        // Update the properties for a single water.
-        __global__ void updateAtomProperties(int start_idx, float* charge, float* sigmas, float* epsilon)
-        {
-            for (int i = 0; i < num_points; i++)
-            {
-                charge_water[i] = charge[start_idx + i];
-                sigma_water[i] = sigmas[start_idx + i];
-                epsilon_water[i] = epsilon[start_idx + i];
-            }
-        }
-
         // Set the positions of each atom.
         __global__ void setAtomPositions(float* positions, float scale=1.0)
         {
-            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             if (tidx < num_atoms)
             {
@@ -139,23 +128,28 @@ code = """
         }
 
         // Update a single water.
-        __global__ void updateWater(int idx, int start_idx, int state)
+        __global__ void updateWater(int idx, int state)
         {
+            // Set the new state.
             water_state[idx] = state;
+
+            // Get the water oxygen index in the context.
+            int idx_context = water_idx[idx];
 
             for (int i = 0; i < num_points; i++)
             {
+                // Ghost water.
                 if (state == 0)
                 {
-                    charge[start_idx + i] = 0.0f;
-                    sigma[start_idx + i] = 1e-9f;
-                    epsilon[start_idx + i] = 1e-9f;
+                    charge[idx_context + i] = 0.0f;
+                    sigma[idx_context + i] = 1e-9;
+                    epsilon[idx_context + i] = 1e-9;
                 }
                 else
                 {
-                    charge[start_idx + i] = charge_water[i];
-                    sigma[start_idx + i] = sigma_water[i];
-                    epsilon[start_idx + i] = epsilon_water[i];
+                    charge[idx_context + i] = charge_water[i];
+                    sigma[idx_context + i] = sigma_water[i];
+                    epsilon[idx_context + i] = epsilon_water[i];
                 }
             }
         }
@@ -417,7 +411,7 @@ code = """
         __global__ void generateWater(float* water_template, float* target, float radius, float* water_position)
         {
             // Work out the thread index.
-            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             // Make sure we are within the number of waters.
             if (tidx < num_attempts)
@@ -483,11 +477,16 @@ code = """
             }
         }
 
-        // Compute the Lennard-Jones and reaction field Coulombic energies between the water and the atoms.
-        __global__ void computeEnergy(float* water_position, float* energy_coul, float* energy_lj)
+        // Compute the Lennard-Jones and reaction field Coulomb energy between the water and the atoms.
+        __global__ void computeEnergy(
+            float* water_position,
+            float* energy_coul,
+            float* energy_lj,
+            int* deletion_candidates,
+            int is_deletion)
         {
             // Work out the atom index.
-            int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
+            const int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
 
             // Make sure we're in bounds.
             if (idx_atom < num_atoms)
@@ -496,10 +495,25 @@ code = """
                 const auto cutoff2 = rf_cutoff * rf_cutoff;
 
                 // Work out the water index.
-                int idx_water = blockIdx.y;
+                const int idx_water = blockIdx.y;
 
                 // Work out the index for the result.
-                int idx = (idx_water * num_atoms) + idx_atom;
+                const int idx = (idx_water * num_atoms) + idx_atom;
+
+                // This is a deletion move, so we need to get the correct water index.
+                if (is_deletion == 1)
+                {
+                    const int idx_water_context = water_idx[deletion_candidates[idx_water]];
+                    const auto delta = idx_atom - idx_water_context;
+
+                    // Don't compute self-interactions.
+                    if (delta >= 0 and delta < num_points)
+                    {
+                        energy_coul[idx] = 0.0;
+                        energy_lj[idx] = 0.0;
+                        return;
+                    }
+                }
 
                 // Get the atom position.
                 float v0[3];
@@ -523,9 +537,19 @@ code = """
                 {
                     // Get the water atom position.
                     float v1[3];
-                    v1[0] = water_position[3 * num_points * idx_water + 3 * i];
-                    v1[1] = water_position[3 * num_points * idx_water + 3 * i + 1];
-                    v1[2] = water_position[3 * num_points * idx_water + 3 * i + 2];
+                    if (is_deletion == 1)
+                    {
+                        const int idx_water_context = water_idx[deletion_candidates[idx_water]];
+                        v1[0] = position[3 * idx_water_context + 3 * i];
+                        v1[1] = position[3 * idx_water_context + 3 * i + 1];
+                        v1[2] = position[3 * idx_water_context + 3 * i + 2];
+                    }
+                    else
+                    {
+                        v1[0] = water_position[3 * num_points * idx_water + 3 * i];
+                        v1[1] = water_position[3 * num_points * idx_water + 3 * i + 1];
+                        v1[2] = water_position[3 * num_points * idx_water + 3 * i + 2];
+                    }
 
                     // Calculate the squared distance between the atoms.
                     float r2;
@@ -596,9 +620,15 @@ code = """
 
         // Compute the acceptance probability for each insertion.
         __global__ void computeAcceptanceProbability(
-            int N, float expB, float beta, float* energy_coul, float* energy_lj, float* probability)
+            int N,
+            float sign,
+            float expB,
+            float beta,
+            float* energy_coul,
+            float* energy_lj,
+            float* probability)
         {
-            int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             if (tidx < num_attempts)
             {
@@ -613,7 +643,42 @@ code = """
                 }
 
                 // Calculate the acceptance probability.
-                probability[tidx] = expB * expf(-beta * energy) / (N + 1);
+                probability[tidx] = expB * expf(-beta * sign * energy) / (N + 1);
+            }
+        }
+
+        // Find candidate waters for deletion.
+        __global__ void findDeletionCandidates(int* candidates, float* target, float radius)
+        {
+            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+
+            if (tidx < num_waters)
+            {
+                // Null the candidate.
+                candidates[tidx] = 0;
+
+                // This isn't a ghost water, so make sure it's within the GCMC sphere.
+                if (water_state[tidx] != 0)
+                {
+                    // Get the water oxygen index.
+                    int idx = water_idx[tidx];
+
+                    // Get the oxygen atom position.
+                    float v0[3];
+                    v0[0] = position[3 * idx];
+                    v0[1] = position[3 * idx + 1];
+                    v0[2] = position[3 * idx + 2];
+
+                    // Calculate the distance between the water and the target.
+                    float r2;
+                    distance2(v0, target, r2);
+
+                    // The water is within the GCMC sphere. Flag it as a candidate.
+                    if (r2 < radius * radius)
+                    {
+                        candidates[tidx] = 1;
+                    }
+                }
             }
         }
     }
