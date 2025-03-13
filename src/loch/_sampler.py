@@ -24,7 +24,7 @@ class GCMCSampler:
         reference,
         radius="4 A",
         cutoff_type="rf",
-        cut_off="10.0 A",
+        cutoff="10.0 A",
         excess_chemical_potential="-6.09 kcal/mol",
         standard_volume="30.345 A^3",
         temperature="298 K",
@@ -54,7 +54,7 @@ class GCMCSampler:
         cutoff_type: str
             The type of cutoff to use.
 
-        cut_off: str
+        cutoff: str
             The cutoff distance for the non-bonded interactions.
 
         excess_chemical_potential: str
@@ -115,9 +115,9 @@ class GCMCSampler:
             raise ValueError(f"Could not validate the 'radius': {e}")
 
         try:
-            self._cut_off = self._validate_sire_unit("cut_off", cut_off, _sr.u("A"))
+            self._cutoff = self._validate_sire_unit("cutoff", cutoff, _sr.u("A"))
         except Exception as e:
-            raise ValueError(f"Could not validate the 'cut_off': {e}")
+            raise ValueError(f"Could not validate the 'cutoff': {e}")
 
         try:
             self._excess_chemical_potential = self._validate_sire_unit(
@@ -324,7 +324,7 @@ class GCMCSampler:
             f"reference={self._reference}, "
             f"radius={self._radius}, "
             f"cutoff_type={self._cutoff_type}, "
-            f"cut_off={self._cut_off}, "
+            f"cutoff={self._cutoff}, "
             f"excess_chemical_potential={self._excess_chemical_potential}, "
             f"standard_volume={self._standard_volume}, "
             f"temperature={self._temperature}, "
@@ -625,7 +625,7 @@ class GCMCSampler:
 
         # Initialise the reaction field parameters.
         self._kernels["rf"](
-            _np.float32(self._cut_off.value()),
+            _np.float32(self._cutoff.value()),
             _np.float32(78.3),
             block=(1, 1, 1),
             grid=(1, 1, 1),
