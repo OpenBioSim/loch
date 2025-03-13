@@ -4,7 +4,13 @@ import sire as sr
 
 mols = sr.load("examples/scytalone-dehydratase/outputs/*7")
 
-sampler = GCMCSampler(mols, "(residx 22 or residx 42) and (atomname OH)", num_attempts=10000, cutoff_type="pme")
+sampler = GCMCSampler(
+    mols,
+    "(residx 22 or residx 42) and (atomname OH)",
+    num_attempts=10000,
+    cutoff_type="rf",
+    log_level="debug",
+)
 
 d = sampler.system().dynamics(cutoff_type="rf", pressure=None)
 context = d.context()

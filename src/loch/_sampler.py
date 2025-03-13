@@ -33,7 +33,7 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         water_template=None,
-        log_level="INFO",
+        log_level="info",
         seed=None,
     ):
         """
@@ -166,10 +166,17 @@ class GCMCSampler:
 
         if not isinstance(log_level, str):
             raise ValueError("The log level must be of type 'str'.")
-        log_level = log_level.upper().replace(" ", "")
-        if not log_level in _logger._core.levels:
-            raise ValueError(f"Invalid log level: {log_level}. Choices are: {_logger._core.levels}")
+        log_level = log_level.lower().replace(" ", "")
+        allowed_levels = [level.lower() for level in _logger._core.levels]
+        if not log_level in allowed_levels:
+            raise ValueError(
+                f"Invalid log level: {log_level}. Choices are: {', '.join(allowed_levels)}"
+            )
         self._log_level = log_level
+        if self._log_level == "debug":
+            self._is_debug = True
+        else:
+            self._is_debug = False
 
         if seed is not None:
             if not isinstance(seed, int):
@@ -287,6 +294,9 @@ class GCMCSampler:
         self._exp_B = _np.exp(B)
         self._exp_minus_B = _np.exp(-B)
 
+        # Coulomb energy prefactor.
+        self._prefactor = 1.0 / (4.0 * _np.pi * _sr.units.epsilon0.value())
+
         # Zero the number of waters in the GCMC region.
         self._N = 0
 
@@ -297,6 +307,12 @@ class GCMCSampler:
 
         # Null the nonbonded force.
         self._nonbonded_force = None
+
+        import sys
+
+        # Create a logger that writes to stderr.
+        _logger.remove()
+        _logger.add(sys.stderr, level=self._log_level.upper())
 
     def __str__(self):
         """
@@ -317,6 +333,7 @@ class GCMCSampler:
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
             f"water_template={self._water_template}, "
+            f"log_level={self._log_level}, "
             f"seed={self._seed})"
         )
 
@@ -764,7 +781,7 @@ class GCMCSampler:
         # Compute the total probability.
         total_probability = _np.sum(probability)
 
-        print("Total probability:", total_probability)
+        _logger.debug(f"Total probability: {total_probability:.6f}")
 
         # Update the probability of staying in the same state.
         if total_probability < 1.0:
@@ -867,6 +884,9 @@ class GCMCSampler:
         else:
             return self.deletion_move(context)
 
+        # Log the current number of waters.
+        _logger.debug(f"Number of waters: {self._N}")
+
     def insertion_move(self, context):
         """
         Perform a trial insertion move.
@@ -890,7 +910,7 @@ class GCMCSampler:
             Whether the move was accepted.
         """
 
-        print("\nPerforming insertion move.")
+        _logger.debug("Performing insertion move.")
 
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
@@ -957,6 +977,9 @@ class GCMCSampler:
             self._rng, self._states, probability_cpu, self._num_attempts
         )
 
+        # Whether the move was accepted.
+        is_accepted = False
+
         # A candidate insertion was accepted.
         if state != self._num_attempts:
             # Accept the move.
@@ -965,6 +988,8 @@ class GCMCSampler:
             # Update the acceptance statistics.
             self._num_accepted += 1
             self._num_insertions += 1
+
+            is_accepted = True
 
             # Advance to the PME insertion check.
             if self._is_pme:
@@ -988,17 +1013,27 @@ class GCMCSampler:
                     self._num_accepted -= 1
                     self._num_insertions -= 1
 
-        # Get the energies.
-        energy_couls = self._energy_coul.get().reshape(
-            (self._num_attempts, self._num_atoms)
-        )
-        energy_ljs = self._energy_lj.get().reshape(
-            (self._num_attempts, self._num_atoms)
-        )
+                    is_accepted = False
 
-        if state < self._num_attempts:
-            print("Coulomb energy:", energy_couls[state].sum())
-            print("LJ energy:", energy_ljs[state].sum())
+        if is_accepted and self._is_debug:
+            # Get the energies.
+            energy_couls = self._energy_coul.get().reshape(
+                (self._num_attempts, self._num_atoms)
+            )
+            energy_ljs = self._energy_lj.get().reshape(
+                (self._num_attempts, self._num_atoms)
+            )
+
+            # Log the accepted candidate.
+            _logger.debug(f"Accepted insertion: candidate={state}, water={idx}")
+
+            # Log the energies of the accepted candidate.
+            _logger.debug(
+                f"Coulomb energy: {self._prefactor*energy_couls[state].sum():.6f} kcal/mol"
+            )
+            _logger.debug(
+                f"Lennard-Jones energy: {energy_ljs[state].sum():.6f} kcal/mol"
+            )
 
         return context, "insertion", state != self._num_attempts
 
@@ -1025,7 +1060,7 @@ class GCMCSampler:
             Whether the move was accepted.
         """
 
-        print("\nPerforming deletion move.")
+        _logger.debug("Performing deletion move.")
 
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
@@ -1066,9 +1101,9 @@ class GCMCSampler:
         # Find the waters within the GCMC sphere.
         candidates = _np.argwhere(candidates == 1).flatten()
 
-        # Print the candidates.
-        print("Number of deletion candidates:", len(candidates))
-        print("Deletion candidates:", candidates)
+        # Log the candidates.
+        _logger.debug(f"Number of deletion candidates: {len(candidates)}")
+        _logger.debug(f"Deletion candidates: {candidates}")
 
         if len(candidates) == 0:
             return context, "deletion", False
@@ -1086,15 +1121,6 @@ class GCMCSampler:
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, self._num_attempts, 1),
         )
-
-        # Get the coulomb and LJ energies.
-        energy_coul = self._energy_coul.get().reshape(
-            (self._num_attempts, self._num_atoms)
-        )
-        energy_lj = self._energy_lj.get().reshape((self._num_attempts, self._num_atoms))
-
-        print("Coulomb energy:", energy_coul[1].sum())
-        print("LJ energy:", energy_lj[1].sum())
 
         # Compute the acceptance probabilities.
         self._kernels["probability"](
@@ -1116,6 +1142,9 @@ class GCMCSampler:
             self._rng, self._states, probability_cpu, self._num_attempts
         )
 
+        # Whether the move was accepted.
+        is_accepted = False
+
         # A candidate deletion was accepted.
         if state != self._num_attempts:
             # Accept the move.
@@ -1124,6 +1153,8 @@ class GCMCSampler:
             # Update the acceptance statistics.
             self._num_accepted += 1
             self._num_deletions += 1
+
+            is_accepted = True
 
             # Advance to the PME insertion check.
             if self._is_pme:
@@ -1148,6 +1179,28 @@ class GCMCSampler:
                     # Update the acceptance statistics.
                     self._num_accepted -= 1
                     self._num_deletions -= 1
+
+                    is_accepted = False
+
+        if is_accepted and self._is_debug:
+            # Get the coulomb and LJ energies.
+            energy_coul = self._energy_coul.get().reshape(
+                (self._num_attempts, self._num_atoms)
+            )
+            energy_lj = self._energy_lj.get().reshape(
+                (self._num_attempts, self._num_atoms)
+            )
+
+            # Log the accepted candidate.
+            _logger.debug(
+                f"Accepted deletion: candidate={state}, water={candidates[state]}"
+            )
+
+            # Log the energies of the first candidate.
+            _logger.debug(
+                f"Coulomb energy: {self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
+            )
+            _logger.debug(f"LJ energy: {energy_lj[0].sum():.6f} kcal/mol")
 
         return context, "deletion", state != self._num_attempts
 
@@ -1188,10 +1241,6 @@ class GCMCSampler:
         idx = _np.unravel_index(
             (self._water_state == 0).argmax(), self._water_state.shape
         )[0]
-
-        print(
-            f"Accepting insertion of water {state} idx {idx}, {self._water_indices[idx]}"
-        )
 
         # Update the water state.
         self._water_state[idx] = 1
@@ -1253,8 +1302,6 @@ class GCMCSampler:
         previous_state: int
             The previous state of the water.
         """
-
-        print(f"Accepting deletion of water {state} idx {self._water_indices[state]}")
 
         # Store the curent water state.
         previous_state = self._water_state[state]
