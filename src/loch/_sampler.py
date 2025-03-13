@@ -222,7 +222,7 @@ class GCMCSampler:
         # Prepare the system for GCMC sampling.
         try:
             self._system, self._water_indices = self._prepare_system(
-                system, self._water_template, self._max_gcmc_waters
+                system, self._water_template, self._rng, self._max_gcmc_waters
             )
             self._num_atoms = self._system.num_atoms()
             self._num_waters = len(self._water_indices)
@@ -474,7 +474,7 @@ class GCMCSampler:
         return _np.array(indices)
 
     @staticmethod
-    def _prepare_system(system, water_template, max_gcmc_waters):
+    def _prepare_system(system, water_template, rng, max_gcmc_waters):
         """
         Prepare the system for GCMC sampling.
 
@@ -486,6 +486,9 @@ class GCMCSampler:
 
         water_template: sire.molecule.Molecule
             The water template.
+
+        rng: numpy.random.Generator
+            The random number generator.
 
         max_gcmc_waters: int
             The maximum number of GCMC waters to insert.
@@ -515,7 +518,11 @@ class GCMCSampler:
         # First create the GCMC waters.
         waters = []
         for i in range(max_gcmc_waters):
-            waters.append(water_template.copy())
+            water = water_template.copy()
+            water.translate(
+                (2.0 * rng.random() - 1.0) * _BSS.Units.Length.angstrom * [1, 1, 1]
+            )
+            waters.append(water)
 
         # Add the waters to the system.
         bss_system += waters
