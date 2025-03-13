@@ -620,7 +620,8 @@ code = """
 
         // Compute the acceptance probability for each insertion.
         __global__ void computeAcceptanceProbability(
-            int N,
+            int N_insert,
+            int N_delete,
             float sign,
             float expB,
             float beta,
@@ -643,7 +644,7 @@ code = """
                 }
 
                 // Calculate the acceptance probability.
-                probability[tidx] = expB * expf(-beta * sign * energy) / (N + 1);
+                probability[tidx] = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
             }
         }
 

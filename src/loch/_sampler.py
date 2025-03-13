@@ -1,6 +1,8 @@
 import numpy as _np
 import openmm as _openmm
 
+from loguru import logger as _logger
+
 import pycuda.gpuarray as _gpuarray
 import pycuda.autoinit as _autoinit
 from pycuda.compiler import SourceModule as _SourceModule
@@ -31,6 +33,7 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         water_template=None,
+        log_level="INFO",
         seed=None,
     ):
         """
@@ -79,6 +82,9 @@ class GCMCSampler:
             A water molecule to use as a template. This is only required when
             the system does not contain any water molecules.
 
+        log_level: str
+            The logging level.
+
         seed: int
             The seed for the random number generator.
         """
@@ -97,6 +103,11 @@ class GCMCSampler:
         if not cutoff_type in ["rf", "pme"]:
             raise ValueError("The cutoff type must be 'rf' or 'pme'.")
         self._cutoff_type = cutoff_type
+
+        if self._cutoff_type == "pme":
+            self._is_pme = True
+        else:
+            self._is_pme = False
 
         try:
             self._radius = self._validate_sire_unit("radius", radius, _sr.u("A"))
@@ -152,6 +163,13 @@ class GCMCSampler:
         if not num_threads % 32 == 0:
             raise ValueError("The number of threads must be a multiple of 32.")
         self._num_threads = num_threads
+
+        if not isinstance(log_level, str):
+            raise ValueError("The log level must be of type 'str'.")
+        log_level = log_level.upper().replace(" ", "")
+        if not log_level in _logger._core.levels:
+            raise ValueError(f"Invalid log level: {log_level}. Choices are: {_logger._core.levels}")
+        self._log_level = log_level
 
         if seed is not None:
             if not isinstance(seed, int):
@@ -245,9 +263,15 @@ class GCMCSampler:
 
         # Set constants.
 
-        # Energy conversion factor.
-        self._beta = 1 / (
+        # Energy conversion factors.
+        self._beta = 1.0 / (
             _sr.units.k_boltz.to("kcal/(mol*kelvin)") * self._temperature.value()
+        )
+        self._beta_openmm = 1.0 / (
+            _openmm.unit.BOLTZMANN_CONSTANT_kB
+            * _openmm.unit.AVOGADRO_CONSTANT_NA
+            * self._temperature.value()
+            * _openmm.unit.kelvin
         )
 
         # Work out the volume of the GCMC sphere.
@@ -265,6 +289,11 @@ class GCMCSampler:
 
         # Zero the number of waters in the GCMC region.
         self._N = 0
+
+        # Zero the number of accepted moves.
+        self._num_accepted = 0
+        self._num_insertions = 0
+        self._num_deletions = 0
 
         # Null the nonbonded force.
         self._nonbonded_force = None
@@ -749,7 +778,7 @@ class GCMCSampler:
         # Choose a state according to its probability.
         return rng.choice(states, p=probability / _np.sum(probability))
 
-    def get_system(self):
+    def system(self):
         """
         Return the GCMC system.
 
@@ -760,6 +789,54 @@ class GCMCSampler:
             The GCMC system.
         """
         return self._system
+
+    def num_waters(self):
+        """
+        Return the number of waters in the GCMC region.
+
+        Returns
+        -------
+
+        num_waters: int
+            The number of waters.
+        """
+        return self._N
+
+    def num_accepted(self):
+        """
+        Return the number of accepted moves.
+
+        Returns
+        -------
+
+        num_accepted: int
+            The number of accepted moves.
+        """
+        return self._num_accepted
+
+    def num_insertions(self):
+        """
+        Return the number of accepted insertions.
+
+        Returns
+        -------
+
+        num_insertions: int
+            The number of accepted insertions.
+        """
+        return self._num_insertions
+
+    def num_deletions(self):
+        """
+        Return the number of accepted deletions.
+
+        Returns
+        -------
+
+        num_deletions: int
+            The number of accepted deletions.
+        """
+        return self._num_deletions
 
     def move(self, context):
         """
@@ -818,11 +895,15 @@ class GCMCSampler:
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
 
+        # Get the OpenMM state.
+        state = context.getState(getPositions=True, getEnergy=self._is_pme)
+
         # Get the current positions in Angstrom.
-        positions = (
-            context.getState(getPositions=True).getPositions(asNumpy=True)
-            / _openmm.unit.angstrom
-        )
+        positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+        # If we're using PME, then store the initial energy.
+        if self._is_pme:
+            initial_energy = state.getPotentialEnergy()
 
         # Get the target position.
         target = self._get_target_position(positions)
@@ -859,6 +940,7 @@ class GCMCSampler:
         # Compute the acceptance probabilities.
         self._kernels["probability"](
             _np.int32(self._N),
+            _np.int32(1),
             _np.float32(1.0),
             _np.float32(self._exp_B),
             _np.float32(self._beta),
@@ -877,13 +959,34 @@ class GCMCSampler:
 
         # A candidate insertion was accepted.
         if state != self._num_attempts:
-            # If we're using reaction field, then we're good to go.
-            if self._cutoff_type == "rf":
-                context = self._accept_insertion(state, context)
-            else:
-                # Otherwise we need to evaluate the energy of the candidate state
-                # at the PME level.
-                context = self._evaluate_candidate(context, state, 0)
+            # Accept the move.
+            context, idx = self._accept_insertion(state, context)
+
+            # Update the acceptance statistics.
+            self._num_accepted += 1
+            self._num_insertions += 1
+
+            # Advance to the PME insertion check.
+            if self._is_pme:
+                # Get the new energy.
+                final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+
+                # Compute the acceptance probability for the insertion. Note that N has
+                # already been updated, so divide by N rather than N + 1.
+                acc_prob = (
+                    self._exp_B
+                    * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
+                    / self._N
+                )
+
+                # The move was rejected.
+                if acc_prob < self._rng.random():
+                    # Revert the move by deleting the water.
+                    context = self._accept_deletion(idx, context)
+
+                    # Update the acceptance statistics.
+                    self._num_accepted -= 1
+                    self._num_insertions -= 1
 
         # Get the energies.
         energy_couls = self._energy_coul.get().reshape(
@@ -927,11 +1030,15 @@ class GCMCSampler:
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
 
+        # Get the OpenMM state.
+        state = context.getState(getPositions=True, getEnergy=self._is_pme)
+
         # Get the current positions in Angstrom.
-        positions = (
-            context.getState(getPositions=True).getPositions(asNumpy=True)
-            / _openmm.unit.angstrom
-        )
+        positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+        # If we're using PME, then store the initial energy.
+        if self._is_pme:
+            initial_energy = state.getPotentialEnergy()
 
         # Get the target position.
         target = self._get_target_position(positions)
@@ -992,6 +1099,7 @@ class GCMCSampler:
         # Compute the acceptance probabilities.
         self._kernels["probability"](
             _np.int32(0),
+            _np.int32(self._N),
             _np.float32(-1.0),
             _np.float32(self._exp_minus_B),
             _np.float32(self._beta),
@@ -1010,13 +1118,36 @@ class GCMCSampler:
 
         # A candidate deletion was accepted.
         if state != self._num_attempts:
-            # If we're using reaction field, then we're good to go.
-            if self._cutoff_type == "rf":
-                context = self._accept_deletion(candidates[state], context)
-            else:
-                # Otherwise we need to evaluate the energy of the candidate state
-                # at the PME level.
-                context = self._evaluate_candidate(context, candidates[state], 1)
+            # Accept the move.
+            context, previous_state = self._accept_deletion(candidates[state], context)
+
+            # Update the acceptance statistics.
+            self._num_accepted += 1
+            self._num_deletions += 1
+
+            # Advance to the PME insertion check.
+            if self._is_pme:
+                # Get the new energy.
+                final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+
+                # Compute the acceptance probability for the insertion. Note that N has
+                # already been updated, so multiply by N + 1 rather than N.
+                acc_prob = (
+                    (self._N + 1)
+                    * self._exp_minus_B
+                    * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
+                )
+
+                # The move was rejected.
+                if acc_prob < self._rng.random():
+                    # Revert the move.
+                    context = self._reject_deletion(
+                        candidates[state], previous_state, context
+                    )
+
+                    # Update the acceptance statistics.
+                    self._num_accepted -= 1
+                    self._num_deletions -= 1
 
         return context, "deletion", state != self._num_attempts
 
@@ -1038,6 +1169,9 @@ class GCMCSampler:
 
         context: openmm.Context
             The updated OpenMM context.
+
+        idx: int
+            The index of the water that was inserted.
         """
 
         if self._N == self._max_gcmc_waters:
@@ -1095,7 +1229,7 @@ class GCMCSampler:
         # Update the number of GCMC waters.
         self._N += 1
 
-        return context
+        return context, idx
 
     def _accept_deletion(self, state, context):
         """
@@ -1115,9 +1249,15 @@ class GCMCSampler:
 
         context: openmm.Context
             The updated OpenMM context.
+
+        previous_state: int
+            The previous state of the water.
         """
 
         print(f"Accepting deletion of water {state} idx {self._water_indices[state]}")
+
+        # Store the curent water state.
+        previous_state = self._water_state[state]
 
         # Update the water state.
         self._water_state[state] = 0
@@ -1142,6 +1282,60 @@ class GCMCSampler:
 
         # Update the number of GCMC waters.
         self._N -= 1
+
+        return context, previous_state
+
+    def _reject_deletion(self, state, context):
+        """
+        Reject a deletion move.
+
+        Parameters
+        ----------
+
+        idx: int
+            The index of the water.
+
+        state: int
+            The previous state of the water.
+
+        context: openmm.Context
+            The OpenMM context to update.
+
+        Returns
+        -------
+
+        context: openmm.Context
+            The updated OpenMM context.
+        """
+
+        # Reset the water state.
+        self._water_state[idx] = previous_state
+
+        # Get the starting atom index.
+        start_idx = self._water_indices[idx]
+
+        # Update the NonBondedForce.
+        for i in range(self._num_points):
+            self._nonbonded_force.setParticleParameters(
+                start_idx + i,
+                self._water_charge[i] * _openmm.unit.elementary_charge,
+                self._water_sigma[i] * _openmm.unit.angstrom,
+                self._water_epsilon[i] * _openmm.unit.kilocalorie_per_mole,
+            )
+
+        # Update the NonbondedForce parameters in the context.
+        self._nonbonded_force.updateParametersInContext(context)
+
+        # Update the state of the water on the GPU.
+        self._kernels["update_water"](
+            _np.int32(idx),
+            _np.int32(previous_state),
+            block=(1, 1, 1),
+            grid=(1, 1, 1),
+        )
+
+        # Update the number of GCMC waters.
+        self._N += 1
 
         return context
 
