@@ -792,8 +792,7 @@ class GCMCSampler:
         accepted: bool
             Whether the move was accepted.
         """
-
-        # Choose a move.
+        # Choose a random move.
         if _np.random.randint(2) == 1:
             return self.insertion_move(context)
         else:
