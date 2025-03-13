@@ -27,7 +27,7 @@ class GCMCSampler:
         standard_volume="30.345 A^3",
         temperature="298 K",
         adams_shift=0.0,
-        max_gcmc_waters=100,
+        max_gcmc_waters=10,
         num_attempts=10000,
         num_threads=1024,
         water_template=None,
@@ -286,7 +286,9 @@ class GCMCSampler:
             f"max_gcmc_waters={self._max_gcmc_waters}, "
             f"adams_shift={self._adams_shift}, "
             f"num_attempts={self._num_attempts}, "
-            f"num_threads={self._num_threads})"
+            f"num_threads={self._num_threads}), "
+            f"water_template={self._water_template}, "
+            f"seed={self._seed})"
         )
 
     def __repr__(self):
