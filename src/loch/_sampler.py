@@ -946,16 +946,26 @@ class GCMCSampler:
                     / self._N
                 )
 
+                # Log the PME energy difference and acceptance probability.
+                if self._is_debug:
+                    delta_energy = (final_energy - initial_energy).value_in_unit(
+                        _openmm.unit.kilocalorie_per_mole
+                    )
+                    _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
+                    _logger.debug(f"PME deletion probability: {acc_prob:.6f}")
+
                 # The move was rejected.
                 if acc_prob < self._rng.random():
                     # Revert the move by deleting the water.
-                    context = self._accept_deletion(idx, context)
+                    context, _ = self._accept_deletion(idx, context)
 
                     # Update the acceptance statistics.
                     self._num_accepted -= 1
                     self._num_insertions -= 1
 
                     is_accepted = False
+
+                    _logger.debug("PME insertion rejected")
 
         if is_accepted and self._is_debug:
             # Get the energies.
@@ -1117,6 +1127,14 @@ class GCMCSampler:
                     * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
                 )
 
+                # Log the PME energy difference and acceptance probability.
+                if self._is_debug:
+                    delta_energy = (final_energy - initial_energy).value_in_unit(
+                        _openmm.unit.kilocalorie_per_mole
+                    )
+                    _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
+                    _logger.debug(f"PME insertion probability: {acc_prob:.6f}")
+
                 # The move was rejected.
                 if acc_prob < self._rng.random():
                     # Revert the move.
@@ -1129,6 +1147,8 @@ class GCMCSampler:
                     self._num_deletions -= 1
 
                     is_accepted = False
+
+                    _logger.debug("PME deletion rejected")
 
         if is_accepted and self._is_debug:
             # Get the coulomb and LJ energies.
@@ -1228,14 +1248,14 @@ class GCMCSampler:
 
         return context, idx
 
-    def _accept_deletion(self, state, context):
+    def _accept_deletion(self, idx, context):
         """
         Accept a deletion move.
 
         Parameters
         ----------
 
-        state: int
+        idx: int
             The index of the accepted state.
 
         context: openmm.Context
@@ -1252,13 +1272,13 @@ class GCMCSampler:
         """
 
         # Store the curent water state.
-        previous_state = self._water_state[state]
+        previous_state = self._water_state[idx]
 
         # Update the water state.
-        self._water_state[state] = 0
+        self._water_state[idx] = 0
 
         # Get the starting atom index.
-        start_idx = self._water_indices[state]
+        start_idx = self._water_indices[idx]
 
         # Update the NonBondedForce.
         for i in range(self._num_points):
@@ -1269,7 +1289,7 @@ class GCMCSampler:
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
-            _np.int32(state),
+            _np.int32(idx),
             _np.int32(0),
             block=(1, 1, 1),
             grid=(1, 1, 1),
@@ -1304,7 +1324,7 @@ class GCMCSampler:
         """
 
         # Reset the water state.
-        self._water_state[idx] = previous_state
+        self._water_state[idx] = state
 
         # Get the starting atom index.
         start_idx = self._water_indices[idx]
@@ -1324,7 +1344,7 @@ class GCMCSampler:
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
             _np.int32(idx),
-            _np.int32(previous_state),
+            _np.int32(state),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
