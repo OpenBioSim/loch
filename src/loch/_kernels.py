@@ -142,8 +142,8 @@ code = """
                 if (state == 0)
                 {
                     charge[idx_context + i] = 0.0f;
-                    sigma[idx_context + i] = 1e-9;
-                    epsilon[idx_context + i] = 1e-9;
+                    sigma[idx_context + i] = 1.0f;
+                    epsilon[idx_context + i] = 0.0f;
                 }
                 else
                 {
@@ -500,6 +500,10 @@ code = """
                 // Work out the index for the result.
                 const int idx = (idx_water * num_atoms) + idx_atom;
 
+                // Zero the energies.
+                energy_coul[idx] = 0.0;
+                energy_lj[idx] = 0.0;
+
                 // This is a deletion move, so we need to get the correct water index.
                 if (is_deletion == 1)
                 {
@@ -509,8 +513,6 @@ code = """
                     // Don't compute self-interactions.
                     if (delta >= 0 and delta < num_points)
                     {
-                        energy_coul[idx] = 0.0;
-                        energy_lj[idx] = 0.0;
                         return;
                     }
                 }
@@ -527,10 +529,6 @@ code = """
                 // Store the epsilon and sigma for the atom.
                 float s0 = sigma[idx_atom];
                 float e0 = epsilon[idx_atom];
-
-                // Zero the energies.
-                energy_coul[idx] = 0.0;
-                energy_lj[idx] = 0.0;
 
                 // Loop over all atoms in the water molecule.
                 for (int i = 0; i < num_points; i++)
@@ -665,14 +663,14 @@ code = """
                     int idx = water_idx[tidx];
 
                     // Get the oxygen atom position.
-                    float v0[3];
-                    v0[0] = position[3 * idx];
-                    v0[1] = position[3 * idx + 1];
-                    v0[2] = position[3 * idx + 2];
+                    float v[3];
+                    v[0] = position[3 * idx];
+                    v[1] = position[3 * idx + 1];
+                    v[2] = position[3 * idx + 2];
 
                     // Calculate the distance between the water and the target.
                     float r2;
-                    distance2(v0, target, r2);
+                    distance2(v, target, r2);
 
                     // The water is within the GCMC sphere. Flag it as a candidate.
                     if (r2 < radius * radius)

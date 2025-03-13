@@ -505,7 +505,7 @@ class GCMCSampler:
         for atom in cursor.atoms():
             atom["charge"] = 0.0 * _sr.units.mod_electron
             atom["LJ"] = _sr.legacy.MM.LJParameter(
-                1e-9 * _sr.units.angstrom, 1e-9 * _sr.units.kcal_per_mol
+                1.0* _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
             )
         water_template = _BSS._SireWrappers.Molecule(cursor.commit())
 
@@ -923,7 +923,9 @@ class GCMCSampler:
             initial_energy = state.getPotentialEnergy()
 
         # Get the target position.
-        target = self._get_target_position(positions)
+        target = _gpuarray.to_gpu(
+            self._get_target_position(positions).astype(_np.float32)
+        )
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
@@ -933,32 +935,10 @@ class GCMCSampler:
             grid=(self._atom_blocks, 1, 1),
         )
 
-        # First work out the candidate waters for deletion. This allows
-        # us to work out the current number of waters within the GCMC sphere.
-        self._kernels["deletion"](
-            self._deletion_candidates,
-            _gpuarray.to_gpu(target.astype(_np.float32)),
-            _np.float32(self._radius.value()),
-            block=(self._num_threads, 1, 1),
-            grid=(self._water_blocks, 1, 1),
-        )
-
-        # Get the candidates.
-        candidates = self._deletion_candidates.get().flatten()
-
-        # Find the waters within the GCMC sphere.
-        candidates = _np.argwhere(candidates == 1).flatten()
-
-        # Set the number of waters.
-        self._N = len(candidates)
-
-        # Log the current number of waters.
-        _logger.debug(f"Number of waters: {self._N}")
-
         # Generate the random water positions and orientations.
         self._kernels["water"](
             self._water_template_positions,
-            _gpuarray.to_gpu(target.astype(_np.float32)),
+            target,
             _np.float32(self._radius.value()),
             self._water_positions,
             block=(self._num_threads, 1, 1),
@@ -975,6 +955,30 @@ class GCMCSampler:
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, self._num_attempts, 1),
         )
+
+        # TODO: Work out adding the following causes a crash.
+
+        # Work out the candidate waters for deletion. This allows
+        # us to work out the current number of waters within the GCMC sphere.
+        #self._kernels["deletion"](
+            #self._deletion_candidates,
+            #target,
+            #_np.float32(self._radius.value()),
+            #block=(self._num_threads, 1, 1),
+            #grid=(self._water_blocks, 1, 1),
+        #)
+
+        # Get the candidates.
+        #candidates = self._deletion_candidates.get().flatten()
+
+        # Find the waters within the GCMC sphere.
+        #candidates = _np.argwhere(candidates == 1).flatten()
+
+        # Set the number of waters.
+        #self._N = len(candidates)
+
+        # Log the current number of waters.
+        _logger.debug(f"Number of waters: {self._N}")
 
         # Compute the acceptance probabilities.
         self._kernels["probability"](
@@ -1337,9 +1341,9 @@ class GCMCSampler:
         # Get the starting atom index.
         start_idx = self._water_indices[state]
 
-        # Update the water positions and NonBondedForce.
+        # Update the NonBondedForce.
         for i in range(self._num_points):
-            self._nonbonded_force.setParticleParameters(start_idx + i, 0.0, 1e-9, 1e-9)
+            self._nonbonded_force.setParticleParameters(start_idx + i, 0.0, 1.0, 0.0)
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)
