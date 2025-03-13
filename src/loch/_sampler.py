@@ -952,7 +952,7 @@ class GCMCSampler:
                         _openmm.unit.kilocalorie_per_mole
                     )
                     _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
-                    _logger.debug(f"PME deletion probability: {acc_prob:.6f}")
+                    _logger.debug(f"PME insertion probability: {acc_prob:.6f}")
 
                 # The move was rejected.
                 if acc_prob < self._rng.random():
@@ -1133,7 +1133,7 @@ class GCMCSampler:
                         _openmm.unit.kilocalorie_per_mole
                     )
                     _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
-                    _logger.debug(f"PME insertion probability: {acc_prob:.6f}")
+                    _logger.debug(f"PME deletion probability: {acc_prob:.6f}")
 
                 # The move was rejected.
                 if acc_prob < self._rng.random():
