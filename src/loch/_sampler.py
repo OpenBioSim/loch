@@ -1379,6 +1379,8 @@ class GCMCSampler:
             com += target + _sr.maths.Vector(delta.x(), delta.y(), delta.z())
         target = _np.array([x.value() for x in com / len(self._reference_indices)])
 
+        _logger.debug(f"GCMC sphere center: {target}")
+
         return target
 
     def _evaluate_candidate(self, state, context, move):
