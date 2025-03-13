@@ -11,24 +11,31 @@ del _ProgressBar
 parser = argparse.ArgumentParser("GCMC sampler demo")
 parser.add_argument(
     "--cutoff-type",
+    help="The non-bonded cutoff type",
     type=str,
     default="rf",
-    help="The non-bonded cutoff type",
     choices=["rf", "pme"],
     required=False,
 )
 parser.add_argument(
     "--cutoff",
+    help="The non-bonded cutoff",
     type=str,
     default="10 A",
-    help="The non-bonded cutoff",
+    required=False,
+)
+parser.add_argument(
+    "--radius",
+    help="The radius of the GCMC sphere",
+    type=str,
+    default="4 A",
     required=False,
 )
 parser.add_argument(
     "--num-attempts",
+    help="The number of GCMC insertion attempts",
     type=int,
     default=10000,
-    help="The number of GCMC insertion attempts",
     required=False,
 )
 args = parser.parse_args()
@@ -46,6 +53,7 @@ sampler = GCMCSampler(
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
+    radius=args.radius,
     log_level="debug",
 )
 
@@ -76,4 +84,7 @@ print(f"Deletions: {sampler.num_deletions()}")
 
 # Save the final configuration.
 mols = d.commit()
-sr.save(mols[f"mols within 10 of {reference}"], f"final_{args.cutoff_type}.pdb")
+sr.save(
+    mols[f"mols within {sampler._radius.value()} of {reference}"],
+    f"final_{args.cutoff_type}.pdb",
+)
