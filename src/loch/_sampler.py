@@ -864,7 +864,7 @@ class GCMCSampler:
             self._water_positions,
             self._energy_coul,
             self._energy_lj,
-            _np.int32(1),
+            self._deletion_candidates,
             _np.int32(0),
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, self._num_attempts, 1),
