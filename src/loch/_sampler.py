@@ -505,7 +505,7 @@ class GCMCSampler:
         for atom in cursor.atoms():
             atom["charge"] = 0.0 * _sr.units.mod_electron
             atom["LJ"] = _sr.legacy.MM.LJParameter(
-                1.0* _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
+                1.0 * _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
             )
         water_template = _BSS._SireWrappers.Molecule(cursor.commit())
 
@@ -662,91 +662,6 @@ class GCMCSampler:
 
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
-
-    @staticmethod
-    def _evaluate_candidate(system, candidate_position, cutoff, context=None):
-        """
-        Evaluate the energy of candidate water insertion into the system.
-
-        Parameters
-        ----------
-
-        system: sire.system.System
-            The molecular system.
-
-        candidate_position: numpy.ndarray
-            The coordinates of the water molecule to insert.
-
-        cutoff: float
-            The cut-off distance for the non-bonded interactions.
-
-        context: openmm.Context
-            The OpenMM context to use.
-
-        Returns
-        -------
-
-        energy: float
-            The energy of the water insertion, in kcal/mol.
-
-        context: openmm.Context
-            The OpenMM context used for the evaluation.
-        """
-
-        if context is None:
-            # Find the first water in the system.
-            water = system["water"][0]
-
-            # Convert the system and water to BioSimSpace objects.
-            system_bss = BSS._SireWrappers.System(system._system)
-            water_bss = BSS._SireWrappers.Molecule(water)
-
-            # Renumber the water.
-            water_bss = water_bss.copy()
-
-            # Update the water coordinates.
-            cursor = water_bss._sire_object.cursor()
-            for i, atom in enumerate(cursor.atoms()):
-                atom["coordinates"] = candidate_position[i].tolist()
-            water_bss._sire_object = cursor.commit()
-
-            # Add the water to the system and convert to a Sire object.
-            system_bss += water_bss
-            system_sire = sr.system.System(system_bss._sire_object)
-
-            # Create a dynamics object.
-            d = system_sire.dynamics(
-                cutoff=f"{cutoff} A",
-                cutoff_type="rf",
-            )
-
-            # Get the energy of the system.
-            energy = d.current_potential_energy().value()
-
-            # Get the OpenMM context.
-            context = d._d._omm_mols
-
-        else:
-            from openmm.unit import kilocalorie_per_mole, nanometer, Quantity
-
-            # Get the current positions.
-            positions = context.getState(getPositions=True).getPositions(asNumpy=True)
-
-            # Replace the water coordinates.
-            for i in range(3):
-                positions[-3 + i] = Quantity(0.1 * candidate_position[i], nanometer)
-
-            # Update the positions.
-            context.setPositions(positions)
-
-            # Get the energy.
-            energy = (
-                context.getState(getEnergy=True)
-                .getPotentialEnergy()
-                .value_in_unit(kilocalorie_per_mole)
-            )
-
-        return energy, context
 
     @staticmethod
     def _choose_state(rng, states, probability, num_insertions, threshold=1e-6):
@@ -956,26 +871,24 @@ class GCMCSampler:
             grid=(self._atom_blocks, self._num_attempts, 1),
         )
 
-        # TODO: Work out adding the following causes a crash.
-
         # Work out the candidate waters for deletion. This allows
         # us to work out the current number of waters within the GCMC sphere.
-        #self._kernels["deletion"](
-            #self._deletion_candidates,
-            #target,
-            #_np.float32(self._radius.value()),
-            #block=(self._num_threads, 1, 1),
-            #grid=(self._water_blocks, 1, 1),
-        #)
+        self._kernels["deletion"](
+            self._deletion_candidates,
+            target,
+            _np.float32(self._radius.value()),
+            block=(self._num_threads, 1, 1),
+            grid=(self._water_blocks, 1, 1),
+        )
 
         # Get the candidates.
-        #candidates = self._deletion_candidates.get().flatten()
+        candidates = self._deletion_candidates.get().flatten()
 
         # Find the waters within the GCMC sphere.
-        #candidates = _np.argwhere(candidates == 1).flatten()
+        candidates = _np.argwhere(candidates == 1).flatten()
 
         # Set the number of waters.
-        #self._N = len(candidates)
+        self._N = len(candidates)
 
         # Log the current number of waters.
         _logger.debug(f"Number of waters: {self._N}")
