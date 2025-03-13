@@ -1280,7 +1280,7 @@ class GCMCSampler:
 
         return context, previous_state
 
-    def _reject_deletion(self, state, context):
+    def _reject_deletion(self, idx, state, context):
         """
         Reject a deletion move.
 
