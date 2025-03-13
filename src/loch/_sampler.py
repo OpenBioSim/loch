@@ -884,9 +884,6 @@ class GCMCSampler:
         else:
             return self.deletion_move(context)
 
-        # Log the current number of waters.
-        _logger.debug(f"Number of waters: {self._N}")
-
     def insertion_move(self, context):
         """
         Perform a trial insertion move.
@@ -935,6 +932,28 @@ class GCMCSampler:
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
         )
+
+        # First work out the candidate waters for deletion. This allows
+        # us to work out the current number of waters within the GCMC sphere.
+        self._kernels["deletion"](
+            self._deletion_candidates,
+            _gpuarray.to_gpu(target.astype(_np.float32)),
+            _np.float32(self._radius.value()),
+            block=(self._num_threads, 1, 1),
+            grid=(self._water_blocks, 1, 1),
+        )
+
+        # Get the candidates.
+        candidates = self._deletion_candidates.get().flatten()
+
+        # Find the waters within the GCMC sphere.
+        candidates = _np.argwhere(candidates == 1).flatten()
+
+        # Set the number of waters.
+        self._N = len(candidates)
+
+        # Log the current number of waters.
+        _logger.debug(f"Number of waters: {self._N}")
 
         # Generate the random water positions and orientations.
         self._kernels["water"](
@@ -1101,6 +1120,12 @@ class GCMCSampler:
         # Find the waters within the GCMC sphere.
         candidates = _np.argwhere(candidates == 1).flatten()
 
+        # Set the number of waters.
+        self._N = len(candidates)
+
+        # Log the current number of waters.
+        _logger.debug(f"Number of waters: {self._N}")
+
         # Log the candidates.
         _logger.debug(f"Number of deletion candidates: {len(candidates)}")
         _logger.debug(f"Deletion candidates: {candidates}")
@@ -1198,9 +1223,9 @@ class GCMCSampler:
 
             # Log the energies of the first candidate.
             _logger.debug(
-                f"Coulomb energy: {self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
+                f"Coulomb energy: {-self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
             )
-            _logger.debug(f"LJ energy: {energy_lj[0].sum():.6f} kcal/mol")
+            _logger.debug(f"LJ energy: {-energy_lj[0].sum():.6f} kcal/mol")
 
         return context, "deletion", state != self._num_attempts
 
