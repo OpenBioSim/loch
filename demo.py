@@ -5,10 +5,6 @@ from time import time
 from loch import GCMCSampler
 
 import sire as sr
-from sire.base import ProgressBar as _ProgressBar
-
-_ProgressBar.set_silent()
-del _ProgressBar
 
 parser = argparse.ArgumentParser("GCMC sampler demo")
 parser.add_argument(
@@ -31,6 +27,13 @@ parser.add_argument(
     help="The radius of the GCMC sphere",
     type=str,
     default="4 A",
+    required=False,
+)
+parser.add_argument(
+    "--ligand",
+    help="The ligand index",
+    type=int,
+    default=None,
     required=False,
 )
 parser.add_argument(
@@ -64,13 +67,22 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Load the scytalone dehydratase system
-mols = sr.load("examples/scytalone-dehydratase/outputs/*7")
+if args.ligand is None:
+    mols = sr.load(f"examples/scytalone-dehydratase/outputs/*7")
+else:
+    mols = sr.load(f"examples/scytalone-dehydratase/outputs/lig{args.ligand}/*7")
+
+# Create the PDB suffix.
+suffix = f"_lig{args.ligand}" if args.ligand is not None else ""
 
 # Store the reference selection.
 reference = "(residx 22 or residx 42) and (atomname OH)"
 
 # Save the initial configuration.
-sr.save(mols[f"mols within {args.radius} of {reference}"], "initial.pdb")
+sr.save(
+    mols[f"mols within {args.radius} of {reference}"],
+    f"initial{suffix}.pdb",
+)
 
 # Create a GCMC sampler.
 sampler = GCMCSampler(
@@ -92,7 +104,12 @@ d = sampler.system().dynamics(
     cutoff=args.cutoff,
     temperature=args.temperature,
     pressure=None,
+    constraint="h_bonds",
+    timestep="2 fs",
 )
+
+# Get the context.
+context = d.context()
 
 # Run dynamics cycles with a GCMC move after each.
 total = 0
@@ -100,7 +117,7 @@ for i in range(args.num_cycles):
     print(f"Cycle {i}")
 
     # Run 1ps of dynamics.
-    d.run(args.cycle_time, save_frequency=0)
+    d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
 
     # Perform a GCMC move.
     start = time()
@@ -122,5 +139,5 @@ print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")
 mols = d.commit()
 sr.save(
     mols[f"mols within {sampler._radius.value()} of {reference}"],
-    f"final_{args.cutoff_type}.pdb",
+    f"final_{args.cutoff_type}{suffix}.pdb",
 )
