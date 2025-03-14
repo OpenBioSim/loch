@@ -119,6 +119,9 @@ for i in range(args.num_cycles):
         f"insertions = {sampler.num_insertions()}, "
         f"deletions = {sampler.num_deletions()}"
     )
+    print(
+        f"Current potential energy: {d.current_potential_energy().value():.3f} kcal/mol"
+    )
 
     # Run 1ps of dynamics.
     d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
