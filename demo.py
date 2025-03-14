@@ -114,7 +114,11 @@ context = d.context()
 # Run dynamics cycles with a GCMC move after each.
 total = 0
 for i in range(args.num_cycles):
-    print(f"Cycle {i}")
+    print(
+        f"Cycle {i}, N = {sampler.num_waters()}, "
+        f"insertions = {sampler.num_insertions()}, "
+        f"deletions = {sampler.num_deletions()}"
+    )
 
     # Run 1ps of dynamics.
     d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
