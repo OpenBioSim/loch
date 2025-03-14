@@ -1,5 +1,7 @@
 import argparse
 
+from time import time
+
 from loch import GCMCSampler
 
 import sire as sr
@@ -38,6 +40,13 @@ parser.add_argument(
     default=10000,
     required=False,
 )
+parser.add_argument(
+    "--num-cycles",
+    help="The number of dynamics cycles",
+    type=int,
+    default=100,
+    required=False,
+)
 args = parser.parse_args()
 
 # Load the scytalone dehydratase system
@@ -45,6 +54,9 @@ mols = sr.load("examples/scytalone-dehydratase/outputs/*7")
 
 # Store the reference selection.
 reference = "(residx 22 or residx 42) and (atomname OH)"
+
+# Save the initial configuration.
+sr.save(mols[f"mols within {args.radius} of {reference}"], "initial.pdb")
 
 # Create a GCMC sampler.
 sampler = GCMCSampler(
@@ -64,15 +76,20 @@ d = sampler.system().dynamics(
     cutoff_type=args.cutoff_type, cutoff=args.cutoff, pressure=None
 )
 
-# Run 100 dynamics cycles with a GCMC move after each cycle.
-for i in range(100):
+# Run dynamics cycles with a GCMC move after each.
+total = 0
+for i in range(args.num_cycles):
     print(f"Cycle {i}")
 
     # Run 1ps of dynamics.
     d.run("1ps", save_frequency=0)
 
     # Perform a GCMC move.
+    start = time()
     context, move, accepted = sampler.move(d.context())
+    end = time()
+    if i > 0:
+        total += end - start
 
     # If the move was accepted, update the dynamics object.
     if accepted:
@@ -81,6 +98,7 @@ for i in range(100):
 print(f"Accepted: {sampler.num_accepted()}")
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
+print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")
 
 # Save the final configuration.
 mols = d.commit()
