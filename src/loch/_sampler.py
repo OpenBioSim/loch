@@ -539,7 +539,9 @@ class GCMCSampler:
         # First create the GCMC waters.
         waters = []
         for i in range(max_gcmc_waters):
+            # Create a copy of the water template with a new molecule number.
             water = water_template.copy()
+            # Randomly translate the water so that it is not on top of another.
             water.translate(
                 (2.0 * rng.random() - 1.0) * _BSS.Units.Length.angstrom * [1, 1, 1]
             )
