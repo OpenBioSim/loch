@@ -633,8 +633,16 @@ class GCMCSampler:
                 (self._num_attempts, self._num_atoms)
             )
 
+            # Get the water positions.
+            water_positions = self._water_positions.get().reshape(
+                (self._num_attempts, self._num_points, 3)
+            )
+
             # Log the accepted candidate.
             _logger.debug(f"Accepted insertion: candidate={state}, water={idx}")
+
+            # Log the position of the inserted oxygen atom.
+            _logger.debug(f"Inserted oxygen position: {water_positions[state, 0]}")
 
             # Log the energies of the accepted candidate.
             _logger.debug(
@@ -820,6 +828,12 @@ class GCMCSampler:
             _logger.debug(
                 f"Accepted deletion: candidate={state}, water={candidates[state]}"
             )
+
+            # Get the water index.
+            water_idx = self._water_indices[candidates[state]]
+
+            # Log the oxygen position.
+            _logger.debug(f"Deleted oxygen position: {positions[water_idx]}")
 
             # Log the energies of the first candidate.
             _logger.debug(
