@@ -63,7 +63,7 @@ code = """
 
     extern "C"
     {
-        // Initialisation of the random number generator state for each water thread.
+        // Initialisation of the random number generator state for each attempt thread.
         __global__ void initialiseRNG(int* seed)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -81,7 +81,10 @@ code = """
         }
 
         // Intialisation of the box cell information for triclinic boxes.
-        __global__ void setCellMatrix(float* matrix, float* matrix_inverse, float* m)
+        __global__ void setCellMatrix(
+            float* matrix,
+            float* matrix_inverse,
+            float* m)
         {
             for (int i = 0; i < 3; i++)
             {
@@ -106,7 +109,10 @@ code = """
         }
 
         // Set the properties of each atom.
-        __global__ void setAtomProperties(float* charges, float* sigmas, float* epsilons)
+        __global__ void setAtomProperties(
+            float* charges,
+            float* sigmas,
+            float* epsilons)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -132,7 +138,12 @@ code = """
         }
 
         // Set the properties of each water atom.
-        __global__ void setWaterProperties(float* charges, float* sigmas, float* epsilons, int* idx, int* state)
+        __global__ void setWaterProperties(
+            float* charges,
+            float* sigmas,
+            float* epsilons,
+            int* idx,
+            int* state)
         {
             for (int i = 0; i < num_points; i++)
             {
@@ -428,8 +439,13 @@ code = """
                 + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
         }
 
-        // Generate a random position and orientation within the GCMC sphere for each trial insertion.
-        __global__ void generateWater(float* water_template, float* target, float radius, float* water_position)
+        // Generate a random position and orientation within the GCMC sphere
+        // for each trial insertion.
+        __global__ void generateWater(
+            float* water_template,
+            float* target,
+            float radius,
+            float* water_position)
         {
             // Work out the thread index.
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -498,7 +514,8 @@ code = """
             }
         }
 
-        // Compute the Lennard-Jones and reaction field Coulomb energy between the water and the atoms.
+        // Compute the Lennard-Jones and reaction field Coulomb energy between
+        // the water and the atoms.
         __global__ void computeEnergy(
             float* water_position,
             float* energy_coul,
@@ -668,7 +685,10 @@ code = """
         }
 
         // Find candidate waters for deletion.
-        __global__ void findDeletionCandidates(int* candidates, float* target, float radius)
+        __global__ void findDeletionCandidates(
+            int* candidates,
+            float* target,
+            float radius)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
