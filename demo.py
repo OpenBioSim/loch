@@ -34,6 +34,20 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
+    "--temperature",
+    help="The simulation temperature",
+    type=str,
+    default="298 K",
+    required=False,
+)
+parser.add_argument(
+    "--cycle-time",
+    help="The duration of the dynamics cycle",
+    type=str,
+    default="1 ps",
+    required=False,
+)
+parser.add_argument(
     "--num-attempts",
     help="The number of GCMC insertion attempts",
     type=int,
@@ -66,6 +80,7 @@ sampler = GCMCSampler(
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
     radius=args.radius,
+    temperature=args.temperature,
     log_level="debug",
 )
 
@@ -73,7 +88,10 @@ sampler = GCMCSampler(
 # This contains a number of ghost waters that can be used
 # for insertion moves.
 d = sampler.system().dynamics(
-    cutoff_type=args.cutoff_type, cutoff=args.cutoff, pressure=None
+    cutoff_type=args.cutoff_type,
+    cutoff=args.cutoff,
+    temperature=args.temperature,
+    pressure=None,
 )
 
 # Run dynamics cycles with a GCMC move after each.
@@ -82,7 +100,7 @@ for i in range(args.num_cycles):
     print(f"Cycle {i}")
 
     # Run 1ps of dynamics.
-    d.run("1ps", save_frequency=0)
+    d.run(args.cycle_time, save_frequency=0)
 
     # Perform a GCMC move.
     start = time()
