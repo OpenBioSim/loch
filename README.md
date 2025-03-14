@@ -18,4 +18,5 @@ python demo.py --cutoff-type rf
 ```
 
 When complete, the script will write a PDB file containing all molecules
-within the GCMC sphere radius, e.g. `final_rf.pdb`.
+within the GCMC sphere radius, e.g. `final_rf.pdb`. For comparison, the initial
+configuration is written to `initial.pdb`.
