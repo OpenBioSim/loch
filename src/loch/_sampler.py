@@ -365,381 +365,6 @@ class GCMCSampler:
 
         return str(self)
 
-    @staticmethod
-    def _validate_sire_unit(parameter, value, unit):
-        """
-        Validate a Sire unit.
-
-        Parameters
-        ----------
-
-        parameter: str
-            The name of the parameter.
-
-        value: str
-            The value to validate.
-
-        unit: str
-            The unit to validate.
-
-        Returns
-        -------
-
-        u: sire.units.GeneralUnit
-            The validated unit.
-        """
-
-        if not isinstance(value, str):
-            raise ValueError(f"'{parameter}' must be of type 'str'")
-
-        try:
-            u = _sr.u(value)
-        except Exception as e:
-            raise ValueError(f"Could not parse '{parameter}': {e}")
-
-        if not u.has_same_units(unit):
-            raise ValueError(f"Invalid units for '{parameter}'")
-
-        return u
-
-    @staticmethod
-    def _get_box_information(system):
-        """
-        Get the box information from the system.
-
-        Parameters
-        ----------
-
-        system: sire.system.System
-            The molecular system.
-
-        Returns
-        -------
-
-        cell_matrix: pycuda.gpuarray.GPUArray
-            The cell matrix.
-
-        cell_matrix_inverse: pycuda.gpuarray.GPUArray
-            The inverse of the cell matrix.
-
-        M: pycuda.gpuarray.GPUArray
-            The matrix M.
-        """
-        # Get the box.
-        try:
-            space = system.property("space")
-        except Exception as e:
-            raise ValueError(f"System does not contain a periodic box information!")
-
-        cell_matrix = space.box_matrix()
-        cell_matrix_inverse = cell_matrix.inverse()
-        M = cell_matrix.transpose() * cell_matrix
-
-        # Convert to NumPy.
-        row0 = [x.value() for x in cell_matrix.row0()]
-        row1 = [x.value() for x in cell_matrix.row1()]
-        row2 = [x.value() for x in cell_matrix.row2()]
-        cell_matrix = _np.array([row0, row1, row2])
-        row0 = [x.value() for x in cell_matrix_inverse.row0()]
-        row1 = [x.value() for x in cell_matrix_inverse.row1()]
-        row2 = [x.value() for x in cell_matrix_inverse.row2()]
-        cell_matrix_inverse = _np.array([row0, row1, row2])
-        row0 = [x.value() for x in M.row0()]
-        row1 = [x.value() for x in M.row1()]
-        row2 = [x.value() for x in M.row2()]
-        M = _np.array([row0, row1, row2])
-
-        # Convert to GPU memory.
-        cell_matrix = _gpuarray.to_gpu(cell_matrix.flatten().astype(_np.float32))
-        cell_matrix_inverse = _gpuarray.to_gpu(
-            cell_matrix_inverse.flatten().astype(_np.float32)
-        )
-        M = _gpuarray.to_gpu(M.flatten().astype(_np.float32))
-
-        return space, cell_matrix, cell_matrix_inverse, M
-
-    @staticmethod
-    def _get_reference_indices(system, reference):
-        """
-        Get the indices of the reference atoms.
-
-        Parameters
-        ----------
-
-        system: sire.system.System
-            The molecular system.
-
-        reference: str
-            A selection string for the reference atoms.
-
-        Returns
-        -------
-
-        indices: numpy.ndarray
-            The indices of the reference atoms.
-        """
-
-        # Convert the system to a BioSimSpace object.
-        bss_system = _BSS._SireWrappers.System(system._system)
-
-        try:
-            atoms = bss_system.search(reference).atoms()
-        except Exception as e:
-            raise ValueError(f"Could not get the reference atoms: {e}")
-
-        # Get the absolute indices of the atoms.
-        indices = []
-        for atom in atoms:
-            indices.append(bss_system.getIndex(atom))
-
-        return _np.array(indices)
-
-    @staticmethod
-    def _prepare_system(system, water_template, rng, max_gcmc_waters):
-        """
-        Prepare the system for GCMC sampling.
-
-        Parameters
-        ----------
-
-        system: sire.system.System
-            The molecular system.
-
-        water_template: sire.molecule.Molecule
-            The water template.
-
-        rng: numpy.random.Generator
-            The random number generator.
-
-        max_gcmc_waters: int
-            The maximum number of GCMC waters to insert.
-
-        Returns
-        -------
-
-        system: sire.system.System
-            The prepared system.
-
-        water_indices: numpy.ndarray
-            The indices of the oxygen atoms in each water molecule.
-        """
-
-        # Edit the template so that it is non-interacting.
-        cursor = water_template.cursor()
-        for atom in cursor.atoms():
-            atom["charge"] = 0.0 * _sr.units.mod_electron
-            atom["LJ"] = _sr.legacy.MM.LJParameter(
-                1.0 * _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
-            )
-        water_template = _BSS._SireWrappers.Molecule(cursor.commit())
-
-        # Create a BioSimSpace system.
-        bss_system = _BSS._SireWrappers.System(system._system)
-
-        # First create the GCMC waters.
-        waters = []
-        for i in range(max_gcmc_waters):
-            # Create a copy of the water template with a new molecule number.
-            water = water_template.copy()
-            # Randomly translate the water so that it is not on top of another.
-            water.translate(
-                (2.0 * rng.random() - 1.0) * _BSS.Units.Length.angstrom * [1, 1, 1]
-            )
-            waters.append(water)
-
-        # Add the waters to the system.
-        bss_system += waters
-
-        # Search for the water oxygen atoms.
-        water_indices = []
-        for atom in bss_system.search("water and element O").atoms():
-            water_indices.append(bss_system.getIndex(atom))
-
-        return _sr.system.System(bss_system._sire_object), _np.array(water_indices)
-
-    def _initialise_gpu_memory(self):
-        """
-        Initialise the GPU memory.
-        """
-
-        # First get the atomic properties.
-
-        # Get the charges on all the atoms.
-        try:
-            charges = []
-            for mol in self._system:
-                charges_mol = [charge.value() for charge in mol.property("charge")]
-                charges.extend(charges_mol)
-
-            # Convert to a GPU array.
-            charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
-
-        except Exception as e:
-            raise ValueError(f"Could not get the charges on the atoms: {e}")
-
-        # Try to get the sigma and epsilon for the atoms.
-        try:
-            sigmas = []
-            epsilons = []
-            for mol in self._system:
-                for lj in mol.property("LJ"):
-                    sigmas.append(lj.sigma().value())
-                    epsilons.append(lj.epsilon().value())
-
-            # Convert to GPU arrays.
-            sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
-            epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
-
-        except Exception as e:
-            raise ValueError(f"Could not get the LJ parameters: {e}")
-
-        # Get the water properties.
-        try:
-            charge_water = []
-            sigma_water = []
-            epsilon_water = []
-            for atom in self._water_template.atoms():
-                charge_water.append(atom.charge().value())
-                lj = atom.property("LJ")
-                sigma_water.append(lj.sigma().value())
-                epsilon_water.append(lj.epsilon().value())
-
-            # Store the water properties.
-            self._water_charge = _np.array(charge_water)
-            self._water_sigma = _np.array(sigma_water)
-            self._water_epsilon = _np.array(epsilon_water)
-
-            # Convert to GPU arrays.
-            charge_water = _gpuarray.to_gpu(self._water_charge.astype(_np.float32))
-            sigma_water = _gpuarray.to_gpu(self._water_sigma.astype(_np.float32))
-            epsilon_water = _gpuarray.to_gpu(self._water_epsilon.astype(_np.float32))
-
-        except Exception as e:
-            raise ValueError(f"Could not get the atomic properties of the water: {e}")
-
-        # Initialise the water state: 0 = ghost, 1 = GCMC, 2 = normal.
-        water_state = []
-        for i in range(self._num_waters):
-            if i < self._num_waters - self._max_gcmc_waters:
-                water_state.append(2)
-            else:
-                water_state.append(0)
-        self._water_state = _np.array(water_state).astype(_np.int32)
-
-        # Initialise the cell.
-        self._kernels["cell"](
-            self._cell_matrix,
-            self._cell_matrix_inverse,
-            self._M,
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
-
-        # Initialise the random number generator.
-        self._kernels["rng"](
-            _gpuarray.to_gpu(
-                _np.random.randint(
-                    _np.iinfo(_np.int32).max, size=(1, self._num_attempts)
-                ).astype(_np.int32)
-            ),
-            block=(self._num_threads, 1, 1),
-            grid=(self._attempt_blocks, 1, 1),
-        )
-
-        # Initialise the reaction field parameters.
-        self._kernels["rf"](
-            _np.float32(self._cutoff.value()),
-            _np.float32(78.3),
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
-
-        # Set the atomic properties.
-        self._kernels["atom_properties"](
-            charges,
-            sigmas,
-            epsilons,
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, 1, 1),
-        )
-
-        # Set the water properties.
-        self._kernels["water_properties"](
-            charge_water,
-            sigma_water,
-            epsilon_water,
-            _gpuarray.to_gpu(self._water_indices.astype(_np.int32)),
-            _gpuarray.to_gpu(self._water_state.astype(_np.int32)),
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
-
-        # Initialise the memory to store the water positions.
-        self._water_positions = _gpuarray.empty(
-            (1, self._num_attempts * 3 * self._num_points), _np.float32
-        )
-
-        # Initialise memory to store the energy.
-        self._energy_coul = _gpuarray.empty(
-            (1, self._num_attempts * self._num_atoms), _np.float32
-        )
-        self._energy_lj = _gpuarray.empty(
-            (1, self._num_attempts * self._num_atoms), _np.float32
-        )
-
-        # Initialise memory to store the acceptance probabilities.
-        self._probability = _gpuarray.empty((1, self._num_attempts + 1), _np.float32)
-
-        # Initialise memory to store the deletion candidates.
-        self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
-
-    @staticmethod
-    def _choose_state(rng, states, probability, num_insertions, threshold=1e-6):
-        """
-        Choose a trial move according to the probabilities.
-
-        Parameters
-        ----------
-
-        rng: numpy.random.Generator
-            The random number generator.
-
-        states: numpy.ndarray
-            The states to choose from.
-
-        probability: numpy.ndarray
-            The probabilities of each move.
-
-        num_insertions: int
-            The number of insertions.
-
-        Returns
-        -------
-
-        state: int
-            The state to move to.
-        """
-
-        # Zero the probability of staying in the same state.
-        probability[-1] = 0.0
-
-        # Compute the total probability.
-        total_probability = _np.sum(probability)
-
-        _logger.debug(f"Total probability: {total_probability:.6f}")
-
-        # Update the probability of staying in the same state.
-        if total_probability < 1.0:
-            probability[-1] = 1.0 - total_probability
-
-        # Remove entries with low probability.
-        mask = probability > threshold
-        states = states[mask]
-        probability = probability[mask]
-
-        # Choose a state according to its probability.
-        return rng.choice(states, p=probability / _np.sum(probability))
-
     def system(self):
         """
         Return the GCMC system.
@@ -1194,6 +819,381 @@ class GCMCSampler:
             _logger.debug(f"LJ energy: {-energy_lj[0].sum():.6f} kcal/mol")
 
         return context, "deletion", state != self._num_attempts
+
+    @staticmethod
+    def _validate_sire_unit(parameter, value, unit):
+        """
+        Validate a Sire unit.
+
+        Parameters
+        ----------
+
+        parameter: str
+            The name of the parameter.
+
+        value: str
+            The value to validate.
+
+        unit: str
+            The unit to validate.
+
+        Returns
+        -------
+
+        u: sire.units.GeneralUnit
+            The validated unit.
+        """
+
+        if not isinstance(value, str):
+            raise ValueError(f"'{parameter}' must be of type 'str'")
+
+        try:
+            u = _sr.u(value)
+        except Exception as e:
+            raise ValueError(f"Could not parse '{parameter}': {e}")
+
+        if not u.has_same_units(unit):
+            raise ValueError(f"Invalid units for '{parameter}'")
+
+        return u
+
+    @staticmethod
+    def _get_box_information(system):
+        """
+        Get the box information from the system.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+
+        Returns
+        -------
+
+        cell_matrix: pycuda.gpuarray.GPUArray
+            The cell matrix.
+
+        cell_matrix_inverse: pycuda.gpuarray.GPUArray
+            The inverse of the cell matrix.
+
+        M: pycuda.gpuarray.GPUArray
+            The matrix M.
+        """
+        # Get the box.
+        try:
+            space = system.property("space")
+        except Exception as e:
+            raise ValueError(f"System does not contain a periodic box information!")
+
+        cell_matrix = space.box_matrix()
+        cell_matrix_inverse = cell_matrix.inverse()
+        M = cell_matrix.transpose() * cell_matrix
+
+        # Convert to NumPy.
+        row0 = [x.value() for x in cell_matrix.row0()]
+        row1 = [x.value() for x in cell_matrix.row1()]
+        row2 = [x.value() for x in cell_matrix.row2()]
+        cell_matrix = _np.array([row0, row1, row2])
+        row0 = [x.value() for x in cell_matrix_inverse.row0()]
+        row1 = [x.value() for x in cell_matrix_inverse.row1()]
+        row2 = [x.value() for x in cell_matrix_inverse.row2()]
+        cell_matrix_inverse = _np.array([row0, row1, row2])
+        row0 = [x.value() for x in M.row0()]
+        row1 = [x.value() for x in M.row1()]
+        row2 = [x.value() for x in M.row2()]
+        M = _np.array([row0, row1, row2])
+
+        # Convert to GPU memory.
+        cell_matrix = _gpuarray.to_gpu(cell_matrix.flatten().astype(_np.float32))
+        cell_matrix_inverse = _gpuarray.to_gpu(
+            cell_matrix_inverse.flatten().astype(_np.float32)
+        )
+        M = _gpuarray.to_gpu(M.flatten().astype(_np.float32))
+
+        return space, cell_matrix, cell_matrix_inverse, M
+
+    @staticmethod
+    def _get_reference_indices(system, reference):
+        """
+        Get the indices of the reference atoms.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+
+        reference: str
+            A selection string for the reference atoms.
+
+        Returns
+        -------
+
+        indices: numpy.ndarray
+            The indices of the reference atoms.
+        """
+
+        # Convert the system to a BioSimSpace object.
+        bss_system = _BSS._SireWrappers.System(system._system)
+
+        try:
+            atoms = bss_system.search(reference).atoms()
+        except Exception as e:
+            raise ValueError(f"Could not get the reference atoms: {e}")
+
+        # Get the absolute indices of the atoms.
+        indices = []
+        for atom in atoms:
+            indices.append(bss_system.getIndex(atom))
+
+        return _np.array(indices)
+
+    @staticmethod
+    def _prepare_system(system, water_template, rng, max_gcmc_waters):
+        """
+        Prepare the system for GCMC sampling.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+
+        water_template: sire.molecule.Molecule
+            The water template.
+
+        rng: numpy.random.Generator
+            The random number generator.
+
+        max_gcmc_waters: int
+            The maximum number of GCMC waters to insert.
+
+        Returns
+        -------
+
+        system: sire.system.System
+            The prepared system.
+
+        water_indices: numpy.ndarray
+            The indices of the oxygen atoms in each water molecule.
+        """
+
+        # Edit the template so that it is non-interacting.
+        cursor = water_template.cursor()
+        for atom in cursor.atoms():
+            atom["charge"] = 0.0 * _sr.units.mod_electron
+            atom["LJ"] = _sr.legacy.MM.LJParameter(
+                1.0 * _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
+            )
+        water_template = _BSS._SireWrappers.Molecule(cursor.commit())
+
+        # Create a BioSimSpace system.
+        bss_system = _BSS._SireWrappers.System(system._system)
+
+        # First create the GCMC waters.
+        waters = []
+        for i in range(max_gcmc_waters):
+            # Create a copy of the water template with a new molecule number.
+            water = water_template.copy()
+            # Randomly translate the water so that it is not on top of another.
+            water.translate(
+                (2.0 * rng.random() - 1.0) * _BSS.Units.Length.angstrom * [1, 1, 1]
+            )
+            waters.append(water)
+
+        # Add the waters to the system.
+        bss_system += waters
+
+        # Search for the water oxygen atoms.
+        water_indices = []
+        for atom in bss_system.search("water and element O").atoms():
+            water_indices.append(bss_system.getIndex(atom))
+
+        return _sr.system.System(bss_system._sire_object), _np.array(water_indices)
+
+    def _initialise_gpu_memory(self):
+        """
+        Initialise the GPU memory.
+        """
+
+        # First get the atomic properties.
+
+        # Get the charges on all the atoms.
+        try:
+            charges = []
+            for mol in self._system:
+                charges_mol = [charge.value() for charge in mol.property("charge")]
+                charges.extend(charges_mol)
+
+            # Convert to a GPU array.
+            charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
+
+        except Exception as e:
+            raise ValueError(f"Could not get the charges on the atoms: {e}")
+
+        # Try to get the sigma and epsilon for the atoms.
+        try:
+            sigmas = []
+            epsilons = []
+            for mol in self._system:
+                for lj in mol.property("LJ"):
+                    sigmas.append(lj.sigma().value())
+                    epsilons.append(lj.epsilon().value())
+
+            # Convert to GPU arrays.
+            sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
+            epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
+
+        except Exception as e:
+            raise ValueError(f"Could not get the LJ parameters: {e}")
+
+        # Get the water properties.
+        try:
+            charge_water = []
+            sigma_water = []
+            epsilon_water = []
+            for atom in self._water_template.atoms():
+                charge_water.append(atom.charge().value())
+                lj = atom.property("LJ")
+                sigma_water.append(lj.sigma().value())
+                epsilon_water.append(lj.epsilon().value())
+
+            # Store the water properties.
+            self._water_charge = _np.array(charge_water)
+            self._water_sigma = _np.array(sigma_water)
+            self._water_epsilon = _np.array(epsilon_water)
+
+            # Convert to GPU arrays.
+            charge_water = _gpuarray.to_gpu(self._water_charge.astype(_np.float32))
+            sigma_water = _gpuarray.to_gpu(self._water_sigma.astype(_np.float32))
+            epsilon_water = _gpuarray.to_gpu(self._water_epsilon.astype(_np.float32))
+
+        except Exception as e:
+            raise ValueError(f"Could not get the atomic properties of the water: {e}")
+
+        # Initialise the water state: 0 = ghost, 1 = GCMC, 2 = normal.
+        water_state = []
+        for i in range(self._num_waters):
+            if i < self._num_waters - self._max_gcmc_waters:
+                water_state.append(2)
+            else:
+                water_state.append(0)
+        self._water_state = _np.array(water_state).astype(_np.int32)
+
+        # Initialise the cell.
+        self._kernels["cell"](
+            self._cell_matrix,
+            self._cell_matrix_inverse,
+            self._M,
+            block=(1, 1, 1),
+            grid=(1, 1, 1),
+        )
+
+        # Initialise the random number generator.
+        self._kernels["rng"](
+            _gpuarray.to_gpu(
+                _np.random.randint(
+                    _np.iinfo(_np.int32).max, size=(1, self._num_attempts)
+                ).astype(_np.int32)
+            ),
+            block=(self._num_threads, 1, 1),
+            grid=(self._attempt_blocks, 1, 1),
+        )
+
+        # Initialise the reaction field parameters.
+        self._kernels["rf"](
+            _np.float32(self._cutoff.value()),
+            _np.float32(78.3),
+            block=(1, 1, 1),
+            grid=(1, 1, 1),
+        )
+
+        # Set the atomic properties.
+        self._kernels["atom_properties"](
+            charges,
+            sigmas,
+            epsilons,
+            block=(self._num_threads, 1, 1),
+            grid=(self._atom_blocks, 1, 1),
+        )
+
+        # Set the water properties.
+        self._kernels["water_properties"](
+            charge_water,
+            sigma_water,
+            epsilon_water,
+            _gpuarray.to_gpu(self._water_indices.astype(_np.int32)),
+            _gpuarray.to_gpu(self._water_state.astype(_np.int32)),
+            block=(1, 1, 1),
+            grid=(1, 1, 1),
+        )
+
+        # Initialise the memory to store the water positions.
+        self._water_positions = _gpuarray.empty(
+            (1, self._num_attempts * 3 * self._num_points), _np.float32
+        )
+
+        # Initialise memory to store the energy.
+        self._energy_coul = _gpuarray.empty(
+            (1, self._num_attempts * self._num_atoms), _np.float32
+        )
+        self._energy_lj = _gpuarray.empty(
+            (1, self._num_attempts * self._num_atoms), _np.float32
+        )
+
+        # Initialise memory to store the acceptance probabilities.
+        self._probability = _gpuarray.empty((1, self._num_attempts + 1), _np.float32)
+
+        # Initialise memory to store the deletion candidates.
+        self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
+
+    @staticmethod
+    def _choose_state(rng, states, probability, num_insertions, threshold=1e-6):
+        """
+        Choose a trial move according to the probabilities.
+
+        Parameters
+        ----------
+
+        rng: numpy.random.Generator
+            The random number generator.
+
+        states: numpy.ndarray
+            The states to choose from.
+
+        probability: numpy.ndarray
+            The probabilities of each move.
+
+        num_insertions: int
+            The number of insertions.
+
+        Returns
+        -------
+
+        state: int
+            The state to move to.
+        """
+
+        # Zero the probability of staying in the same state.
+        probability[-1] = 0.0
+
+        # Compute the total probability.
+        total_probability = _np.sum(probability)
+
+        _logger.debug(f"Total probability: {total_probability:.6f}")
+
+        # Update the probability of staying in the same state.
+        if total_probability < 1.0:
+            probability[-1] = 1.0 - total_probability
+
+        # Remove entries with low probability.
+        mask = probability > threshold
+        states = states[mask]
+        probability = probability[mask]
+
+        # Choose a state according to its probability.
+        return rng.choice(states, p=probability / _np.sum(probability))
 
     def _accept_insertion(self, state, context):
         """
