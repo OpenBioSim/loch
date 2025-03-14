@@ -425,6 +425,15 @@ class GCMCSampler:
         """
         return self._num_deletions
 
+    def reset(self):
+        """
+        Reset the sampler.
+        """
+        # Zero the number of accepted moves.
+        self._num_accepted = 0
+        self._num_insertions = 0
+        self._num_deletions = 0
+
     def move(self, context):
         """
         Perform a trial move.
