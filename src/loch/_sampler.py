@@ -622,9 +622,7 @@ class GCMCSampler:
 
         # Get the probabilities and choose a new state.
         probability_cpu = self._probability.get().flatten()
-        state = self._choose_state(
-            self._rng, self._states, probability_cpu, self._num_attempts
-        )
+        state = self._choose_state(self._rng, self._states, probability_cpu)
 
         # Whether the move was accepted.
         is_accepted = False
@@ -818,9 +816,7 @@ class GCMCSampler:
 
         # Get the probabilities and choose a new state.
         probability_cpu = self._probability.get().flatten()
-        state = self._choose_state(
-            self._rng, self._states, probability_cpu, self._num_attempts
-        )
+        state = self._choose_state(self._rng, self._states, probability_cpu)
 
         # Whether the move was accepted.
         is_accepted = False
@@ -1229,7 +1225,7 @@ class GCMCSampler:
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
 
     @staticmethod
-    def _choose_state(rng, states, probability, num_insertions, threshold=1e-6):
+    def _choose_state(rng, states, probability, threshold=1e-6):
         """
         Choose a trial move according to the probabilities.
 
@@ -1244,9 +1240,6 @@ class GCMCSampler:
 
         probability: numpy.ndarray
             The probabilities of each move.
-
-        num_insertions: int
-            The number of insertions.
 
         Returns
         -------
