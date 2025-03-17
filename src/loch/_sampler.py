@@ -324,7 +324,10 @@ class GCMCSampler:
         )
 
         # Work out the volume of the GCMC sphere.
-        volume = (4.0 * _np.pi * self._radius.value() ** 3) / 3.0
+        if self._reference is not None:
+            volume = (4.0 * _np.pi * self._radius.value() ** 3) / 3.0
+        else:
+            volume = self._space.volume().value()
 
         # Work out the Adams value.
         B = (
