@@ -445,7 +445,8 @@ code = """
             float* water_template,
             float* target,
             float radius,
-            float* water_position)
+            float* water_position,
+            int is_target)
         {
             // Work out the thread index.
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -482,19 +483,42 @@ code = """
                     dh[i][2] = water[(i+1)*3 + 2] - water[2];
                 }
 
-                // Generate a random position around the target.
                 float xyz[3];
-                xyz[0] = curand_normal(&state);
-                xyz[1] = curand_normal(&state);
-                xyz[2] = curand_normal(&state);
-                float norm = sqrtf(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
-                xyz[0] /= norm;
-                xyz[1] /= norm;
-                xyz[2] /= norm;
-                float r = radius * powf(curand_uniform(&state), 1.0f / 3.0f);
-                xyz[0] = target[0] + r * xyz[0];
-                xyz[1] = target[1] + r * xyz[1];
-                xyz[2] = target[2] + r * xyz[2];
+
+                // Choose a random position within the GCMC sphere.
+                if (is_target == 1)
+                {
+                    // Generate a random position around the target.
+                    xyz[0] = curand_normal(&state);
+                    xyz[1] = curand_normal(&state);
+                    xyz[2] = curand_normal(&state);
+
+                    float norm = sqrtf(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
+                    xyz[0] /= norm;
+                    xyz[1] /= norm;
+                    xyz[2] /= norm;
+                    float r = radius * powf(curand_uniform(&state), 1.0f / 3.0f);
+                    xyz[0] = target[0] + r * xyz[0];
+                    xyz[1] = target[1] + r * xyz[1];
+                    xyz[2] = target[2] + r * xyz[2];
+                }
+                // Choose a random position within the triclinic box.
+                else
+                {
+                    float r[3];
+                    r[0] = curand_uniform(&state);
+                    r[1] = curand_uniform(&state);
+                    r[2] = curand_uniform(&state);
+
+                    for (int i = 0; i < 3; i++)
+                    {
+                        xyz[i] = 0.0f;
+                        for (int j = 0; j < 3; j++)
+                        {
+                            xyz[i] += r[j] * cell_matrix[i][j];
+                        }
+                    }
+                }
 
                 // Place the oxygen (first atom) at the random position.
                 water_position[tidx * 9] = xyz[0];

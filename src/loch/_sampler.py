@@ -43,7 +43,7 @@ class GCMCSampler:
     def __init__(
         self,
         system,
-        reference,
+        reference=None,
         radius="4 A",
         cutoff_type="rf",
         cutoff="10.0 A",
@@ -69,7 +69,8 @@ class GCMCSampler:
             The molecular system.
 
         reference: str
-            A selection string for the reference atoms.
+            A selection string for the reference atoms. If None, then the
+            waters will be randomly inserted within the entire system.
 
         radius: str
             The radius of the GCMC sphere.
@@ -122,8 +123,9 @@ class GCMCSampler:
             raise ValueError("The system must be a Sire system.")
         self._system = system
 
-        if not isinstance(reference, str):
-            raise ValueError("The reference must be a string.")
+        if reference is not None:
+            if not isinstance(reference, str):
+                raise ValueError("The reference must be a string.")
         self._reference = reference
 
         cutoff_type = cutoff_type.lower().replace(" ", "")
@@ -251,7 +253,8 @@ class GCMCSampler:
         )
 
         # Get the indices of the reference atoms.
-        self._reference_indices = self._get_reference_indices(system, reference)
+        if self._reference is not None:
+            self._reference_indices = self._get_reference_indices(system, reference)
 
         # Set the box information.
         self._space, self._cell_matrix, self._cell_matrix_inverse, self._M = (
@@ -377,6 +380,7 @@ class GCMCSampler:
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
             f"water_template={self._water_template}, "
+            f"device={self._device}, "
             f"log_level={self._log_level}, "
             f"seed={self._seed})"
         )
@@ -534,9 +538,14 @@ class GCMCSampler:
             initial_energy = state.getPotentialEnergy()
 
         # Get the target position.
-        target = _gpuarray.to_gpu(
-            self._get_target_position(positions).astype(_np.float32)
-        )
+        if self._reference is not None:
+            target = _gpuarray.to_gpu(
+                self._get_target_position(positions).astype(_np.float32)
+            )
+            is_target = _np.int32(1)
+        else:
+            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
+            is_target = _np.int32(0)
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
@@ -552,6 +561,7 @@ class GCMCSampler:
             target,
             _np.float32(self._radius.value()),
             self._water_positions,
+            is_target,
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
@@ -569,19 +579,23 @@ class GCMCSampler:
 
         # Work out the candidate waters for deletion. This allows
         # us to work out the current number of waters within the GCMC sphere.
-        self._kernels["deletion"](
-            self._deletion_candidates,
-            target,
-            _np.float32(self._radius.value()),
-            block=(self._num_threads, 1, 1),
-            grid=(self._water_blocks, 1, 1),
-        )
+        if self._reference is not None:
+            self._kernels["deletion"](
+                self._deletion_candidates,
+                target,
+                _np.float32(self._radius.value()),
+                block=(self._num_threads, 1, 1),
+                grid=(self._water_blocks, 1, 1),
+            )
 
-        # Get the candidates.
-        candidates = self._deletion_candidates.get().flatten()
+            # Get the candidates.
+            candidates = self._deletion_candidates.get().flatten()
 
-        # Find the waters within the GCMC sphere.
-        candidates = _np.argwhere(candidates == 1).flatten()
+            # Find the waters within the GCMC sphere.
+            candidates = _np.argwhere(candidates == 1).flatten()
+        # Use all non-ghost waters.
+        else:
+            candidates = _np.argwhere(self._water_state != 0).flatten()
 
         # Set the number of waters.
         self._N = len(candidates)
@@ -726,7 +740,10 @@ class GCMCSampler:
             initial_energy = state.getPotentialEnergy()
 
         # Get the target position.
-        target = self._get_target_position(positions)
+        if self._reference is not None:
+            target = self._get_target_position(positions)
+        else:
+            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](

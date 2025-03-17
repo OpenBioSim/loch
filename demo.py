@@ -87,7 +87,7 @@ sr.save(
 # Create a GCMC sampler.
 sampler = GCMCSampler(
     mols,
-    reference,
+    reference=reference,
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
