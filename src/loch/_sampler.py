@@ -700,7 +700,7 @@ class GCMCSampler:
                 f"Lennard-Jones energy: {energy_ljs[state].sum():.6f} kcal/mol"
             )
 
-        return context, "insertion", state != self._num_attempts
+        return context, "insertion", is_accepted
 
     def deletion_move(self, context):
         """
@@ -894,7 +894,7 @@ class GCMCSampler:
             )
             _logger.debug(f"LJ energy: {-energy_lj[0].sum():.6f} kcal/mol")
 
-        return context, "deletion", state != self._num_attempts
+        return context, "deletion", is_accepted
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
