@@ -703,8 +703,35 @@ code = """
                     energy += prefactor * energy_coul[idx] + energy_lj[idx];
                 }
 
+                // Avoid overflow.
+                if (energy > 100)
+                {
+                    if (sign == 1)
+                    {
+                        probability[tidx] = 0.0;
+                    }
+                    else
+                    {
+                        probability[tidx] = 1e6;
+                    }
+                }
+                // Avoid overflow.
+                else if (energy < -100)
+                {
+                    if (sign == 1)
+                    {
+                        probability[tidx] = 1e6;
+                    }
+                    else
+                    {
+                        probability[tidx] = 0.0;
+                    }
+                }
                 // Calculate the acceptance probability.
-                probability[tidx] = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
+                else
+                {
+                    probability[tidx] = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
+                }
             }
         }
 
