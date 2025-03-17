@@ -19,13 +19,14 @@
 # along with Loch. If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 
+import os as _os
 import numpy as _np
 import openmm as _openmm
 
 from loguru import logger as _logger
 
 import pycuda.gpuarray as _gpuarray
-import pycuda.autoinit as _autoinit
+import pycuda.driver as _cuda
 from pycuda.compiler import SourceModule as _SourceModule
 
 import BioSimSpace as _BSS
@@ -54,6 +55,7 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         water_template=None,
+        device=None,
         log_level="info",
         seed=None,
     ):
@@ -102,6 +104,10 @@ class GCMCSampler:
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
             the system does not contain any water molecules.
+
+        device: int
+            The CUDA device index. (This is the index in the list of visible
+            devices.)
 
         log_level: str
             The logging level.
@@ -211,6 +217,18 @@ class GCMCSampler:
 
         # Create a random number generator.
         self._rng = _np.random.default_rng(self._seed)
+
+        import pycuda.driver as cuda
+        from pycuda.tools import make_default_context
+
+        # Set the CUDA device.
+        if device is not None:
+            if not isinstance(device, int):
+                raise ValueError("The device must be of type 'int'.")
+            _os.environ["CUDA_DEVICE"] = str(device)
+        cuda.init()
+        self._context = make_default_context()
+        self._device = self._context.get_device()
 
         # Check for waters and validate the template.
         try:
@@ -335,6 +353,11 @@ class GCMCSampler:
         _logger.remove()
         _logger.add(sys.stderr, level=self._log_level.upper())
 
+        import atexit
+
+        # Register the cleanup function.
+        atexit.register(self._cleanup)
+
     def __str__(self):
         """
         Return a string representation of the class.
@@ -364,6 +387,16 @@ class GCMCSampler:
         """
 
         return str(self)
+
+    def _cleanup(self):
+        """
+        Clean up the CUDA context.
+        """
+        from pycuda.tools import clear_context_caches
+
+        self._context.pop()
+        self._context = None
+        clear_context_caches()
 
     def system(self):
         """
