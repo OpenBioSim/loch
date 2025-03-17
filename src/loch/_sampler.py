@@ -757,19 +757,23 @@ class GCMCSampler:
         )
 
         # First work out the candidate waters for deletion.
-        self._kernels["deletion"](
-            self._deletion_candidates,
-            _gpuarray.to_gpu(target.astype(_np.float32)),
-            _np.float32(self._radius.value()),
-            block=(self._num_threads, 1, 1),
-            grid=(self._water_blocks, 1, 1),
-        )
+        if self._reference is not None:
+            self._kernels["deletion"](
+                self._deletion_candidates,
+                _gpuarray.to_gpu(target.astype(_np.float32)),
+                _np.float32(self._radius.value()),
+                block=(self._num_threads, 1, 1),
+                grid=(self._water_blocks, 1, 1),
+            )
 
-        # Get the candidates.
-        candidates = self._deletion_candidates.get().flatten()
+            # Get the candidates.
+            candidates = self._deletion_candidates.get().flatten()
 
-        # Find the waters within the GCMC sphere.
-        candidates = _np.argwhere(candidates == 1).flatten()
+            # Find the waters within the GCMC sphere.
+            candidates = _np.argwhere(candidates == 1).flatten()
+        # Use all non-ghost waters.
+        else:
+            candidates = _np.argwhere(self._water_state != 0).flatten()
 
         # Set the number of waters.
         self._N = len(candidates)
