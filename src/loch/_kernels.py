@@ -703,34 +703,17 @@ code = """
                     energy += prefactor * energy_coul[idx] + energy_lj[idx];
                 }
 
-                // Avoid overflow.
-                if (energy > 100)
+                // Compute the probability.
+                float prob = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
+
+                // Make sure the probability is finite.
+                if (isfinite(prob))
                 {
-                    if (sign == 1)
-                    {
-                        probability[tidx] = 0.0;
-                    }
-                    else
-                    {
-                        probability[tidx] = 1e6;
-                    }
+                    probability[tidx] = prob;
                 }
-                // Avoid overflow.
-                else if (energy < -100)
-                {
-                    if (sign == 1)
-                    {
-                        probability[tidx] = 1e6;
-                    }
-                    else
-                    {
-                        probability[tidx] = 0.0;
-                    }
-                }
-                // Calculate the acceptance probability.
                 else
                 {
-                    probability[tidx] = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
+                    probability[tidx] = 1e6;
                 }
             }
         }
