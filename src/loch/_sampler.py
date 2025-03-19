@@ -19,14 +19,14 @@
 # along with Loch. If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 
-import os as _os
 import numpy as _np
 import openmm as _openmm
+import os as _os
 
 from loguru import logger as _logger
 
-import pycuda.gpuarray as _gpuarray
 import pycuda.driver as _cuda
+import pycuda.gpuarray as _gpuarray
 from pycuda.compiler import SourceModule as _SourceModule
 
 import BioSimSpace as _BSS
