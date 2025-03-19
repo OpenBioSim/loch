@@ -37,7 +37,7 @@ from ._kernels import code as _code
 
 class GCMCSampler:
     """
-    A class to perform GCMC sampling using the GPU.
+    A class to perform GCMC sampling on the GPU via PyCUDA.
     """
 
     def __init__(
