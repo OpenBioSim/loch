@@ -37,7 +37,7 @@ from ._kernels import code as _code
 
 class GCMCSampler:
     """
-    A class to perform GCMC sampling on the GPU via PyCUDA.
+    A class to perform GCMC water sampling on the GPU via PyCUDA.
     """
 
     def __init__(
@@ -69,7 +69,7 @@ class GCMCSampler:
             The molecular system.
 
         reference: str
-            A selection string for the reference atoms. If None, then the
+            A selection string for the reference atoms. If None, then
             waters will be randomly inserted within the entire system.
 
         radius: str
