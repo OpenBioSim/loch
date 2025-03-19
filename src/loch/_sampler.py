@@ -1489,28 +1489,3 @@ class GCMCSampler:
         _logger.debug(f"GCMC sphere center: {target}")
 
         return target
-
-    def _evaluate_candidate(self, state, context, move):
-        """
-        Evaluate the energy of a candidate move at the PME level.
-
-        Parameters
-        ----------
-
-        state: int
-            The index of the candidate state.
-
-        context: openmm.Context
-            The OpenMM context to update.
-
-        move: int
-            The type of move to evaluate. (0 = insertion, 1 = deletion)
-
-        Returns
-        -------
-
-        context: openmm.Context
-            The updated OpenMM context.
-        """
-
-        return context
