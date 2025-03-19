@@ -80,7 +80,7 @@ code = """
             }
         }
 
-        // Intialisation of the box cell information for triclinic boxes.
+        // Intialisation of the cell information for periodic triclinic boxes.
         __global__ void setCellMatrix(
             float* matrix,
             float* matrix_inverse,
