@@ -1222,7 +1222,7 @@ class GCMCSampler:
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
 
     @staticmethod
-    def _choose_state(rng, accepted, threshold=1e-6):
+    def _choose_state(rng, accepted):
         """
         Choose a trial move according to the probabilities.
 
