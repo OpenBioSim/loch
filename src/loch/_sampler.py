@@ -293,7 +293,7 @@ class GCMCSampler:
         self._kernels["deletion"] = mod.get_function("findDeletionCandidates")
         self._kernels["water"] = mod.get_function("generateWater")
         self._kernels["energy"] = mod.get_function("computeEnergy")
-        self._kernels["probability"] = mod.get_function("computeAcceptanceProbability")
+        self._kernels["acceptance"] = mod.get_function("checkAcceptance")
 
         # Work out the number of blocks to process the atoms.
         self._atom_blocks = self._num_atoms // self._num_threads + 1
@@ -306,9 +306,6 @@ class GCMCSampler:
 
         # Initialise the GPU memory.
         self._initialise_gpu_memory()
-
-        # Create memory to store the trial states.
-        self._states = _np.arange(self._num_attempts + 1).astype(_np.int32)
 
         # Set constants.
 
@@ -607,7 +604,7 @@ class GCMCSampler:
         _logger.debug(f"Number of waters: {self._N}")
 
         # Compute the acceptance probabilities.
-        self._kernels["probability"](
+        self._kernels["acceptance"](
             _np.int32(self._N),
             _np.int32(1),
             _np.float32(1.0),
@@ -615,20 +612,20 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul,
             self._energy_lj,
-            self._probability,
+            self._accepted,
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
 
-        # Get the probabilities and choose a new state.
-        probability_cpu = self._probability.get().flatten()
-        state = self._choose_state(self._rng, self._states, probability_cpu)
+        # Choose a new state.
+        accepted_cpu = self._accepted.get().flatten()
+        state = self._choose_state(self._rng, accepted_cpu)
 
         # Whether the move was accepted.
         is_accepted = False
 
         # A candidate insertion was accepted.
-        if state != self._num_attempts:
+        if state != -1:
             # Accept the move.
             context, idx = self._accept_insertion(state, context)
 
@@ -801,7 +798,7 @@ class GCMCSampler:
         )
 
         # Compute the acceptance probabilities.
-        self._kernels["probability"](
+        self._kernels["acceptance"](
             _np.int32(0),
             _np.int32(self._N),
             _np.float32(-1.0),
@@ -809,20 +806,20 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul,
             self._energy_lj,
-            self._probability,
+            self._accepted,
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
 
-        # Get the probabilities and choose a new state.
-        probability_cpu = self._probability.get().flatten()
-        state = self._choose_state(self._rng, self._states, probability_cpu)
+        # Choose a new state.
+        accepted_cpu = self._accepted.get().flatten()
+        state = self._choose_state(self._rng, accepted_cpu)
 
         # Whether the move was accepted.
         is_accepted = False
 
         # A candidate deletion was accepted.
-        if state != self._num_attempts:
+        if state != -1:
             # Accept the move.
             context, previous_state = self._accept_deletion(candidates[state], context)
 
@@ -1218,14 +1215,14 @@ class GCMCSampler:
             (1, self._num_attempts * self._num_atoms), _np.float32
         )
 
-        # Initialise memory to store the acceptance probabilities.
-        self._probability = _gpuarray.empty((1, self._num_attempts + 1), _np.float32)
+        # Initialise memory to store whether each attempt is accepted.
+        self._accepted = _gpuarray.empty((1, self._num_attempts), _np.int32)
 
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
 
     @staticmethod
-    def _choose_state(rng, states, probability, threshold=1e-6):
+    def _choose_state(rng, accepted, threshold=1e-6):
         """
         Choose a trial move according to the probabilities.
 
@@ -1235,11 +1232,8 @@ class GCMCSampler:
         rng: numpy.random.Generator
             The random number generator.
 
-        states: numpy.ndarray
-            The states to choose from.
-
-        probability: numpy.ndarray
-            The probabilities of each move.
+        accepted: numpy.ndarray
+            Whether each state was accepted.
 
         Returns
         -------
@@ -1248,25 +1242,22 @@ class GCMCSampler:
             The state to move to.
         """
 
-        # Zero the probability of staying in the same state.
-        probability[-1] = 0.0
+        # Get the indices of the accepted states.
+        accepted = _np.argwhere(accepted == 1).flatten()
 
-        # Compute the total probability.
-        total_probability = _np.sum(probability)
+        # Store the number of accepted states.
+        num_accepted = len(accepted)
 
-        _logger.debug(f"Total probability: {total_probability:.6f}")
+        _logger.debug(f"Number of accepted candidates: {num_accepted}")
 
-        # Update the probability of staying in the same state.
-        if total_probability < 1.0:
-            probability[-1] = 1.0 - total_probability
+        # No moves were accepted, remain in the current state.
+        if num_accepted == 0:
+            return -1
 
-        # Remove entries with low probability.
-        mask = probability > threshold
-        states = states[mask]
-        probability = probability[mask]
+        # Choose a new state at random.
+        state = rng.choice(accepted)
 
-        # Choose a state according to its probability.
-        return rng.choice(states, p=probability / _np.sum(probability))
+        return state
 
     def _accept_insertion(self, state, context):
         """

@@ -678,8 +678,8 @@ code = """
             }
         }
 
-        // Compute the acceptance probability for each insertion.
-        __global__ void computeAcceptanceProbability(
+        // Calculate whether each attempt is accepted.
+        __global__ void checkAcceptance(
             int N_insert,
             int N_delete,
             float sign,
@@ -687,7 +687,7 @@ code = """
             float beta,
             float* energy_coul,
             float* energy_lj,
-            float* probability)
+            int* accepted)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -706,14 +706,28 @@ code = """
                 // Compute the probability.
                 float prob = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
 
-                // Make sure the probability is finite.
-                if (isfinite(prob))
+                // Accept if the probability is infinite.
+                if (not isfinite(prob))
                 {
-                    probability[tidx] = prob;
+                    accepted[tidx] = 1.0;
                 }
                 else
                 {
-                    probability[tidx] = 1e6;
+                    // Get the RNG state.
+                    curandState_t state = *states[tidx];
+
+                    // Accept or reject based on the Boltzmann weight.
+                    if (curand_uniform(&state) < prob)
+                    {
+                        accepted[tidx] = 1.0;
+                    }
+                    else
+                    {
+                        accepted[tidx] = 0.0;
+                    }
+
+                    // Set the new state.
+                    *states[tidx] = state;
                 }
             }
         }
