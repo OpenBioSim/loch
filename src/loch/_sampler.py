@@ -54,6 +54,7 @@ class GCMCSampler:
         max_gcmc_waters=10,
         num_attempts=10000,
         num_threads=1024,
+        bulk_sampling_probability=0.1,
         water_template=None,
         device=None,
         log_level="info",
@@ -102,6 +103,12 @@ class GCMCSampler:
         num_threads: int
             The number of threads per block. (Must be a multiple of 32.)
 
+        bulk_sampling_probability: float
+            The probability of perforing trial insertion and deletion
+            moves within the entire simulation box, rather than within
+            the GCMC sphere. This option is only relevant when 'reference'
+            is not None.
+
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
             the system does not contain any water molecules.
@@ -120,14 +127,16 @@ class GCMCSampler:
         # Validate the input.
 
         if not isinstance(system, _sr.system.System):
-            raise ValueError("The system must be a Sire system.")
+            raise ValueError("'system' must be of type 'sire.system.System'")
         self._system = system
 
         if reference is not None:
             if not isinstance(reference, str):
-                raise ValueError("The reference must be a string.")
+                raise ValueError("'reference' must be of type 'str'")
         self._reference = reference
 
+        if not isinstance(cutoff_type, str):
+            raise ValueError("'cutoff_type' must be of type 'str'")
         cutoff_type = cutoff_type.lower().replace(" ", "")
         if not cutoff_type in ["rf", "pme"]:
             raise ValueError("The cutoff type must be 'rf' or 'pme'.")
@@ -172,34 +181,36 @@ class GCMCSampler:
             raise ValueError(f"Could not validate the 'temperature': {e}")
 
         if not isinstance(max_gcmc_waters, int):
-            raise ValueError("The maximum number of GCMC waters must be of type 'int'.")
+            raise ValueError("'max_gcmc_waters' must be of type 'int'")
         self._max_gcmc_waters = max_gcmc_waters
 
         if not isinstance(adams_shift, (int, float)):
-            raise ValueError("The Adams shift must be a of type 'int' or 'float'")
+            raise ValueError("'adams_shift' must be of type 'int' or 'float'")
         self._adams_shift = float(adams_shift)
 
-        if not isinstance(max_gcmc_waters, int):
-            raise ValueError("The maximum number of GCMC waters must be of type 'int'.")
-        self._max_gcmc_waters = max_gcmc_waters
-
         if not isinstance(num_attempts, int):
-            raise ValueError("The number of attempts must be of type 'int'.")
+            raise ValueError("'num_attempts' must be of type 'int'")
         self._num_attempts = num_attempts
 
         if not isinstance(num_threads, int):
-            raise ValueError("The number of threads must be of type 'int'.")
+            raise ValueError("'num_threads' must be of type 'int'")
         if not num_threads % 32 == 0:
-            raise ValueError("The number of threads must be a multiple of 32.")
+            raise ValueError("'num_threads' must be a multiple of 32")
         self._num_threads = num_threads
 
+        if not isinstance(bulk_sampling_probability, float):
+            raise ValueError("'bulk_sampling_probability' must be of type 'float'")
+        if not 0.0 <= bulk_sampling_probability <= 1.0:
+            raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
+        self._bulk_sampling_probability = bulk_sampling_probability
+
         if not isinstance(log_level, str):
-            raise ValueError("The log level must be of type 'str'.")
+            raise ValueError("'log_level' must be of type 'str'")
         log_level = log_level.lower().replace(" ", "")
         allowed_levels = [level.lower() for level in _logger._core.levels]
         if not log_level in allowed_levels:
             raise ValueError(
-                f"Invalid log level: {log_level}. Choices are: {', '.join(allowed_levels)}"
+                f"Invalid 'log_level': {log_level}. Choices are: {', '.join(allowed_levels)}"
             )
         self._log_level = log_level
         if self._log_level == "debug":
@@ -209,7 +220,7 @@ class GCMCSampler:
 
         if seed is not None:
             if not isinstance(seed, int):
-                raise ValueError("The seed must be of type 'int'.")
+                raise ValueError("'seed' must be of type 'int'")
         else:
             seed = _np.random.randint(_np.iinfo(_np.int32).max)
         self._seed = seed
@@ -226,7 +237,7 @@ class GCMCSampler:
         # Set the CUDA device.
         if device is not None:
             if not isinstance(device, int):
-                raise ValueError("The device must be of type 'int'.")
+                raise ValueError("'device' must be of type 'int'")
             _os.environ["CUDA_DEVICE"] = str(device)
         cuda.init()
         self._context = make_default_context()
@@ -243,7 +254,9 @@ class GCMCSampler:
                 )
             else:
                 if not isinstance(water_template, _sr.molecule.Molecule):
-                    raise ValueError("The water template must be a Sire molecule.")
+                    raise ValueError(
+                        "'water_template' must be of type 'sire.mol.Molecule'"
+                    )
             self._water_template = water_template
         self._num_points = self._water_template.num_atoms()
 
@@ -379,6 +392,7 @@ class GCMCSampler:
             f"adams_shift={self._adams_shift}, "
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
+            f"bulk_sampling_probability={self._bulk_sampling_probability}, "
             f"water_template={self._water_template}, "
             f"device={self._device}, "
             f"log_level={self._log_level}, "
@@ -537,15 +551,22 @@ class GCMCSampler:
         if self._is_pme:
             initial_energy = state.getPotentialEnergy()
 
-        # Get the target position.
+        is_bulk = True
         if self._reference is not None:
-            target = _gpuarray.to_gpu(
-                self._get_target_position(positions).astype(_np.float32)
-            )
-            is_target = _np.int32(1)
-        else:
+            # Sample within the GCMC sphere.
+            if self._rng.random() > self._bulk_sampling_probability:
+                target = _gpuarray.to_gpu(
+                    self._get_target_position(positions).astype(_np.float32)
+                )
+                is_target = _np.int32(1)
+                is_bulk = False
+            else:
+                _logger.debug("Sampling within the entire simulation box")
+        # Sample within the entire simulation box.
+        if is_bulk:
             target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
             is_target = _np.int32(0)
+            _logger.debug("Sampling within the entire simulation box")
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
@@ -579,7 +600,7 @@ class GCMCSampler:
 
         # Work out the candidate waters for deletion. This allows
         # us to work out the current number of waters within the GCMC sphere.
-        if self._reference is not None:
+        if not is_bulk:
             self._kernels["deletion"](
                 self._deletion_candidates,
                 target,
@@ -737,11 +758,16 @@ class GCMCSampler:
         if self._is_pme:
             initial_energy = state.getPotentialEnergy()
 
-        # Get the target position.
+        is_bulk = True
         if self._reference is not None:
-            target = self._get_target_position(positions)
-        else:
-            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
+            # Sample within the GCMC sphere.
+            if self._rng.random() > self._bulk_sampling_probability:
+                target = _gpuarray.to_gpu(
+                    self._get_target_position(positions).astype(_np.float32)
+                )
+                is_bulk = False
+            else:
+                _logger.debug("Sampling within the entire simulation box")
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
@@ -752,7 +778,7 @@ class GCMCSampler:
         )
 
         # First work out the candidate waters for deletion.
-        if self._reference is not None:
+        if not is_bulk:
             self._kernels["deletion"](
                 self._deletion_candidates,
                 _gpuarray.to_gpu(target.astype(_np.float32)),
