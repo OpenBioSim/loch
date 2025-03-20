@@ -19,6 +19,8 @@
 # along with Loch. If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 
+__all__ = ["GCMCSampler"]
+
 import numpy as _np
 import openmm as _openmm
 import os as _os
