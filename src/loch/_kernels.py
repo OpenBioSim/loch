@@ -660,7 +660,7 @@ code = """
                         }
                     }
 
-                    // Apply the reaction field correction for intra-water interactions.
+                    // Apply the reaction field correction for the water atoms.
                     if (idx_atom == 0)
                     {
                         // Self interaction.
