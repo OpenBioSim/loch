@@ -46,7 +46,7 @@ class GCMCSampler:
         self,
         system,
         reference=None,
-        radius="4 A",
+        radius="4.0 A",
         cutoff_type="rf",
         cutoff="10.0 A",
         excess_chemical_potential="-6.09 kcal/mol",
