@@ -1283,9 +1283,7 @@ class GCMCSampler:
             return -1
 
         # Choose a new state at random.
-        state = rng.choice(accepted)
-
-        return state
+        return rng.choice(accepted)
 
     def _accept_insertion(self, state, context):
         """
