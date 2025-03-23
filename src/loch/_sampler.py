@@ -355,7 +355,7 @@ class GCMCSampler:
         # Coulomb energy prefactor.
         self._prefactor = 1.0 / (4.0 * _np.pi * _sr.units.epsilon0.value())
 
-        # Zero the number of waters in the GCMC region.
+        # Zero the number of waters in the sampling volume.
         self._N = 0
 
         # Zero the number of accepted moves.
