@@ -715,7 +715,7 @@ class GCMCSampler:
 
             # Log the energies of the accepted candidate.
             _logger.debug(
-                f"Coulomb energy: {self._prefactor*energy_couls[state].sum():.6f} kcal/mol"
+                f"RF Coulomb energy: {self._prefactor*energy_couls[state].sum():.6f} kcal/mol"
             )
             _logger.debug(
                 f"Lennard-Jones energy: {energy_ljs[state].sum():.6f} kcal/mol"
@@ -916,7 +916,7 @@ class GCMCSampler:
 
             # Log the energies of the first candidate.
             _logger.debug(
-                f"Coulomb energy: {-self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
+                f"RF coulomb energy: {-self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
             )
             _logger.debug(f"LJ energy: {-energy_lj[0].sum():.6f} kcal/mol")
 
