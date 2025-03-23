@@ -283,6 +283,7 @@ class GCMCSampler:
             )
             self._num_atoms = self._system.num_atoms()
             self._num_waters = len(self._water_indices)
+            self._total_waters = self._num_waters + self._max_gcmc_waters
         except Exception as e:
             raise ValueError(f"Could not prepare the system for GCMC sampling: {e}")
 
@@ -1308,7 +1309,7 @@ class GCMCSampler:
             The index of the water that was inserted.
         """
 
-        if self._N == self._max_gcmc_waters:
+        if self._N >= self._total_waters:
             raise RuntimeError(
                 "Cannot insert any more waters. Please increase 'max_gcmc_waters'."
             )
