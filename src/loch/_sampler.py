@@ -625,7 +625,7 @@ class GCMCSampler:
         self._N = len(candidates)
 
         # Log the current number of waters.
-        _logger.debug(f"Number of waters: {self._N}")
+        _logger.debug(f"Number of waters in sampling volume: {self._N}")
 
         # Compute the acceptance probabilities.
         self._kernels["acceptance"](
@@ -803,7 +803,7 @@ class GCMCSampler:
         self._N = len(candidates)
 
         # Log the current number of waters.
-        _logger.debug(f"Number of waters: {self._N}")
+        _logger.debug(f"Number of waters in sampling volume: {self._N}")
 
         # Log the candidates.
         _logger.debug(f"Number of deletion candidates: {len(candidates)}")
