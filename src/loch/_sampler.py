@@ -1358,7 +1358,7 @@ class GCMCSampler:
             grid=(1, 1, 1),
         )
 
-        # Update the number of GCMC waters.
+        # Update the number of waters in the sampling volume.
         self._N += 1
 
         return context, idx
@@ -1410,7 +1410,7 @@ class GCMCSampler:
             grid=(1, 1, 1),
         )
 
-        # Update the number of GCMC waters.
+        # Update the number of waters in the sampling volume.
         self._N -= 1
 
         return context, previous_state
@@ -1464,7 +1464,7 @@ class GCMCSampler:
             grid=(1, 1, 1),
         )
 
-        # Update the number of GCMC waters.
+        # Update the number of waters in the sampling volume.
         self._N += 1
 
         return context
