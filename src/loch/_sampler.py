@@ -695,10 +695,10 @@ class GCMCSampler:
 
         if is_accepted and self._is_debug:
             # Get the energies.
-            energy_couls = self._energy_coul.get().reshape(
+            energy_coul = self._energy_coul.get().reshape(
                 (self._num_attempts, self._num_atoms)
             )
-            energy_ljs = self._energy_lj.get().reshape(
+            energy_lj = self._energy_lj.get().reshape(
                 (self._num_attempts, self._num_atoms)
             )
 
