@@ -707,6 +707,14 @@ class GCMCSampler:
                 (self._num_attempts, self._num_points, 3)
             )
 
+            # Store debugging attributes.
+            self._debug = {
+                "move": "insertion",
+                "idx": idx,
+                "energy_coul": self._prefactor * energy_coul[state].sum(),
+                "energy_lj": energy_lj[state].sum(),
+            }
+
             # Log the accepted candidate.
             _logger.debug(f"Accepted insertion: candidate={state}, water={idx}")
 
@@ -715,11 +723,9 @@ class GCMCSampler:
 
             # Log the energies of the accepted candidate.
             _logger.debug(
-                f"RF Coulomb energy: {self._prefactor*energy_couls[state].sum():.6f} kcal/mol"
+                f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol"
             )
-            _logger.debug(
-                f"Lennard-Jones energy: {energy_ljs[state].sum():.6f} kcal/mol"
-            )
+            _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
 
         return context, "insertion", is_accepted
 
@@ -911,14 +917,22 @@ class GCMCSampler:
             # Get the water index.
             water_idx = self._water_indices[candidates[state]]
 
+            # Store debugging attributes.
+            self._debug = {
+                "move": "deletion",
+                "idx": self._water_indices[candidates[state]],
+                "energy_coul": -self._prefactor * energy_coul[state].sum(),
+                "energy_lj": -energy_lj[state].sum(),
+            }
+
             # Log the oxygen position.
             _logger.debug(f"Deleted oxygen position: {positions[water_idx]}")
 
-            # Log the energies of the first candidate.
+            # Log the energies of the accepted candidate.
             _logger.debug(
-                f"RF coulomb energy: {-self._prefactor*energy_coul[0].sum():.6f} kcal/mol"
+                f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol"
             )
-            _logger.debug(f"LJ energy: {-energy_lj[0].sum():.6f} kcal/mol")
+            _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
 
         return context, "deletion", is_accepted
 
