@@ -137,9 +137,10 @@ for i in range(args.num_cycles):
     if accepted:
         d._d._omm_mols = context
 
-print(f"Accepted: {sampler.num_accepted()}")
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
+print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
+print(f"Attempt acceptance probability: {sampler.attempt_acceptance_probability():.4f}")
 print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")
 
 # Save the final configuration.

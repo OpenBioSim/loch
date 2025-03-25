@@ -130,7 +130,8 @@ for i in range(args.num_cycles):
     density = ((total_mass * sr.units.mole) / (volume * NA)).to("g/centimeter^3")
     print(f"volume {volume.value():.5f} A^3, density: {density:.5f} g/mL")
 
-print(f"Accepted: {sampler.num_accepted()}")
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
+print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
+print(f"Attempt acceptance probability: {sampler.attempt_acceptance_probability():.4f}")
 print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")

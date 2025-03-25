@@ -358,8 +358,10 @@ class GCMCSampler:
         # Zero the number of waters in the sampling volume.
         self._N = 0
 
-        # Zero the number of accepted moves.
+        # Zero the statistics.
+        self._num_moves = 0
         self._num_accepted = 0
+        self._num_accepted_attempts = 0
         self._num_insertions = 0
         self._num_deletions = 0
 
@@ -443,7 +445,7 @@ class GCMCSampler:
         """
         return self._N
 
-    def num_accepted(self):
+    def num_accepted_moves(self):
         """
         Return the number of accepted moves.
 
@@ -454,6 +456,42 @@ class GCMCSampler:
             The number of accepted moves.
         """
         return self._num_accepted
+
+    def num_accepted_attempts(self):
+        """
+        Return the number accepted attempts.
+
+        Returns
+        -------
+
+        num_accepted_attempts: int
+            The total number of accepted attempts.
+        """
+        return self._num_accepted_attempts
+
+    def move_acceptance_probability(self):
+        """
+        Return the acceptance probability.
+
+        Returns
+        -------
+
+        acceptance_probability: float
+            The acceptance probability.
+        """
+        return self._num_accepted / self._num_moves
+
+    def attempt_acceptance_probability(self):
+        """
+        Return the acceptance probability per attempt.
+
+        Returns
+        -------
+
+        acceptance_probability: float
+            The acceptance probability per attempt.
+        """
+        return self._num_accepted_attempts / (2 * self._num_moves * self._num_attempts)
 
     def num_insertions(self):
         """
@@ -511,6 +549,9 @@ class GCMCSampler:
             The type of move. (If accepted.)
         """
 
+        # Increment the number of moves.
+        self._num_moves += 1
+
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
 
@@ -533,8 +574,6 @@ class GCMCSampler:
                 )
                 is_target = True
                 is_bulk = False
-            else:
-                _logger.debug("Sampling within the entire simulation box")
         # Sample within the entire simulation box.
         if is_bulk:
             target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
@@ -583,17 +622,17 @@ class GCMCSampler:
         # Store the total number of accepted moves.
         num_insertions = len(insertions)
         num_deletions = len(deletions)
-        num_accepted = num_insertions + num_deletions
+        num_accepted_attempts = num_insertions + num_deletions
 
         _logger.debug(f"Number of insertion candidates: {num_insertions}")
         _logger.debug(f"Number of deletion candidates: {num_deletions}")
 
         # No moves were accepted, stay in the same state.
-        if num_accepted == 0:
+        if num_accepted_attempts == 0:
             return context, False, "none"
 
         # Choose a move at random.
-        state = self._rng.integers(num_accepted)
+        state = self._rng.integers(num_accepted_attempts)
 
         # Insertion.
         if state < num_insertions:
@@ -605,6 +644,7 @@ class GCMCSampler:
 
             # Update the acceptance statistics.
             self._num_accepted += 1
+            self._num_accepted_attempts += num_accepted_attempts
             self._num_insertions += 1
 
             is_accepted = True
@@ -637,6 +677,7 @@ class GCMCSampler:
 
                     # Update the acceptance statistics.
                     self._num_accepted -= 1
+                    self._num_accepted_attempts -= num_accepted_attempts
                     self._num_insertions -= 1
 
                     is_accepted = False
@@ -691,6 +732,7 @@ class GCMCSampler:
 
             # Update the acceptance statistics.
             self._num_accepted += 1
+            self._num_accepted_attempts += num_accepted_attempts
             self._num_deletions += 1
 
             is_accepted = True
@@ -725,6 +767,7 @@ class GCMCSampler:
 
                     # Update the acceptance statistics.
                     self._num_accepted -= 1
+                    self._num_accepted_attempts -= num_accepted_attempts
                     self._num_deletions -= 1
 
                     is_accepted = False
