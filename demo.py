@@ -128,7 +128,7 @@ for i in range(args.num_cycles):
 
     # Perform a GCMC move.
     start = time()
-    context, move, accepted = sampler.move(d.context())
+    context, accepted, move = sampler.move(d.context())
     end = time()
     if i > 0:
         total += end - start

@@ -30,19 +30,21 @@ def test_energy(water_box):
     # Get the context.
     context = d.context()
 
-    # Store the inital energy in kcal/mol.
-    initial_energy = (
-        d.context()
-        .getState(getEnergy=True)
-        .getPotentialEnergy()
-        .value_in_unit(openmm.unit.kilocalories_per_mole)
-    )
-
     # Loop until we accept an insertion move.
     is_accepted = False
     while not is_accepted:
+        # Store the initial energy in kcal/mol.
+        initial_energy = (
+            d.context()
+            .getState(getEnergy=True)
+            .getPotentialEnergy()
+            .value_in_unit(openmm.unit.kilocalories_per_mole)
+        )
+
         # Perform a GCMC move.
-        context, move, is_accepted = sampler.insertion_move(d.context())
+        context, is_accepted, move = sampler.move(d.context())
+        if move != "insertion":
+            is_accepted = False
 
     # Store the final energy in kcal/mol.
     final_energy = (
@@ -53,7 +55,9 @@ def test_energy(water_box):
     )
 
     # Get the debugging information.
-    sampler_energy = sampler._debug["energy_coul"] + sampler._debug["energy_lj"]
+    sampler_energy = (
+        sampler._debug["energy_coul_insert"] + sampler._debug["energy_lj_insert"]
+    )
 
     # Calculate the energy difference.
     energy_difference = final_energy - initial_energy
@@ -61,14 +65,21 @@ def test_energy(water_box):
     # Check that the energy difference is close to the calculated energy change.
     assert math.isclose(energy_difference, sampler_energy, abs_tol=1e-2)
 
-    # Re-set the initial energy.
-    initial_energy = final_energy
-
     # Loop until we accept a deletion move.
     is_accepted = False
     while not is_accepted:
+        # Store the initial energy in kcal/mol.
+        initial_energy = (
+            d.context()
+            .getState(getEnergy=True)
+            .getPotentialEnergy()
+            .value_in_unit(openmm.unit.kilocalories_per_mole)
+        )
+
         # Perform a GCMC move.
-        context, move, is_accepted = sampler.deletion_move(d.context())
+        context, is_accepted, move = sampler.move(d.context())
+        if move != "deletion":
+            is_accepted = False
 
     # Store the final energy in kcal/mol.
     final_energy = (
@@ -79,7 +90,9 @@ def test_energy(water_box):
     )
 
     # Get the debugging information.
-    sampler_energy = sampler._debug["energy_coul"] + sampler._debug["energy_lj"]
+    sampler_energy = (
+        sampler._debug["energy_coul_delete"] + sampler._debug["energy_lj_delete"]
+    )
 
     # Calculate the energy difference.
     energy_difference = final_energy - initial_energy

@@ -575,6 +575,26 @@ code = """
                     // Don't compute self-interactions.
                     if (delta >= 0 and delta < num_points)
                     {
+                        // If system sampling, then the water could be index 0. If
+                        // so , then we need to apply the reaction field correction.
+                        if (idx_water_context == 0)
+                        {
+                            // Loop over all atoms in the water molecule.
+                            for (int i = 0; i < num_points; i++)
+                            {
+                                // Self interaction.
+                                const auto c1 = charge_water[i];
+                                energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
+
+                                // Pair interaction.
+                                for (int j = i+1; j < num_points; j++)
+                                {
+                                    const auto c2 = charge_water[j];
+                                    energy_coul[idx] -= (c1 * c2) * rf_correction;
+                                }
+                            }
+                        }
+
                         return;
                     }
                 }
