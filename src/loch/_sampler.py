@@ -781,14 +781,14 @@ class GCMCSampler:
                         # Log the deletion.
                         if self._is_debug:
                             self._log_deletion(
-                                state, candidates, delta_energy, acc_prob
+                                state, candidates, positions, delta_energy, acc_prob
                             )
 
                         # Accept the move.
                         is_accepted = True
                         break
 
-            return context, is_accepted, move
+        return context, is_accepted, move
 
     def _insertion_move(self, target, is_target=True):
         """
