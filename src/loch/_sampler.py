@@ -717,11 +717,13 @@ class GCMCSampler:
                     # Get the new energy.
                     final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                    # Compute the acceptance probability for the insertion.
+                    # Compute the acceptance probability for the insertion. Note
+                    # that N has already been updated, so divide by N rather than
+                    # N + 1.
                     acc_prob = (
                         self._exp_B
                         * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
-                        / (self._N + 1)
+                        / self._N
                     )
 
                     # The move was rejected.
@@ -760,7 +762,7 @@ class GCMCSampler:
                     # Compute the acceptance probability for the insertion. Note that N has
                     # already been updated, so multiply by N + 1 rather than N.
                     acc_prob = (
-                        self._N
+                        (self._N + 1)
                         * self._exp_minus_B
                         * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
                     )
