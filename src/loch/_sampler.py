@@ -114,10 +114,11 @@ class GCMCSampler:
 
         probability_threshold: float
             The RF acceptance probability threshold. This is used to determine
-            candidates that are advanced to a PME acceptance test. Note that
-            an energy threshold is inapproproate, since it would be different
-            for insertion and deletion moves. A value of 1/num_attempts is a
-            good baseline.
+            candidates that are advanced to a PME acceptance test when using
+            cutoff_type="pme". Note that an energy threshold is inapproproate,
+            since it would be different for insertion and deletion moves and
+            would need recalibrating for each Adams value. A threshold of
+            1/num_attempts is a good baseline.
 
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
