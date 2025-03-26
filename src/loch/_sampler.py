@@ -1543,6 +1543,9 @@ class GCMCSampler:
         # Log the energies of the accepted candidate.
         _logger.debug(f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol")
         _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
+        _logger.debug(
+            f"Total RF energy difference: {self._debug['energy_coul'] + self._debug['energy_lj']:.6f} kcal/mol"
+        )
 
         # Add PME energy if available.
         if pme_energy is not None:
@@ -1550,7 +1553,9 @@ class GCMCSampler:
                 _openmm.unit.kilocalorie_per_mole
             )
 
-            _logger.debug(f"PME energy: {self._debug['pme_energy']:.6f} kcal/mol")
+            _logger.debug(
+                f"Total PME energy difference: {self._debug['pme_energy']:.6f} kcal/mol"
+            )
             _logger.debug(f"PME insertion probability: {pme_probability:.6f}")
 
     def _log_deletion(
@@ -1607,6 +1612,9 @@ class GCMCSampler:
         # Log the energies of the accepted candidate.
         _logger.debug(f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol")
         _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
+        _logger.debug(
+            f"Total RF energy difference: {self._debug['energy_coul'] + self._debug['energy_lj']:.6f} kcal/mol"
+        )
 
         # Add PME energy if available.
         if pme_energy is not None:
@@ -1614,5 +1622,7 @@ class GCMCSampler:
                 _openmm.unit.kilocalorie_per_mole
             )
 
-            _logger.debug(f"PME energy: {self._debug['pme_energy']:.6f} kcal/mol")
+            _logger.debug(
+                f"Total PME energy difference: {self._debug['pme_energy']:.6f} kcal/mol"
+            )
             _logger.debug(f"PME deletion probability: {pme_probability:.6f}")

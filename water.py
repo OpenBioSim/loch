@@ -76,7 +76,7 @@ sampler = GCMCSampler(
     standard_volume="30.543 A^3",
     temperature=args.temperature,
     max_gcmc_waters=100,
-    log_level="info",
+    log_level="debug",
 )
 
 # Create a dynamics object using the modified GCMC system.
