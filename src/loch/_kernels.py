@@ -733,7 +733,7 @@ code = """
                 if (is_pme == 1)
                 {
                     // Accept if the probability is infinite or above the threshold.
-                    if (not isfinite(probe) or prob > threshold)
+                    if (not isfinite(prob) or prob > threshold)
                     {
                         accepted[tidx] = 1;
                     }
