@@ -128,7 +128,7 @@ for i in range(args.num_cycles):
     # Work out the current density in g/mL.
     total_mass = sampler.num_waters() * mass
     density = ((total_mass * sr.units.mole) / (volume * NA)).to("g/centimeter^3")
-    print(f"volume {volume.value():.5f} A^3, density: {density:.5f} g/mL")
+    print(f"volume: {volume.value():.5f} A^3, density: {density:.5f} g/mL")
 
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
