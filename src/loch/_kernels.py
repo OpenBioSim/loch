@@ -707,7 +707,9 @@ code = """
             float beta,
             float* energy_coul,
             float* energy_lj,
-            int* accepted)
+            int* accepted,
+            float threshold,
+            int is_pme)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -726,28 +728,46 @@ code = """
                 // Compute the probability.
                 float prob = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
 
-                // Accept if the probability is infinite.
-                if (not isfinite(prob))
+                // For PME, we just want to consider candidates above the probability threshold.
+                // A full PME calculation will be performed in the host code.
+                if (is_pme == 1)
                 {
-                    accepted[tidx] = 1.0;
-                }
-                else
-                {
-                    // Get the RNG state.
-                    curandState_t state = *states[tidx];
-
-                    // Accept or reject based on the Boltzmann weight.
-                    if (curand_uniform(&state) < prob)
+                    if (prob > threshold)
                     {
-                        accepted[tidx] = 1.0;
+                        accepted[tidx] = 1;
                     }
                     else
                     {
-                        accepted[tidx] = 0.0;
+                        accepted[tidx] = 0;
                     }
+                }
 
-                    // Set the new state.
-                    *states[tidx] = state;
+                // For RF we return the acceptance probability.
+                else
+                {
+                    // Accept if the probability is infinite.
+                    if (not isfinite(prob))
+                    {
+                        accepted[tidx] = 1;
+                    }
+                    else
+                    {
+                        // Get the RNG state.
+                        curandState_t state = *states[tidx];
+
+                        // Accept or reject based on the Boltzmann weight.
+                        if (curand_uniform(&state) < prob)
+                        {
+                            accepted[tidx] = 1;
+                        }
+                        else
+                        {
+                            accepted[tidx] = 0;
+                        }
+
+                        // Set the new state.
+                        *states[tidx] = state;
+                    }
                 }
             }
         }

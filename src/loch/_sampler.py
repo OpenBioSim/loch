@@ -57,6 +57,7 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         bulk_sampling_probability=0.1,
+        probability_threshold=1e-5,
         water_template=None,
         device=None,
         log_level="info",
@@ -110,6 +111,12 @@ class GCMCSampler:
             moves within the entire simulation box, rather than within
             the GCMC sphere. This option is only relevant when 'reference'
             is not None.
+
+        probability_threshold: float
+            The RF acceptance probability threshold. This is used to determine
+            candidates that are advanced to a PME acceptance test. Note that
+            an energy threshold is inapproproate, since it would be different
+            for insertion and deletion moves.
 
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
@@ -205,6 +212,10 @@ class GCMCSampler:
         if not 0.0 <= bulk_sampling_probability <= 1.0:
             raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
         self._bulk_sampling_probability = bulk_sampling_probability
+
+        if not isinstance(probability_threshold, float):
+            raise ValueError("'probability_threshold' must be of type 'float'")
+        self._probability_threshold = probability_threshold
 
         if not isinstance(log_level, str):
             raise ValueError("'log_level' must be of type 'str'")
@@ -374,6 +385,9 @@ class GCMCSampler:
         _logger.remove()
         _logger.add(sys.stderr, level=self._log_level.upper())
 
+        # Log the Adams value.
+        _logger.debug(f"Adams value: {B:.6f}")
+
         import atexit
 
         # Register the cleanup function.
@@ -398,6 +412,7 @@ class GCMCSampler:
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
+            f"probability_threshold={self._probability_threshold}, "
             f"water_template={self._water_template}, "
             f"device={self._device}, "
             f"log_level={self._log_level}, "
@@ -627,190 +642,151 @@ class GCMCSampler:
         _logger.debug(f"Number of insertion candidates: {num_insertions}")
         _logger.debug(f"Number of deletion candidates: {num_deletions}")
 
-        # No moves were accepted, stay in the same state.
-        if num_accepted_attempts == 0:
-            return context, False, "none"
+        # Reaction field.
+        if not self._is_pme:
+            # No moves were accepted, stay in the same state.
+            if num_accepted_attempts == 0:
+                return context, False, None
 
-        # Choose a move at random.
-        state = self._rng.integers(num_accepted_attempts)
+            # Choose a move at random.
+            state = self._rng.integers(num_accepted_attempts)
 
-        # Insertion.
-        if state < num_insertions:
-            # Work out the state.
-            state = insertions[state]
+            # Insertion.
+            if state < num_insertions:
+                # Work out the state.
+                state = insertions[state]
 
-            # Accept the move.
-            context, idx = self._accept_insertion(state, context)
+                # Accept the move.
+                context, idx = self._accept_insertion(state, context)
 
-            # Update the acceptance statistics.
-            self._num_accepted += 1
-            self._num_accepted_attempts += num_accepted_attempts
-            self._num_insertions += 1
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_accepted_attempts += num_accepted_attempts
+                self._num_insertions += 1
 
-            is_accepted = True
+                is_accepted = True
+                move = "insertion"
 
-            # Advance to the PME insertion check.
-            if self._is_pme:
-                # Get the new energy.
-                final_energy = context.getState(getEnergy=True).getPotentialEnergy()
-
-                # Compute the acceptance probability for the insertion. Note that N has
-                # already been updated, so divide by N rather than N + 1.
-                acc_prob = (
-                    self._exp_B
-                    * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
-                    / self._N
-                )
-
-                # Log the PME energy difference and acceptance probability.
+                # Log the insertion.
                 if self._is_debug:
-                    delta_energy = (final_energy - initial_energy).value_in_unit(
-                        _openmm.unit.kilocalorie_per_mole
-                    )
-                    _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
-                    _logger.debug(f"PME insertion probability: {acc_prob:.6f}")
+                    self._log_insertion(state)
 
-                # The move was rejected.
-                if acc_prob < self._rng.random():
-                    # Revert the move by deleting the water.
-                    context, _ = self._accept_deletion(idx, context)
+            # Deletion.
+            else:
+                # Work out the deletion state.
+                state = deletions[state - num_insertions]
 
-                    # Update the acceptance statistics.
-                    self._num_accepted -= 1
-                    self._num_accepted_attempts -= num_accepted_attempts
-                    self._num_insertions -= 1
-
-                    is_accepted = False
-
-                    _logger.debug("PME insertion rejected")
-
-            if is_accepted and self._is_debug:
-                # Get the energies.
-                energy_coul = self._energy_coul_insert.get().reshape(
-                    (self._num_attempts, self._num_atoms)
-                )
-                energy_lj = self._energy_lj_insert.get().reshape(
-                    (self._num_attempts, self._num_atoms)
+                # Accept the move.
+                context, previous_state = self._accept_deletion(
+                    candidates[state], context
                 )
 
-                # Get the water positions.
-                water_positions = self._water_positions.get().reshape(
-                    (self._num_attempts, self._num_points, 3)
-                )
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_accepted_attempts += num_accepted_attempts
+                self._num_deletions += 1
 
-                # Store debugging attributes.
-                self._debug = {
-                    "move": "insertion",
-                    "idx": idx,
-                    "energy_coul_insert": self._prefactor * energy_coul[state].sum(),
-                    "energy_lj_insert": energy_lj[state].sum(),
-                }
+                is_accepted = True
+                move = "deletion"
 
-                # Log the accepted candidate.
-                _logger.debug(f"Accepted insertion: candidate={state}, water={idx}")
+                # Log the deletion.
+                if self._is_debug:
+                    self._log_deletion(state, candidates)
 
-                # Log the position of the inserted oxygen atom.
-                _logger.debug(f"Inserted oxygen position: {water_positions[state, 0]}")
-
-                # Log the energies of the accepted candidate.
-                _logger.debug(
-                    f"RF coulomb energy: {self._debug['energy_coul_insert']:.6f} kcal/mol"
-                )
-                _logger.debug(
-                    f"LJ energy: {self._debug['energy_lj_insert']:.6f} kcal/mol"
-                )
-
-            return context, is_accepted, "insertion"
-
-        # Deletion.
+        # PME.
         else:
-            # Work out the deletion state.
-            state = deletions[state - num_insertions]
+            # Shuffle the candidates.
+            candidate_indices = _np.arange(num_accepted_attempts)
+            self._rng.shuffle(candidate_indices)
 
-            # Accept the move.
-            context, previous_state = self._accept_deletion(candidates[state], context)
+            is_accepted = False
+            move = None
 
-            # Update the acceptance statistics.
-            self._num_accepted += 1
-            self._num_accepted_attempts += num_accepted_attempts
-            self._num_deletions += 1
+            # Loop through the canidates until a move is accepted.
+            for candidate in candidate_indices:
+                # Determine whether this is an insertion or deletion.
+                if candidate < num_insertions:
+                    move = "insertion"
+                    state = insertions[candidate]
 
-            is_accepted = True
+                    # Accept the move.
+                    context, idx = self._accept_insertion(state, context)
 
-            # Advance to the PME insertion check.
-            if self._is_pme:
-                # Get the new energy.
-                final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                # Compute the acceptance probability for the insertion. Note that N has
-                # already been updated, so multiply by N + 1 rather than N.
-                acc_prob = (
-                    (self._N + 1)
-                    * self._exp_minus_B
-                    * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
-                )
-
-                # Log the PME energy difference and acceptance probability.
-                if self._is_debug:
-                    delta_energy = (final_energy - initial_energy).value_in_unit(
-                        _openmm.unit.kilocalorie_per_mole
-                    )
-                    _logger.debug(f"PME energy difference: {delta_energy:.6f} kcal/mol")
-                    _logger.debug(f"PME deletion probability: {acc_prob:.6f}")
-
-                # The move was rejected.
-                if acc_prob < self._rng.random():
-                    # Revert the move.
-                    context = self._reject_deletion(
-                        candidates[state], previous_state, context
+                    # Compute the acceptance probability for the insertion.
+                    acc_prob = (
+                        self._exp_B
+                        * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
+                        / (self._N + 1)
                     )
 
-                    # Update the acceptance statistics.
-                    self._num_accepted -= 1
-                    self._num_accepted_attempts -= num_accepted_attempts
-                    self._num_deletions -= 1
+                    # The move was rejected.
+                    if acc_prob < self._rng.random():
+                        # Revert the move by deleting the water.
+                        context, _ = self._accept_deletion(idx, context)
+                    else:
+                        # Update the acceptance statistics.
+                        self._num_accepted += 1
+                        self._num_accepted_attempts += num_accepted_attempts
+                        self._num_insertions += 1
 
-                    is_accepted = False
+                        # Log the insertion.
+                        if self._is_debug:
+                            self._log_insertion(state, delta_energy, acc_prob)
 
-                    _logger.debug("PME deletion rejected")
+                        # Accept the move.
+                        is_accepted = True
+                        break
 
-            if is_accepted and self._is_debug:
-                # Get the coulomb and LJ energies.
-                energy_coul = self._energy_coul_delete.get().reshape(
-                    (self._num_attempts, self._num_atoms)
-                )
-                energy_lj = self._energy_lj_delete.get().reshape(
-                    (self._num_attempts, self._num_atoms)
-                )
+                else:
+                    move = "deletion"
+                    state = deletions[candidate - num_insertions]
 
-                # Log the accepted candidate.
-                _logger.debug(
-                    f"Accepted deletion: candidate={state}, water={candidates[state]}"
-                )
+                    # Accept the move.
+                    context, previous_state = self._accept_deletion(
+                        candidates[state], context
+                    )
 
-                # Get the water index.
-                water_idx = self._water_indices[candidates[state]]
+                    is_accepted = True
+                    move = "deletion"
 
-                # Store debugging attributes.
-                self._debug = {
-                    "move": "deletion",
-                    "idx": self._water_indices[candidates[state]],
-                    "energy_coul_delete": -self._prefactor * energy_coul[state].sum(),
-                    "energy_lj_delete": -energy_lj[state].sum(),
-                }
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                # Log the oxygen position.
-                _logger.debug(f"Deleted oxygen position: {positions[water_idx]}")
+                    # Compute the acceptance probability for the insertion. Note that N has
+                    # already been updated, so multiply by N + 1 rather than N.
+                    acc_prob = (
+                        self._N
+                        * self._exp_minus_B
+                        * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
+                    )
 
-                # Log the energies of the accepted candidate.
-                _logger.debug(
-                    f"RF coulomb energy: {self._debug['energy_coul_delete']:.6f} kcal/mol"
-                )
-                _logger.debug(
-                    f"LJ energy: {self._debug['energy_lj_delete']:.6f} kcal/mol"
-                )
+                    # The move was rejected.
+                    if acc_prob < self._rng.random():
+                        # Revert the move.
+                        context = self._reject_deletion(
+                            candidates[state], previous_state, context
+                        )
+                        _logger.debug("PME deletion rejected")
+                    else:
+                        # Update the acceptance statistics.
+                        self._num_accepted += 1
+                        self._num_accepted_attempts += num_accepted_attempts
+                        self._num_deletions += 1
 
-            return context, is_accepted, "deletion"
+                        # Log the deletion.
+                        if self._is_debug:
+                            self._log_deletion(
+                                state, candidates, delta_energy, acc_prob
+                            )
+
+                        # Accept the move.
+                        is_accepted = True
+                        break
+
+            return context, is_accepted, move
 
     def _insertion_move(self, target, is_target=True):
         """
@@ -871,6 +847,8 @@ class GCMCSampler:
             self._energy_coul_insert,
             self._energy_lj_insert,
             self._accepted,
+            _np.float32(self._probability_threshold),
+            _np.int32(self._is_pme),
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
@@ -932,6 +910,8 @@ class GCMCSampler:
             self._energy_coul_delete,
             self._energy_lj_delete,
             self._accepted,
+            _np.float32(self._probability_threshold),
+            _np.int32(self._is_pme),
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
@@ -1504,3 +1484,118 @@ class GCMCSampler:
         _logger.debug(f"GCMC sphere center: {target}")
 
         return target
+
+    def _log_insertion(self, state, idx, pme_energy=None, pme_probability=None):
+        """
+        Log information about the accepted insertion move.
+
+        Parameters
+        ----------
+
+        state: int
+            The index of the accepted state.
+
+        pme_energy: openmm.Quantity
+            The PME energy difference.
+
+        pme_probability: float
+            The PME acceptance probability.
+        """
+        # Get the energies.
+        energy_coul = self._energy_coul_insert.get().reshape(
+            (self._num_attempts, self._num_atoms)
+        )
+        energy_lj = self._energy_lj_insert.get().reshape(
+            (self._num_attempts, self._num_atoms)
+        )
+
+        # Get the water positions.
+        water_positions = self._water_positions.get().reshape(
+            (self._num_attempts, self._num_points, 3)
+        )
+
+        # Store debugging attributes.
+        self._debug = {
+            "move": "insertion",
+            "idx": idx,
+            "energy_coul": self._prefactor * energy_coul[state].sum(),
+            "energy_lj": energy_lj[state].sum(),
+        }
+
+        # Log the accepted candidate.
+        _logger.debug(f"Accepted insertion: candidate={state}, water={idx}")
+
+        # Log the position of the inserted oxygen atom.
+        _logger.debug(f"Inserted oxygen position: {water_positions[state, 0]}")
+
+        # Log the energies of the accepted candidate.
+        _logger.debug(f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol")
+        _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
+
+        # Add PME energy if available.
+        if pme_energy is not None:
+            self._debug["pme_energy"] = pme_energy.value_in_unit(
+                _openmm.unit.kilocalorie_per_mole
+            )
+
+            _logger.debug(f"PME energy: {self._debug['pme_energy']:.6f} kcal/mol")
+            _logger.debug(f"PME insertion probability: {pme_probability:.6f}")
+
+    def _log_deletion(self, state, candidates, pme_energy=None, pme_probability=None):
+        """
+        Log information about the accepted deletion move.
+
+        Parameters
+        ----------
+
+        state: int
+            The index of the accepted state.
+
+        candidates: numpy.ndarray
+            The indices of the candidate waters.
+
+        pme_energy: openmm.Quantity
+            The PME energy difference.
+
+        pme_probability: float
+            The PME acceptance probability.
+        """
+        # Get the coulomb and LJ energies.
+        energy_coul = self._energy_coul_delete.get().reshape(
+            (self._num_attempts, self._num_atoms)
+        )
+        energy_lj = self._energy_lj_delete.get().reshape(
+            (self._num_attempts, self._num_atoms)
+        )
+
+        # Log the accepted candidate.
+        _logger.debug(
+            f"Accepted deletion: candidate={state}, water={candidates[state]}"
+        )
+
+        # Get the water index.
+        water_idx = self._water_indices[candidates[state]]
+
+        # Store debugging attributes.
+        self._debug = {
+            "move": "deletion",
+            "idx": self._water_indices[candidates[state]],
+            "energy_coul": -self._prefactor * energy_coul[state].sum(),
+            "energy_lj": -energy_lj[state].sum(),
+        }
+
+        # Log the oxygen position.
+        _logger.debug(f"Deleted oxygen position: {positions[water_idx]}")
+
+        # Log the energies of the accepted candidate.
+        _logger.debug(f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol")
+        _logger.debug(f"LJ energy: {self._debug['energy_lj']:.6f} kcal/mol")
+
+        # Add PME energy if available.
+        if pme_energy is not None:
+            self._debug["pme_energy"] = pme_energy.value_in_unit(
+                _openmm.unit.kilocalorie_per_mole
+            )
+
+            _logger.debug(f"PME energy: {self._debug['pme_energy']:.6f} kcal/mol")
+            _logger.debug(f"PME deletion probability: {pme_probability:.6f}")

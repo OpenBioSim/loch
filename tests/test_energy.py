@@ -55,9 +55,7 @@ def test_energy(water_box):
     )
 
     # Get the debugging information.
-    sampler_energy = (
-        sampler._debug["energy_coul_insert"] + sampler._debug["energy_lj_insert"]
-    )
+    sampler_energy = sampler._debug["energy_coul"] + sampler._debug["energy_lj"]
 
     # Calculate the energy difference.
     energy_difference = final_energy - initial_energy
@@ -90,9 +88,7 @@ def test_energy(water_box):
     )
 
     # Get the debugging information.
-    sampler_energy = (
-        sampler._debug["energy_coul_delete"] + sampler._debug["energy_lj_delete"]
-    )
+    sampler_energy = sampler._debug["energy_coul"] + sampler._debug["energy_lj"]
 
     # Calculate the energy difference.
     energy_difference = final_energy - initial_energy
