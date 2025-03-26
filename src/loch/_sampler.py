@@ -671,7 +671,7 @@ class GCMCSampler:
 
                 # Log the insertion.
                 if self._is_debug:
-                    self._log_insertion(state)
+                    self._log_insertion(state, idx)
 
             # Deletion.
             else:
@@ -693,7 +693,7 @@ class GCMCSampler:
 
                 # Log the deletion.
                 if self._is_debug:
-                    self._log_deletion(state, candidates)
+                    self._log_deletion(state, candidates, positions)
 
         # PME.
         else:
@@ -736,7 +736,7 @@ class GCMCSampler:
 
                         # Log the insertion.
                         if self._is_debug:
-                            self._log_insertion(state, delta_energy, acc_prob)
+                            self._log_insertion(state, idx, delta_energy, acc_prob)
 
                         # Accept the move.
                         is_accepted = True
@@ -1497,6 +1497,9 @@ class GCMCSampler:
         state: int
             The index of the accepted state.
 
+        idx: int
+            The index of the water that was inserted.
+
         pme_energy: openmm.Quantity
             The PME energy difference.
 
@@ -1543,7 +1546,9 @@ class GCMCSampler:
             _logger.debug(f"PME energy: {self._debug['pme_energy']:.6f} kcal/mol")
             _logger.debug(f"PME insertion probability: {pme_probability:.6f}")
 
-    def _log_deletion(self, state, candidates, pme_energy=None, pme_probability=None):
+    def _log_deletion(
+        self, state, candidates, positions, pme_energy=None, pme_probability=None
+    ):
         """
         Log information about the accepted deletion move.
 
@@ -1555,6 +1560,9 @@ class GCMCSampler:
 
         candidates: numpy.ndarray
             The indices of the candidate waters.
+
+        positions: numpy.ndarray
+            The positions of the system.
 
         pme_energy: openmm.Quantity
             The PME energy difference.
