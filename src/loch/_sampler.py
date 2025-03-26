@@ -1560,6 +1560,7 @@ class GCMCSampler:
             "idx": idx,
             "energy_coul": self._prefactor * energy_coul[state].sum(),
             "energy_lj": energy_lj[state].sum(),
+            "probability_rf": probability[state],
         }
 
         # Log the accepted candidate.
@@ -1581,6 +1582,7 @@ class GCMCSampler:
             self._debug["pme_energy"] = pme_energy.value_in_unit(
                 _openmm.unit.kilocalorie_per_mole
             )
+            self._debug["probability_pme"] = pme_probability
 
             _logger.debug(
                 f"Total PME energy difference: {self._debug['pme_energy']:.6f} kcal/mol"
@@ -1636,6 +1638,7 @@ class GCMCSampler:
             "idx": self._water_indices[candidates[state]],
             "energy_coul": -self._prefactor * energy_coul[state].sum(),
             "energy_lj": -energy_lj[state].sum(),
+            "probability_rf": probability,
         }
 
         # Log the oxygen position.
@@ -1654,6 +1657,7 @@ class GCMCSampler:
             self._debug["pme_energy"] = pme_energy.value_in_unit(
                 _openmm.unit.kilocalorie_per_mole
             )
+            self._debug["probability_pme"] = pme_probability
 
             _logger.debug(
                 f"Total PME energy difference: {self._debug['pme_energy']:.6f} kcal/mol"
