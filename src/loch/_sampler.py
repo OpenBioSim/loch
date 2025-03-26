@@ -57,7 +57,7 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         bulk_sampling_probability=0.1,
-        probability_threshold=1e-5,
+        probability_threshold=1e-4,
         water_template=None,
         device=None,
         log_level="info",
@@ -116,7 +116,8 @@ class GCMCSampler:
             The RF acceptance probability threshold. This is used to determine
             candidates that are advanced to a PME acceptance test. Note that
             an energy threshold is inapproproate, since it would be different
-            for insertion and deletion moves.
+            for insertion and deletion moves. A value of 1/num_attempts is a
+            good baseline.
 
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
