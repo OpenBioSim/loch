@@ -732,7 +732,8 @@ code = """
                 // A full PME calculation will be performed in the host code.
                 if (is_pme == 1)
                 {
-                    if (prob > threshold)
+                    // Accept if the probability is infinite or above the threshold.
+                    if (not isfinite(probe) or prob > threshold)
                     {
                         accepted[tidx] = 1;
                     }
@@ -742,7 +743,7 @@ code = """
                     }
                 }
 
-                // For RF we return the acceptance probability.
+                // For RF we can accept or reject based on the Boltzmann weight.
                 else
                 {
                     // Accept if the probability is infinite.
