@@ -376,6 +376,7 @@ class GCMCSampler:
         self._num_accepted_attempts = 0
         self._num_insertions = 0
         self._num_deletions = 0
+        self._num_pme_attempts = 0
 
         # Null the nonbonded force.
         self._nonbonded_force = None
@@ -542,6 +543,9 @@ class GCMCSampler:
         self._num_accepted = 0
         self._num_insertions = 0
         self._num_deletions = 0
+        self._num_moves = 0
+        self._num_accepted_attempts = 0
+        self._num_pme_attempts = 0
 
     def move(self, context):
         """
@@ -706,6 +710,9 @@ class GCMCSampler:
 
             # Loop through the canidates until a move is accepted.
             for candidate in candidate_indices:
+                # Update the number of PME attempts.
+                self._num_pme_attempts += 1
+
                 # Determine whether this is an insertion or deletion.
                 if candidate < num_insertions:
                     move = "insertion"
