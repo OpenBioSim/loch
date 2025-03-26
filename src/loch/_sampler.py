@@ -511,6 +511,18 @@ class GCMCSampler:
         """
         return self._num_accepted_attempts / (2 * self._num_moves * self._num_attempts)
 
+    def pme_acceptance_probability(self):
+        """
+        Return the PME acceptance probability.
+
+        Returns
+        -------
+
+        acceptance_probability: float
+            The PME acceptance probability.
+        """
+        return self._num_accepted / self._num_pme_attempts
+
     def num_insertions(self):
         """
         Return the number of accepted insertions.
