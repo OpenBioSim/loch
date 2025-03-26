@@ -474,7 +474,7 @@ class GCMCSampler:
 
     def num_accepted_attempts(self):
         """
-        Return the number accepted attempts.
+        Return the number accepted attempts. This is only valid when using RF.
 
         Returns
         -------
@@ -498,7 +498,8 @@ class GCMCSampler:
 
     def attempt_acceptance_probability(self):
         """
-        Return the acceptance probability per attempt.
+        Return the acceptance probability per attempt. This is only valid
+        when using RF.
 
         Returns
         -------
