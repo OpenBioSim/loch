@@ -874,6 +874,7 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul_insert,
             self._energy_lj_insert,
+            self._probability_insert,
             self._accepted,
             _np.float32(self._probability_threshold),
             _np.int32(self._is_pme),
@@ -937,6 +938,7 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul_delete,
             self._energy_lj_delete,
+            self._probability_delete,
             self._accepted,
             _np.float32(self._probability_threshold),
             _np.int32(self._is_pme),
@@ -1276,8 +1278,11 @@ class GCMCSampler:
             (1, self._num_attempts * self._num_atoms), _np.float32
         )
 
-        # Initialise memory to store whether each attempt is accepted.
+        # Initialise memory to store whether each attempt is accepted and
+        # the probability of acceptance.
         self._accepted = _gpuarray.empty((1, self._num_attempts), _np.int32)
+        self._probability_insert = _gpuarray.empty((1, self._num_attempts), _np.float32)
+        self._probability_delete = _gpuarray.empty((1, self._num_attempts), _np.float32)
 
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
@@ -1545,6 +1550,9 @@ class GCMCSampler:
             (self._num_attempts, self._num_points, 3)
         )
 
+        # Get the RF acceptance probability.
+        probability = self._probability_insert.get().flatten()
+
         # Store debugging attributes.
         self._debug = {
             "move": "insertion",
@@ -1565,6 +1573,7 @@ class GCMCSampler:
         _logger.debug(
             f"Total RF energy difference: {self._debug['energy_coul'] + self._debug['energy_lj']:.6f} kcal/mol"
         )
+        _logger.debug(f"RF insertion probability: {probability[state]:.6f}")
 
         # Add PME energy if available.
         if pme_energy is not None:
@@ -1609,6 +1618,9 @@ class GCMCSampler:
             (self._num_attempts, self._num_atoms)
         )
 
+        # Get the RF acceptance probability.
+        probability = self._probability_delete.get().flatten()
+
         # Log the accepted candidate.
         _logger.debug(
             f"Accepted deletion: candidate={state}, water={candidates[state]}"
@@ -1634,6 +1646,7 @@ class GCMCSampler:
         _logger.debug(
             f"Total RF energy difference: {self._debug['energy_coul'] + self._debug['energy_lj']:.6f} kcal/mol"
         )
+        _logger.debug(f"RF deletion probability: {probability[state]:.6f}")
 
         # Add PME energy if available.
         if pme_energy is not None:
