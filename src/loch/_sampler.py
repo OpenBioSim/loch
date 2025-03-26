@@ -738,7 +738,9 @@ class GCMCSampler:
 
                         # Log the insertion.
                         if self._is_debug:
-                            self._log_insertion(state, idx, delta_energy, acc_prob)
+                            self._log_insertion(
+                                state, idx, final_energy - initial_energy, acc_prob
+                            )
 
                         # Accept the move.
                         is_accepted = True
@@ -773,7 +775,6 @@ class GCMCSampler:
                         context = self._reject_deletion(
                             candidates[state], previous_state, context
                         )
-                        _logger.debug("PME deletion rejected")
                     else:
                         # Update the acceptance statistics.
                         self._num_accepted += 1
@@ -783,7 +784,11 @@ class GCMCSampler:
                         # Log the deletion.
                         if self._is_debug:
                             self._log_deletion(
-                                state, candidates, positions, delta_energy, acc_prob
+                                state,
+                                candidates,
+                                positions,
+                                final_energy - initial_energy,
+                                acc_prob,
                             )
 
                         # Accept the move.
