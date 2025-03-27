@@ -51,6 +51,14 @@ parser.add_argument(
     default=10000,
     required=False,
 )
+parser.add_argument(
+    "--log-level",
+    help="The logging level",
+    type=str,
+    default="info",
+    choices=["info", "debug"],
+    required=False,
+
 args = parser.parse_args()
 
 # Load the water box.
@@ -76,7 +84,7 @@ sampler = GCMCSampler(
     standard_volume="30.543 A^3",
     temperature=args.temperature,
     max_gcmc_waters=100,
-    log_level="debug",
+    log_level=args.log_level,
 )
 
 # Create a dynamics object using the modified GCMC system.

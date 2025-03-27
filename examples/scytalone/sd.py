@@ -64,9 +64,17 @@ parser.add_argument(
     default=100,
     required=False,
 )
+parser.add_argument(
+    "--log-level",
+    help="The logging level",
+    type=str,
+    default="info",
+    choices=["info", "debug"],
+    required=False,
+)
 args = parser.parse_args()
 
-# Load the scytalone dehydratase system
+# Load the scytalone dehydratase system.
 if args.ligand is None:
     mols = sr.load(f"outputs/*7")
 else:
@@ -93,7 +101,7 @@ sampler = GCMCSampler(
     cutoff=args.cutoff,
     radius=args.radius,
     temperature=args.temperature,
-    log_level="debug",
+    log_level=args.log_level,
 )
 
 # Create a dynamics object using the modified GCMC system.
