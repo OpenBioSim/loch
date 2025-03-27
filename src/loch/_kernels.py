@@ -708,9 +708,7 @@ code = """
             float* energy_coul,
             float* energy_lj,
             float* probability,
-            int* accepted,
-            float threshold,
-            int is_pme)
+            int* accepted)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -732,12 +730,18 @@ code = """
                 // Store the probability.
                 probability[tidx] = prob;
 
-                // For PME, we just want to consider candidates above the probability threshold.
-                // A full PME calculation will be performed in the host code.
-                if (is_pme == 1)
+                // Accept if the probability is infinite.
+                if (not isfinite(prob))
                 {
-                    // Accept if the probability is infinite or above the threshold.
-                    if (not isfinite(prob) or prob > threshold)
+                    accepted[tidx] = 1;
+                }
+                else
+                {
+                    // Get the RNG state.
+                    curandState_t state = *states[tidx];
+
+                    // Accept or reject based on the Boltzmann weight.
+                    if (curand_uniform(&state) < prob)
                     {
                         accepted[tidx] = 1;
                     }
@@ -745,34 +749,9 @@ code = """
                     {
                         accepted[tidx] = 0;
                     }
-                }
 
-                // For RF we can accept or reject based on the Boltzmann weight.
-                else
-                {
-                    // Accept if the probability is infinite.
-                    if (not isfinite(prob))
-                    {
-                        accepted[tidx] = 1;
-                    }
-                    else
-                    {
-                        // Get the RNG state.
-                        curandState_t state = *states[tidx];
-
-                        // Accept or reject based on the Boltzmann weight.
-                        if (curand_uniform(&state) < prob)
-                        {
-                            accepted[tidx] = 1;
-                        }
-                        else
-                        {
-                            accepted[tidx] = 0;
-                        }
-
-                        // Set the new state.
-                        *states[tidx] = state;
-                    }
+                    // Set the new state.
+                    *states[tidx] = state;
                 }
             }
         }

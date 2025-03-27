@@ -57,7 +57,6 @@ class GCMCSampler:
         num_attempts=10000,
         num_threads=1024,
         bulk_sampling_probability=0.1,
-        probability_threshold=1e-4,
         water_template=None,
         device=None,
         log_level="info",
@@ -111,14 +110,6 @@ class GCMCSampler:
             moves within the entire simulation box, rather than within
             the GCMC sphere. This option is only relevant when 'reference'
             is not None.
-
-        probability_threshold: float
-            The RF acceptance probability threshold. This is used to determine
-            candidates that are advanced to a PME acceptance test when using
-            cutoff_type="pme". Note that an energy threshold is inapproproate,
-            since it would be different for insertion and deletion moves and
-            would need recalibrating for each Adams value. A threshold of
-            1/num_attempts is a good baseline.
 
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
@@ -214,10 +205,6 @@ class GCMCSampler:
         if not 0.0 <= bulk_sampling_probability <= 1.0:
             raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
         self._bulk_sampling_probability = bulk_sampling_probability
-
-        if not isinstance(probability_threshold, float):
-            raise ValueError("'probability_threshold' must be of type 'float'")
-        self._probability_threshold = probability_threshold
 
         if not isinstance(log_level, str):
             raise ValueError("'log_level' must be of type 'str'")
@@ -415,7 +402,6 @@ class GCMCSampler:
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
-            f"probability_threshold={self._probability_threshold}, "
             f"water_template={self._water_template}, "
             f"device={self._device}, "
             f"log_level={self._log_level}, "
@@ -877,8 +863,6 @@ class GCMCSampler:
             self._energy_lj_insert,
             self._probability_insert,
             self._accepted,
-            _np.float32(self._probability_threshold),
-            _np.int32(self._is_pme),
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
@@ -941,8 +925,6 @@ class GCMCSampler:
             self._energy_lj_delete,
             self._probability_delete,
             self._accepted,
-            _np.float32(self._probability_threshold),
-            _np.int32(self._is_pme),
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
