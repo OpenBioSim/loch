@@ -441,6 +441,10 @@ class GCMCSampler:
         """
         Return the number of waters in the GCMC region.
 
+        TODO: Need to fix this so that it accounts for bulk sampling,
+        i.e. we don't want to return the total number of waters following
+        a bulk sampling move.
+
         Returns
         -------
 
