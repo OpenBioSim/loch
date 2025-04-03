@@ -1,7 +1,4 @@
 import argparse
-import openmm
-
-from time import time
 
 from loch import GCMCSampler
 
@@ -31,22 +28,8 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "--cycle-time",
-    help="The duration of the dynamics cycle",
-    type=str,
-    default="1 ps",
-    required=False,
-)
-parser.add_argument(
     "--num-attempts",
     help="The number of GCMC insertion attempts",
-    type=int,
-    default=10000,
-    required=False,
-)
-parser.add_argument(
-    "--num-cycles",
-    help="The number of dynamics cycles",
     type=int,
     default=10000,
     required=False,
@@ -59,31 +42,23 @@ parser.add_argument(
     choices=["info", "debug"],
     required=False,
 )
+
 args = parser.parse_args()
 
-# Load the water box.
-mols = sr.load_test_files("water_box.prm7", "water_box.rst7")
-
-# Store the box information.
-space = mols.property("space")
-
-# Store the volume.
-volume = space.volume()
-
-# Store Avagadro's number.
-NA = openmm.unit.AVOGADRO_CONSTANT_NA._value
+# Load the system.
+mols = sr.load_test_files("bpti.prm7", "bpti.rst7")
 
 # Create a GCMC sampler.
 sampler = GCMCSampler(
     mols,
-    reference=None,
+    reference="(residx 9 and atomname CA) or (residx 43 and atomname CA)",
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
     excess_chemical_potential="-6.16 kcal/mol",
     standard_volume="30.543 A^3",
     temperature=args.temperature,
-    max_gcmc_waters=100,
+    max_gcmc_waters=20,
     log_level=args.log_level,
 )
 
@@ -99,27 +74,63 @@ d = sampler.system().dynamics(
     constraint="h_bonds",
     timestep="2 fs",
 )
+d.minimise()
 
 # Get the context.
 context = d.context()
 
-# Store the mass of a water molecule.
-mass = mols[0].mass()
+# Equilibrate the system.
 
-num_waters = mols.num_molecules()
+# 1) Perform 100 GCMC moves.
+print("Equilibrating the system with GCMC moves...")
+for i in range(100):
+    context, accepted, move = sampler.move(context)
+d._d._omm_mols = context
 
-# Run dynamics cycles with a GCMC move after each.
-total = 0
-for i in range(args.num_cycles):
-    # Run 1ps of dynamics.
-    d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
+# 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
+print("Running 1ps of dynamics with GCMC moves...")
+for i in range(100):
+    # Run 10fs of dynamics.
+    d.run("10 fs", save_frequency=0, energy_frequency=0, frame_frequency=0)
 
     # Perform a GCMC move.
-    start = time()
     context, accepted, move = sampler.move(d.context())
-    end = time()
-    if i > 0:
-        total += end - start
+    if accepted:
+        d._d._omm_mols = context
+
+# 3) Run 500ps of regular NPT dynamics.
+print("Running 500ps of NPT dynamics...")
+
+# Get a new Sire system from the dynamics object.
+mols = d.commit()
+
+# Create a NPT dynamics object.
+d_npt = mols.dynamics(
+    cutoff_type=args.cutoff_type,
+    cutoff=args.cutoff,
+    temperature=args.temperature,
+    integrator="langevin_middle",
+    pressure="1 bar",
+    constraint="h_bonds",
+    timestep="2 fs",
+)
+d.minimise()
+
+# Run the dynamics.
+d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
+
+# Copy the positions between the two contexts.
+d._d._omm_mols.setPositions(
+    d_npt._d._omm_mols.getState(getPositions=True).getPositions()
+)
+
+# 4) Run 10ns dynamics with GCMC moves every 1ps.
+print("Running 10ns of dynamics with GCMC moves...")
+for i in range(10000):
+    # Run 1ps of dynamics.
+    d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
+
+    context, accepted, move = sampler.move(d.context())
 
     # If the move was accepted, update the dynamics object.
     if accepted:
@@ -134,13 +145,11 @@ for i in range(args.num_cycles):
         f"Current potential energy: {d.current_potential_energy().value():.3f} kcal/mol"
     )
 
-    # Work out the current density in g/mL.
-    total_mass = sampler.num_waters() * mass
-    density = ((total_mass * sr.units.mole) / (volume * NA)).to("g/centimeter^3")
-    print(f"volume: {volume.value():.5f} A^3, density: {density:.5f} g/mL")
+# Save the trajectory.
+mols = d.commit()
+sr.save(mols.trajectory(), "bpti.dcd")
 
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
 print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
 print(f"Attempt acceptance probability: {sampler.attempt_acceptance_probability():.4f}")
-print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")

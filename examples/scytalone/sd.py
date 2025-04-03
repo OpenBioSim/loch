@@ -111,6 +111,7 @@ d = sampler.system().dynamics(
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
     temperature=args.temperature,
+    integrator="langevin_middle",
     pressure=None,
     constraint="h_bonds",
     timestep="2 fs",
