@@ -684,7 +684,7 @@ class GCMCSampler:
         _logger.debug(f"Number of waters in sampling volume: {self._N}")
 
         # Perform a batch of insertion trials.
-        insertions = self._insertion_move(target)
+        insertions = self._insertion_move(target=target)
 
         # Perform a batch of deletion trials.
         deletions, candidates = self._deletion_move(candidates)
