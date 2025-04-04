@@ -669,11 +669,20 @@ class GCMCSampler:
 
             # Find the waters within the GCMC sphere.
             candidates = _np.argwhere(candidates == 1).flatten()
+
+            # Set the Adams factors.
+            exp_B = self._exp_B
+            exp_minus_B = self._exp_minus_B
+
         # Use all non-ghost waters.
         else:
             _logger.debug("Sampling within the entire simulation box")
             candidates = _np.argwhere(self._water_state != 0).flatten()
             target = None
+
+            # Set the Adams factors.
+            exp_B = self._exp_B_bulk
+            exp_minus_B = self._exp_minus_B_bulk
 
         # Set the number of waters.
         self._N = len(candidates)
@@ -775,7 +784,7 @@ class GCMCSampler:
                     # that N has already been updated, so divide by N rather than
                     # N + 1.
                     acc_prob = (
-                        self._exp_B
+                        exp_B
                         * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
                         / self._N
                     )
@@ -822,7 +831,7 @@ class GCMCSampler:
                     # already been updated, so multiply by N + 1 rather than N.
                     acc_prob = (
                         (self._N + 1)
-                        * self._exp_minus_B
+                        * exp_minus_B
                         * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
                     )
 
