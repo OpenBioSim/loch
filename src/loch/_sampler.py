@@ -691,10 +691,10 @@ class GCMCSampler:
         _logger.debug(f"Number of waters in sampling volume: {self._N}")
 
         # Perform a batch of insertion trials.
-        insertions = self._insertion_move(target=target)
+        insertions, energy_change_insertion = self._insertion_move(target=target)
 
         # Perform a batch of deletion trials.
-        deletions, candidates = self._deletion_move(candidates)
+        deletions, candidates, energy_change_deletion = self._deletion_move(candidates)
 
         # Store the total number of accepted moves.
         num_insertions = len(insertions)
@@ -774,19 +774,21 @@ class GCMCSampler:
                     move = "insertion"
                     state = insertions[candidate]
 
+                    # Store the RF energy difference. (in kcal/mol).
+                    dE_rf = (
+                        energy_change_insertion[state]
+                        * _openmm.unit.kilocalories_per_mole
+                    )
+
                     # Accept the move.
                     context, idx = self._accept_insertion(state, context)
 
                     # Get the new energy.
                     final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                    # Compute the acceptance probability for the insertion. Note
-                    # that N has already been updated, so divide by N rather than
-                    # N + 1.
-                    acc_prob = (
-                        exp_B
-                        * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
-                        / self._N
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
                     )
 
                     # The move was rejected.
@@ -816,6 +818,12 @@ class GCMCSampler:
                     move = "deletion"
                     state = deletions[candidate - num_insertions]
 
+                    # Store the RF energy difference. (in kcal/mol).
+                    dE_rf = (
+                        energy_change_deletion[state]
+                        * _openmm.unit.kilocalories_per_mole
+                    )
+
                     # Accept the move.
                     context, previous_state = self._accept_deletion(
                         candidates[state], context
@@ -827,12 +835,9 @@ class GCMCSampler:
                     # Get the new energy.
                     final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                    # Compute the acceptance probability for the insertion. Note that N has
-                    # already been updated, so multiply by N + 1 rather than N.
-                    acc_prob = (
-                        (self._N + 1)
-                        * exp_minus_B
-                        * _np.exp(-self._beta_openmm * (final_energy - initial_energy))
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
                     )
 
                     # The move was rejected.
@@ -884,6 +889,10 @@ class GCMCSampler:
 
         accepted: np.ndarray
             The accepted candidates.
+
+        energy_change: np.ndarray
+            The energy change for each insertion. This is needed to compute
+            the PME acceptance probability correction.
         """
 
         _logger.debug("Performing insertion move.")
@@ -927,15 +936,23 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul_insert,
             self._energy_lj_insert,
+            self._energy_change,
             self._probability_insert,
             self._accepted,
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
 
-        # Return the accepted states.
+        # Get the energy change.
+        if self._is_pme:
+            energy_change = self._energy_change.get().flatten()
+        else:
+            energy_change = None
+
+        # Get the state acceptance array.
         accepted_cpu = self._accepted.get().flatten()
-        return _np.argwhere(accepted_cpu == 1).flatten()
+
+        return _np.argwhere(accepted_cpu == 1).flatten(), energy_change
 
     def _deletion_move(self, candidates):
         """
@@ -955,6 +972,10 @@ class GCMCSampler:
 
         candidates: np.ndarray
             The full set of trial candidates.
+
+        energy_change: np.ndarray
+            The energy change for each deletion. This is needed to compute
+            the PME acceptance probability correction.
         """
 
         _logger.debug("Performing deletion move.")
@@ -964,7 +985,7 @@ class GCMCSampler:
         _logger.debug(f"Deletion candidates: {candidates}")
 
         if len(candidates) == 0:
-            return [], candidates
+            return [], candidates, None
         else:
             # Draw num_attempts samples from the candidates.
             candidates = self._rng.choice(candidates, size=self._num_attempts)
@@ -995,15 +1016,23 @@ class GCMCSampler:
             _np.float32(self._beta),
             self._energy_coul_delete,
             self._energy_lj_delete,
+            self._energy_change,
             self._probability_delete,
             self._accepted,
             block=(self._num_threads, 1, 1),
             grid=(self._attempt_blocks, 1, 1),
         )
 
-        # Return the accepted states.
+        # Get the energy change.
+        if self._is_pme:
+            energy_change = self._energy_change.get().flatten()
+        else:
+            energy_change = None
+
+        # Get the state acceptance array.
         accepted_cpu = self._accepted.get().flatten()
-        return _np.argwhere(accepted_cpu == 1).flatten(), candidates
+
+        return _np.argwhere(accepted_cpu == 1).flatten(), candidates, energy_change
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
@@ -1336,6 +1365,7 @@ class GCMCSampler:
         # Initialise memory to store whether each attempt is accepted and
         # the probability of acceptance.
         self._accepted = _gpuarray.empty((1, self._num_attempts), _np.int32)
+        self._energy_change = _gpuarray.empty((1, self._num_attempts), _np.float32)
         self._probability_insert = _gpuarray.empty((1, self._num_attempts), _np.float32)
         self._probability_delete = _gpuarray.empty((1, self._num_attempts), _np.float32)
 

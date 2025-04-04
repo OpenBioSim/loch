@@ -707,6 +707,7 @@ code = """
             float beta,
             float* energy_coul,
             float* energy_lj,
+            float* energy_change,
             float* probability,
             int* accepted)
         {
@@ -726,6 +727,9 @@ code = """
 
                 // Compute the probability.
                 float prob = N_delete * expB * expf(-beta * sign * energy) / (N_insert + 1);
+
+                // Store the energy change.
+                energy_change[tidx] = sign * energy;
 
                 // Store the probability.
                 probability[tidx] = prob;
