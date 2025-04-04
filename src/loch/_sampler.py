@@ -645,9 +645,6 @@ class GCMCSampler:
                     self._get_target_position(positions).astype(_np.float32)
                 )
                 self._is_bulk = False
-        # Sample within the entire simulation box.
-        if self._is_bulk:
-            _logger.debug("Sampling within the entire simulation box")
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
@@ -674,6 +671,7 @@ class GCMCSampler:
             candidates = _np.argwhere(candidates == 1).flatten()
         # Use all non-ghost waters.
         else:
+            _logger.debug("Sampling within the entire simulation box")
             candidates = _np.argwhere(self._water_state != 0).flatten()
             target = None
 
