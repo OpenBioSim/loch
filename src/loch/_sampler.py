@@ -795,7 +795,10 @@ class GCMCSampler:
                         # Log the insertion.
                         if self._is_debug:
                             self._log_insertion(
-                                state, idx, final_energy - initial_energy, acc_prob
+                                state,
+                                idx,
+                                pme_energy=final_energy - initial_energy,
+                                pme_probability=acc_prob,
                             )
 
                         # Accept the move.
@@ -843,8 +846,8 @@ class GCMCSampler:
                                 state,
                                 candidates,
                                 positions,
-                                final_energy - initial_energy,
-                                acc_prob,
+                                pme_energy=final_energy - initial_energy,
+                                pme_probability=acc_prob,
                             )
 
                         # Accept the move.
