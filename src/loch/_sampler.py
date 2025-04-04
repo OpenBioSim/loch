@@ -336,21 +336,27 @@ class GCMCSampler:
             * _openmm.unit.kelvin
         )
 
-        # Work out the volume of the GCMC sphere.
-        if self._reference is not None:
-            volume = (4.0 * _np.pi * self._radius.value() ** 3) / 3.0
-        else:
-            volume = self._space.volume().value()
+        # Work out the volume of the system and GCMC sphere.
+        volume = self._space.volume().value()
+        gcmc_volume = (4.0 * _np.pi * self._radius.value() ** 3) / 3.0
 
         # Work out the Adams value.
         B = (
             self._beta * self._excess_chemical_potential.value()
+            + _np.log(gcmc_volume / self._standard_volume.value())
+        ) + self._adams_shift
+
+        # Work out the bulk Adams value.
+        B_bulk = (
+            self._beta * self._excess_chemical_potential.value()
             + _np.log(volume / self._standard_volume.value())
         ) + self._adams_shift
 
-        # Store the exponentials for the Adams value.
+        # Store the exponentials for the Adams values.
         self._exp_B = _np.exp(B)
         self._exp_minus_B = _np.exp(-B)
+        self._exp_B_bulk = _np.exp(B_bulk)
+        self._exp_minus_B_bulk = _np.exp(-B_bulk)
 
         # Coulomb energy prefactor.
         self._prefactor = 1.0 / (4.0 * _np.pi * _sr.units.epsilon0.value())
@@ -368,6 +374,9 @@ class GCMCSampler:
 
         # Null the nonbonded force.
         self._nonbonded_force = None
+
+        # Flag for whether the last move was a bulk sampling move.
+        self._is_bulk = False
 
         import sys
 
@@ -589,19 +598,16 @@ class GCMCSampler:
         if self._is_pme:
             initial_energy = state.getPotentialEnergy()
 
-        is_bulk = True
+        self._is_bulk = True
         if self._reference is not None:
             # Sample within the GCMC sphere.
             if self._rng.random() > self._bulk_sampling_probability:
                 target = _gpuarray.to_gpu(
                     self._get_target_position(positions).astype(_np.float32)
                 )
-                is_target = True
-                is_bulk = False
+                self._is_bulk = False
         # Sample within the entire simulation box.
-        if is_bulk:
-            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
-            is_target = False
+        if self._is_bulk:
             _logger.debug("Sampling within the entire simulation box")
 
         # Set the positions on the GPU.
@@ -613,7 +619,7 @@ class GCMCSampler:
         )
 
         # Work out the number of waters in the sampling volume.
-        if not is_bulk:
+        if not self._is_bulk:
             self._kernels["deletion"](
                 self._deletion_candidates,
                 _gpuarray.to_gpu(target.astype(_np.float32)),
@@ -630,6 +636,7 @@ class GCMCSampler:
         # Use all non-ghost waters.
         else:
             candidates = _np.argwhere(self._water_state != 0).flatten()
+            target = None
 
         # Set the number of waters.
         self._N = len(candidates)
@@ -638,7 +645,7 @@ class GCMCSampler:
         _logger.debug(f"Number of waters in sampling volume: {self._N}")
 
         # Perform a batch of insertion trials.
-        insertions = self._insertion_move(target, is_target=is_target)
+        insertions = self._insertion_move(target)
 
         # Perform a batch of deletion trials.
         deletions, candidates = self._deletion_move(candidates)
@@ -807,7 +814,7 @@ class GCMCSampler:
 
         return context, is_accepted, move
 
-    def _insertion_move(self, target, is_target=True):
+    def _insertion_move(self, target=None):
         """
         Perform a trial insertion move.
 
@@ -816,9 +823,6 @@ class GCMCSampler:
 
         target: pycuda.gpuarray.GPUArray
             The center of the GCMC sphere.
-
-        is_target: bool
-            Whether the target is the center of the GCMC sphere.
 
         Returns
         -------
@@ -829,10 +833,13 @@ class GCMCSampler:
 
         _logger.debug("Performing insertion move.")
 
-        if is_target:
-            is_target = _np.int32(1)
-        else:
+        if target is None:
+            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
             is_target = _np.int32(0)
+            exp_B = self._exp_B_bulk
+        else:
+            is_target = _np.int32(1)
+            exp_B = self._exp_B
 
         # Generate the random water positions and orientations.
         self._kernels["water"](
@@ -861,7 +868,7 @@ class GCMCSampler:
             _np.int32(self._N),
             _np.int32(1),
             _np.float32(1.0),
-            _np.float32(self._exp_B),
+            _np.float32(exp_B),
             _np.float32(self._beta),
             self._energy_coul_insert,
             self._energy_lj_insert,
@@ -907,6 +914,12 @@ class GCMCSampler:
             # Draw num_attempts samples from the candidates.
             candidates = self._rng.choice(candidates, size=self._num_attempts)
 
+        # Set the Adams factor.
+        if self._is_bulk:
+            exp_minus_B = self._exp_minus_B_bulk
+        else:
+            exp_minus_B = self._exp_minus_B
+
         # Compute the energy of the candidate deletions.
         self._kernels["energy"](
             self._water_positions,
@@ -923,7 +936,7 @@ class GCMCSampler:
             _np.int32(0),
             _np.int32(self._N),
             _np.float32(-1.0),
-            _np.float32(self._exp_minus_B),
+            _np.float32(exp_minus_B),
             _np.float32(self._beta),
             self._energy_coul_delete,
             self._energy_lj_delete,
