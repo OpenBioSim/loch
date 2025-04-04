@@ -450,16 +450,55 @@ class GCMCSampler:
         """
         Return the number of waters in the GCMC region.
 
-        TODO: Need to fix this so that it accounts for bulk sampling,
-        i.e. we don't want to return the total number of waters following
-        a bulk sampling move.
-
         Returns
         -------
 
         num_waters: int
             The number of waters.
         """
+
+        # The last move was a bulk sampling move, so we need to recalculate
+        # the number of waters in the GCMC sphere.
+        if self._reference is not None and self._is_bulk:
+            # Get the OpenMM state.
+            state = self._context.getState(getPositions=True)
+
+            # Get the current positions in Angstrom.
+            positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+            # Get the position of the GCMC sphere center.
+            target = _gpuarray.to_gpu(
+                self._get_target_position(positions).astype(_np.float32)
+            )
+
+            # Set the positions on the GPU.
+            self._kernels["atom_positions"](
+                _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
+                _np.float32(1.0),
+                block=(self._num_threads, 1, 1),
+                grid=(self._atom_blocks, 1, 1),
+            )
+
+            self._kernels["deletion"](
+                self._deletion_candidates,
+                _gpuarray.to_gpu(target.astype(_np.float32)),
+                _np.float32(self._radius.value()),
+                block=(self._num_threads, 1, 1),
+                grid=(self._water_blocks, 1, 1),
+            )
+
+            # Get the candidates.
+            candidates = self._deletion_candidates.get().flatten()
+
+            # Find the waters within the GCMC sphere.
+            candidates = _np.argwhere(candidates == 1).flatten()
+
+            # Set the number of waters.
+            self._N = len(candidates)
+
+            # Reset the bulk sampling flag.
+            self._is_bulk = False
+
         return self._N
 
     def num_accepted_moves(self):
@@ -811,6 +850,12 @@ class GCMCSampler:
                         # Accept the move.
                         is_accepted = True
                         break
+
+        # If this was a bulk sampling move, then store the context. This allows
+        # us to work out the number of waters in the GCMC sphere if the user
+        # calls self.num_waters() after the move.
+        if self._reference is not None and self._is_bulk:
+            self._context = context
 
         return context, is_accepted, move
 
