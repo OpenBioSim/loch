@@ -1685,7 +1685,7 @@ class GCMCSampler:
             "idx": self._water_indices[candidates[state]],
             "energy_coul": -self._prefactor * energy_coul[state].sum(),
             "energy_lj": -energy_lj[state].sum(),
-            "probability_rf": probability,
+            "probability_rf": probability[state],
         }
 
         # Log the oxygen position.
