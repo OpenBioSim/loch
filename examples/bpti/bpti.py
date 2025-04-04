@@ -57,6 +57,7 @@ sampler = GCMCSampler(
     cutoff=args.cutoff,
     excess_chemical_potential="-6.16 kcal/mol",
     standard_volume="30.543 A^3",
+    radius="4.2 A",
     temperature=args.temperature,
     max_gcmc_waters=20,
     log_level=args.log_level,
