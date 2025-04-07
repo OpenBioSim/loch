@@ -771,7 +771,6 @@ class GCMCSampler:
 
                 # Determine whether this is an insertion or deletion.
                 if candidate < num_insertions:
-                    move = "insertion"
                     state = insertions[candidate]
 
                     # Store the RF energy difference. (in kcal/mol).
@@ -812,10 +811,10 @@ class GCMCSampler:
 
                         # Accept the move.
                         is_accepted = True
+                        move = "insertion"
                         break
 
                 else:
-                    move = "deletion"
                     state = deletions[candidate - num_insertions]
 
                     # Store the RF energy difference. (in kcal/mol).
@@ -828,9 +827,6 @@ class GCMCSampler:
                     context, previous_state = self._accept_deletion(
                         candidates[state], context
                     )
-
-                    is_accepted = True
-                    move = "deletion"
 
                     # Get the new energy.
                     final_energy = context.getState(getEnergy=True).getPotentialEnergy()
@@ -864,6 +860,7 @@ class GCMCSampler:
 
                         # Accept the move.
                         is_accepted = True
+                        move = "deletion"
                         break
 
         # If this was a bulk sampling move, then store the context. This allows
