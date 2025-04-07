@@ -576,7 +576,7 @@ code = """
                     if (delta >= 0 and delta < num_points)
                     {
                         // If system sampling, then the water could be index 0. If
-                        // so , then we need to apply the reaction field correction.
+                        // so, then we need to apply the reaction field correction.
                         if (idx_water_context == 0)
                         {
                             // Loop over all atoms in the water molecule.
