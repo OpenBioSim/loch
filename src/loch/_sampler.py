@@ -1285,12 +1285,16 @@ class GCMCSampler:
 
         # Initialise the water state: 0 = ghost, 1 = GCMC, 2 = normal.
         water_state = []
+        is_ghost = []
         for i in range(self._num_waters):
             if i < self._num_waters - self._max_gcmc_waters:
                 water_state.append(2)
+                is_ghost.extend([0] * self._num_points)
             else:
                 water_state.append(0)
+                is_ghost.extend([1] * self._num_points)
         self._water_state = _np.array(water_state).astype(_np.int32)
+        is_ghost = _gpuarray.to_gpu(_np.array(is_ghost).astype(_np.int32))
 
         # Initialise the cell.
         self._kernels["cell"](
@@ -1325,6 +1329,7 @@ class GCMCSampler:
             charges,
             sigmas,
             epsilons,
+            is_ghost,
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
         )

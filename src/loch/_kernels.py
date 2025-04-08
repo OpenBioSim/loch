@@ -54,6 +54,7 @@ code = """
     __device__ float epsilon[num_atoms];
     __device__ float charge[num_atoms];
     __device__ float position[num_atoms * 3];
+    __device__ int is_ghost[num_atoms];
 
     // Water properties.
     __device__ float sigma_water[num_points];
@@ -113,7 +114,8 @@ code = """
         __global__ void setAtomProperties(
             float* charges,
             float* sigmas,
-            float* epsilons)
+            float* epsilons,
+            int* is_ghost_atom)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -122,6 +124,7 @@ code = """
                 charge[tidx] = charges[tidx];
                 sigma[tidx] = sigmas[tidx];
                 epsilon[tidx] = epsilons[tidx];
+                is_ghost[tidx] = is_ghost_atom[tidx];
             }
         }
 
@@ -177,12 +180,14 @@ code = """
                     charge[idx_context + i] = 0.0f;
                     sigma[idx_context + i] = 1.0f;
                     epsilon[idx_context + i] = 0.0f;
+                    is_ghost[idx_context + i] = 1;
                 }
                 else
                 {
                     charge[idx_context + i] = charge_water[i];
                     sigma[idx_context + i] = sigma_water[i];
                     epsilon[idx_context + i] = epsilon_water[i];
+                    is_ghost[idx_context + i] = 0;
                 }
             }
         }
@@ -567,6 +572,24 @@ code = """
                 energy_coul[idx] = 0.0;
                 energy_lj[idx] = 0.0;
 
+                // First apply the reaction field correction for the water atoms.
+                if (idx_atom == 0)
+                {
+                    for (int i = 0; i < num_points; i++)
+                    {
+                        // Self interaction.
+                        const auto c1 = charge_water[i];
+                        energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
+
+                        // Pair interaction.
+                        for (int j = i+1; j < num_points; j++)
+                        {
+                            const auto c2 = charge_water[j];
+                            energy_coul[idx] -= (c1 * c2) * rf_correction;
+                        }
+                    }
+                }
+
                 // This is a deletion move, so we need to get the correct water index.
                 if (is_deletion == 1)
                 {
@@ -576,28 +599,14 @@ code = """
                     // Don't compute self-interactions.
                     if (delta >= 0 and delta < num_points)
                     {
-                        // If system sampling, then the water could be index 0. If
-                        // so, then we need to apply the reaction field correction.
-                        if (idx_water_context == 0)
-                        {
-                            // Loop over all atoms in the water molecule.
-                            for (int i = 0; i < num_points; i++)
-                            {
-                                // Self interaction.
-                                const auto c1 = charge_water[i];
-                                energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
-
-                                // Pair interaction.
-                                for (int j = i+1; j < num_points; j++)
-                                {
-                                    const auto c2 = charge_water[j];
-                                    energy_coul[idx] -= (c1 * c2) * rf_correction;
-                                }
-                            }
-                        }
-
                         return;
                     }
+                }
+
+                // Don't interact with ghost waters.
+                if (is_ghost[idx_atom] == 1)
+                {
+                    return;
                 }
 
                 // Get the atom position.
@@ -667,21 +676,6 @@ code = """
 
                             // Add the reaction field pair energy.
                             energy_coul[idx] += (c0 * c1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
-                        }
-                    }
-
-                    // Apply the reaction field correction for the water atoms.
-                    if (idx_atom == 0)
-                    {
-                        // Self interaction.
-                        const auto c1 = charge_water[i];
-                        energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
-
-                        // Pair interaction.
-                        for (int j = i+1; j < num_points; j++)
-                        {
-                            const auto c2 = charge_water[j];
-                            energy_coul[idx] -= (c1 * c2) * rf_correction;
                         }
                     }
                 }
