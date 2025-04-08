@@ -959,9 +959,9 @@ class GCMCSampler:
             energy_change = None
 
         # Get the state acceptance array.
-        accepted_cpu = self._accepted.get().flatten()
+        accepted = self._accepted.get().flatten()
 
-        return _np.where(accepted_cpu == 1)[0], energy_change
+        return _np.where(accepted == 1)[0], energy_change
 
     def _deletion_move(self, candidates):
         """
@@ -1039,9 +1039,9 @@ class GCMCSampler:
             energy_change = None
 
         # Get the state acceptance array.
-        accepted_cpu = self._accepted.get().flatten()
+        accepted = self._accepted.get().flatten()
 
-        return _np.where(accepted_cpu == 1)[0], candidates, energy_change
+        return _np.where(accepted == 1)[0], candidates, energy_change
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
