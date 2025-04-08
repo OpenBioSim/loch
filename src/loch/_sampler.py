@@ -370,6 +370,8 @@ class GCMCSampler:
         self._num_accepted_attempts = 0
         self._num_insertions = 0
         self._num_deletions = 0
+        self._num_insertion_candidates = 0
+        self._num_deletion_candidates = 0
         self._num_pme_attempts = 0
 
         # Null the nonbonded force.
@@ -696,13 +698,23 @@ class GCMCSampler:
         # Perform a batch of deletion trials.
         deletions, candidates, energy_change_deletion = self._deletion_move(candidates)
 
-        # Store the total number of accepted moves.
+        # Store the total number of accepted attempts.
         num_insertions = len(insertions)
         num_deletions = len(deletions)
         num_accepted_attempts = num_insertions + num_deletions
 
+        # Update the total number of insertion and deletion candidates.
+        self._num_insertion_candidates += num_insertions
+        self._num_deletion_candidates += num_deletions
+
         _logger.debug(f"Number of insertion candidates: {num_insertions}")
         _logger.debug(f"Number of deletion candidates: {num_deletions}")
+        _logger.debug(
+            f"Total number of insertion candidates: {self._num_insertion_candidates}"
+        )
+        _logger.debug(
+            f"Total number of deletion candidates: {self._num_deletion_candidates}"
+        )
 
         # Reaction field.
         if not self._is_pme:
