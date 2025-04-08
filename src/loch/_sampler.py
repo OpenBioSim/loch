@@ -491,7 +491,7 @@ class GCMCSampler:
             candidates = self._deletion_candidates.get().flatten()
 
             # Find the waters within the GCMC sphere.
-            candidates = _np.argwhere(candidates == 1).flatten()
+            candidates = _np.where(candidates == 1)[0]
 
             # Set the number of waters.
             self._N = len(candidates)
@@ -668,7 +668,7 @@ class GCMCSampler:
             candidates = self._deletion_candidates.get().flatten()
 
             # Find the waters within the GCMC sphere.
-            candidates = _np.argwhere(candidates == 1).flatten()
+            candidates = _np.where(candidates == 1)[0]
 
             # Set the Adams factors.
             exp_B = self._exp_B
@@ -677,7 +677,7 @@ class GCMCSampler:
         # Use all non-ghost waters.
         else:
             _logger.debug("Sampling within the entire simulation box")
-            candidates = _np.argwhere(self._water_state != 0).flatten()
+            candidates = _np.where(self._water_state != 0)[0]
             target = None
 
             # Set the Adams factors.
@@ -949,7 +949,7 @@ class GCMCSampler:
         # Get the state acceptance array.
         accepted_cpu = self._accepted.get().flatten()
 
-        return _np.argwhere(accepted_cpu == 1).flatten(), energy_change
+        return _np.where(accepted_cpu == 1)[0], energy_change
 
     def _deletion_move(self, candidates):
         """
@@ -1029,7 +1029,7 @@ class GCMCSampler:
         # Get the state acceptance array.
         accepted_cpu = self._accepted.get().flatten()
 
-        return _np.argwhere(accepted_cpu == 1).flatten(), candidates, energy_change
+        return _np.where(accepted_cpu == 1)[0], candidates, energy_change
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
