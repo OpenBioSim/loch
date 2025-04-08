@@ -1402,10 +1402,8 @@ class GCMCSampler:
             (self._num_attempts, 3, self._num_points)
         )[state]
 
-        # Choose the first ghost water.
-        idx = _np.unravel_index(
-            (self._water_state == 0).argmax(), self._water_state.shape
-        )[0]
+        # Choose a random ghost water.
+        idx = self._rng.choice(_np.where(self._water_state == 0)[0])
 
         # Update the water state.
         self._water_state[idx] = 1
