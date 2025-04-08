@@ -661,13 +661,6 @@ code = """
                                 const auto sr12 = sr6 * sr6;
                                 energy_lj[idx] += 4 * e * (sr12 - sr6);
 
-                                if (energy_lj[idx] > 10)
-                                {
-                                    energy_lj[idx] = 1e6;
-                                    energy_coul[idx] = 1e6;
-                                    return;
-                                }
-
                                 // Compute the distance between the atoms.
                                 const auto r = sqrtf(r2);
 
