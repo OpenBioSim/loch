@@ -32,6 +32,7 @@ code = """
     const int num_attempts = %(NUM_ATTEMPTS)s;
     const int num_atoms = %(NUM_ATOMS)s;
     const int num_waters = %(NUM_WATERS)s;
+    const int num_water_atoms = 3*num_points;
     const float prefactor = 332.0637090025476f;
 
     // Random number generator state for each water thread.
@@ -458,7 +459,7 @@ code = """
                 curandState_t state = *states[tidx];
 
                 // Translate the oxygen atom to the origin.
-                float water[9];
+                float water[num_water_atoms];
                 water[0] = 0.0f;
                 water[1] = 0.0f;
                 water[2] = 0.0f;
@@ -521,16 +522,16 @@ code = """
                 }
 
                 // Place the oxygen (first atom) at the random position.
-                water_position[tidx * 9] = xyz[0];
-                water_position[tidx * 9 + 1] = xyz[1];
-                water_position[tidx * 9 + 2] = xyz[2];
+                water_position[tidx * num_water_atoms] = xyz[0];
+                water_position[tidx * num_water_atoms + 1] = xyz[1];
+                water_position[tidx * num_water_atoms + 2] = xyz[2];
 
                 // Shift the hydrogens by the appropriate amount.
                 for (int i = 0; i < num_points-1; i++)
                 {
-                    water_position[tidx * 9 + 3 + i*3] = xyz[0] + dh[i][0];
-                    water_position[tidx * 9 + 4 + i*3] = xyz[1] + dh[i][1];
-                    water_position[tidx * 9 + 5 + i*3] = xyz[2] + dh[i][2];
+                    water_position[tidx * num_water_atoms + 3 + i*3] = xyz[0] + dh[i][0];
+                    water_position[tidx * num_water_atoms + 4 + i*3] = xyz[1] + dh[i][1];
+                    water_position[tidx * num_water_atoms + 5 + i*3] = xyz[2] + dh[i][2];
                 }
 
                 // Set the new state.
