@@ -639,38 +639,34 @@ code = """
                     // The distance is within the cut-off.
                     if (r2 < cutoff2)
                     {
-                        // Abort if the energy is already too large.
-                        if (energy_coul[idx] < 10 and energy_lj[idx] < 10)
+                        // Don't divide by zero.
+                        if (r2 < 1e-6)
                         {
-                            // Don't divide by zero.
-                            if (r2 < 1e-6)
-                            {
-                                energy_coul[idx] = 1e6;
-                                energy_lj[idx] = 1e6;
-                                return;
-                            }
-                            else
-                            {
-                                // Compute the LJ interaction.
-                                auto s1 = sigma_water[i];
-                                const auto e1 = epsilon_water[i];
-                                const auto s = 0.5 * (s0 + s1);
-                                const auto e = sqrtf(e0 * e1);
-                                const auto s2 = s * s;
-                                const auto sr2 = s2 / r2;
-                                const auto sr6 = sr2 * sr2 * sr2;
-                                const auto sr12 = sr6 * sr6;
-                                energy_lj[idx] += 4 * e * (sr12 - sr6);
+                            energy_coul[idx] = 1e6;
+                            energy_lj[idx] = 1e6;
+                            return;
+                        }
+                        else
+                        {
+                            // Compute the LJ interaction.
+                            auto s1 = sigma_water[i];
+                            const auto e1 = epsilon_water[i];
+                            const auto s = 0.5 * (s0 + s1);
+                            const auto e = sqrtf(e0 * e1);
+                            const auto s2 = s * s;
+                            const auto sr2 = s2 / r2;
+                            const auto sr6 = sr2 * sr2 * sr2;
+                            const auto sr12 = sr6 * sr6;
+                            energy_lj[idx] += 4 * e * (sr12 - sr6);
 
-                                // Compute the distance between the atoms.
-                                const auto r = sqrtf(r2);
+                            // Compute the distance between the atoms.
+                            const auto r = sqrtf(r2);
 
-                                // Store the charge on the water atom.
-                                const auto c1 = charge_water[i];
+                            // Store the charge on the water atom.
+                            const auto c1 = charge_water[i];
 
-                                // Add the reaction field pair energy.
-                                energy_coul[idx] += (c0 * c1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
-                            }
+                            // Add the reaction field pair energy.
+                            energy_coul[idx] += (c0 * c1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
                         }
                     }
 
