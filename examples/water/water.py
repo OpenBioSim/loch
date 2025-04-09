@@ -99,6 +99,7 @@ d = sampler.system().dynamics(
     constraint="h_bonds",
     timestep="2 fs",
 )
+d.randomise_velocities()
 
 # Get the context.
 context = d.context()
