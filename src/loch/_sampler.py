@@ -899,8 +899,13 @@ class GCMCSampler:
         if len(candidates) == 0:
             return [], candidates, None
         else:
+            # Replace only if num_attempts is greater than the number of candidates.
+            replace = self._num_attempts > len(candidates)
+
             # Draw num_attempts samples from the candidates.
-            candidates = self._rng.choice(candidates, size=self._num_attempts)
+            candidates = self._rng.choice(
+                candidates, size=self._num_attempts, replace=replace
+            )
 
         # Set the Adams factor.
         if self._is_bulk:
