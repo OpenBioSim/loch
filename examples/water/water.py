@@ -41,14 +41,14 @@ parser.add_argument(
     "--num-attempts",
     help="The number of GCMC insertion attempts",
     type=int,
-    default=10000,
+    default=1000,
     required=False,
 )
 parser.add_argument(
     "--num-cycles",
     help="The number of dynamics cycles",
     type=int,
-    default=10000,
+    default=100000,
     required=False,
 )
 parser.add_argument(
