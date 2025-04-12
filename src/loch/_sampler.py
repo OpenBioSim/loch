@@ -54,13 +54,15 @@ class GCMCSampler:
         temperature="298 K",
         adams_shift=0.0,
         max_gcmc_waters=10,
-        num_attempts=1000,
+        batch_size=1000,
+        num_attempts=10000,
         num_threads=1024,
         bulk_sampling_probability=0.1,
         water_template=None,
         device=None,
         log_level="info",
         seed=None,
+        **kwargs,
     ):
         """
         Initialise the GCMC sampler.
@@ -99,14 +101,17 @@ class GCMCSampler:
         max_gcmc_waters: int
             The maximum number of GCMC waters to insert.
 
+        batch_size: int
+            The number of random insertions and deletion trials per batch.
+            This should be tuned according to the attempt acceptance
+            probability i.e. aim to accept an average of 1 move per batch
+            to avoid wasted computation.
+
         num_attempts: int
-            The number of attempted insertions and deletions per move. This
-            should be tuned according to the attempt acceptance probability
-            i.e. aim to accept an average of 1 move per batch. Note that if
-            the number of attempts is too high, then acceptance statistics
-            will be incorrect, i.e. an insertion or deletion will be accepted
-            for every move, which is problematic if the water density of the
-            system is not equilibrated.
+            The total number of attempts per move. In each batch, the lowest
+            candidate index of the first accepted state will be used to
+            determine the number of attempts, i.e. we will only accept
+            the first accepted state.
 
         num_threads: int
             The number of threads per block. (Must be a multiple of 32.)
@@ -196,8 +201,18 @@ class GCMCSampler:
             raise ValueError("'adams_shift' must be of type 'int' or 'float'")
         self._adams_shift = float(adams_shift)
 
+        if not isinstance(batch_size, int):
+            raise ValueError("'batch_size' must be of type 'int'")
+        if batch_size <= 0:
+            raise ValueError("'batch_size' must be greater than 0")
+        self._batch_size = batch_size
+
         if not isinstance(num_attempts, int):
             raise ValueError("'num_attempts' must be of type 'int'")
+        if num_attempts <= 0:
+            raise ValueError("'num_attempts' must be greater than 0")
+        if num_attempts < batch_size:
+            raise ValueError("'num_attempts' must be greater than 'batch_size'")
         self._num_attempts = num_attempts
 
         if not isinstance(num_threads, int):
@@ -299,7 +314,7 @@ class GCMCSampler:
             _code
             % {
                 "NUM_POINTS": self._num_points,
-                "NUM_ATTEMPTS": self._num_attempts,
+                "NUM_BATCH": self._batch_size,
                 "NUM_WATERS": self._num_waters,
                 "NUM_ATOMS": self._num_atoms,
             },
@@ -321,7 +336,7 @@ class GCMCSampler:
         self._atom_blocks = self._num_atoms // self._num_threads + 1
 
         # Work out the number of blocks to process the attempts.
-        self._attempt_blocks = self._num_attempts // self._num_threads + 1
+        self._batch_blocks = self._batch_size // self._num_threads + 1
 
         # Work out the number of blocks to process the waters.
         self._water_blocks = self._num_waters // self._num_threads + 1
@@ -376,8 +391,6 @@ class GCMCSampler:
         self._num_accepted_attempts = 0
         self._num_insertions = 0
         self._num_deletions = 0
-        self._num_accepted_insertions = 0
-        self._num_accepted_deletions = 0
 
         # Null the nonbonded force.
         self._nonbonded_force = None
@@ -399,6 +412,16 @@ class GCMCSampler:
         # Register the cleanup function.
         atexit.register(self._cleanup)
 
+        # Check for testing mode.
+        if "test" in kwargs:
+            if kwargs["test"] == True:
+                _logger.debug("Testing mode enabled")
+                self._is_test = True
+            else:
+                raise ValueError("'test' must be of type 'bool'")
+        else:
+            self._is_test = False
+
     def __str__(self):
         """
         Return a string representation of the class.
@@ -415,6 +438,7 @@ class GCMCSampler:
             f"temperature={self._temperature}, "
             f"max_gcmc_waters={self._max_gcmc_waters}, "
             f"adams_shift={self._adams_shift}, "
+            f"batch_size={self._batch_size}, "
             f"num_attempts={self._num_attempts}, "
             f"num_threads={self._num_threads}), "
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
@@ -546,8 +570,7 @@ class GCMCSampler:
 
     def attempt_acceptance_probability(self):
         """
-        Return the acceptance probability per attempt. This is only valid
-        when using RF.
+        Return the acceptance probability per attempt.
 
         Returns
         -------
@@ -623,403 +646,338 @@ class GCMCSampler:
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
 
-        # Get the OpenMM state.
-        state = context.getState(getPositions=True, getEnergy=self._is_pme)
+        # Zero the number of attempts and batch index.
+        num_attempts = 0
+        num_batches = 1
 
-        # Get the current positions in Angstrom.
-        positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+        # Set the acceptance flag.
+        is_accepted = False
 
-        # If we're using PME, then compute the initial energy.
-        if self._is_pme:
-            initial_energy = state.getPotentialEnergy()
-        else:
-            initial_energy = None
+        while num_attempts < self._num_attempts:
 
-        self._is_bulk = True
-        if self._reference is not None:
-            # Sample within the GCMC sphere.
-            if self._rng.random() > self._bulk_sampling_probability:
-                target = _gpuarray.to_gpu(
-                    self._get_target_position(positions).astype(_np.float32)
+            # Whether the batch was accepted.
+            batch_accepted = False
+
+            _logger.debug(f"Processing batch number {num_batches}")
+            _logger.debug(
+                f"Completed of attempts: {num_attempts} of {self._num_attempts}"
+            )
+            _logger.debug(f"Number of accepted moves: {self._num_accepted}")
+            _logger.debug(f"Number of accepted insertions: {self._num_insertions}")
+            _logger.debug(f"Number of accepted deletions: {self._num_deletions}")
+
+            # Prepare the GPU state for the next batch.
+            if num_attempts == 0 or is_accepted:
+                # Get the OpenMM state.
+                state = context.getState(getPositions=True, getEnergy=self._is_pme)
+
+                # Get the current positions in Angstrom.
+                positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+                # If we're using PME, then compute the initial energy.
+                if self._is_pme:
+                    initial_energy = state.getPotentialEnergy()
+                else:
+                    initial_energy = None
+
+                self._is_bulk = True
+                if self._reference is not None:
+                    # Sample within the GCMC sphere.
+                    if self._rng.random() > self._bulk_sampling_probability:
+                        target = _gpuarray.to_gpu(
+                            self._get_target_position(positions).astype(_np.float32)
+                        )
+                        self._is_bulk = False
+
+                # Set the positions on the GPU.
+                self._kernels["atom_positions"](
+                    _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
+                    _np.float32(1.0),
+                    block=(self._num_threads, 1, 1),
+                    grid=(self._atom_blocks, 1, 1),
                 )
-                self._is_bulk = False
 
-        # Set the positions on the GPU.
-        self._kernels["atom_positions"](
-            _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
-            _np.float32(1.0),
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, 1, 1),
-        )
+                # Work out the number of waters in the sampling volume.
+                if not self._is_bulk:
+                    self._kernels["deletion"](
+                        self._deletion_candidates,
+                        _gpuarray.to_gpu(target.astype(_np.float32)),
+                        _np.float32(self._radius.value()),
+                        block=(self._num_threads, 1, 1),
+                        grid=(self._water_blocks, 1, 1),
+                    )
 
-        # Work out the number of waters in the sampling volume.
-        if not self._is_bulk:
-            self._kernels["deletion"](
-                self._deletion_candidates,
-                _gpuarray.to_gpu(target.astype(_np.float32)),
+                    # Get the candidates.
+                    candidates = self._deletion_candidates.get().flatten()
+
+                    # Find the waters within the GCMC sphere.
+                    candidates = _np.where(candidates == 1)[0]
+
+                # Use all non-ghost waters.
+                else:
+                    _logger.debug("Sampling within the entire simulation box")
+                    candidates = _np.where(self._water_state != 0)[0]
+                    target = None
+
+                # Set the number of waters.
+                self._N = len(candidates)
+
+            # Log the current number of waters.
+            _logger.debug(f"Number of waters in sampling volume: {self._N}")
+            _logger.debug(f"Water indices: {candidates}")
+
+            # Draw batch_size samples from the deletion candidates.
+            candidates = self._rng.choice(candidates, size=self._batch_size)
+            candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
+
+            # Generate the array of random moves types. (0 = insertion, 1 = deletion)
+            is_deletion = self._rng.choice(2, size=self._batch_size)
+            is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
+
+            _logger.debug("Preparing insertion candidates.")
+
+            if target is None:
+                target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
+                is_target = _np.int32(0)
+                exp_B = self._exp_B_bulk
+                exp_minus_B = self._exp_minus_B_bulk
+            else:
+                is_target = _np.int32(1)
+                exp_B = self._exp_B
+                exp_minus_B = self._exp_minus_B
+
+            # Generate the random water positions and orientations.
+            self._kernels["water"](
+                self._water_template_positions,
+                target,
                 _np.float32(self._radius.value()),
+                self._water_positions,
+                is_target,
                 block=(self._num_threads, 1, 1),
-                grid=(self._water_blocks, 1, 1),
+                grid=(self._batch_blocks, 1, 1),
             )
 
-            # Get the candidates.
-            candidates = self._deletion_candidates.get().flatten()
-
-            # Find the waters within the GCMC sphere.
-            candidates = _np.where(candidates == 1)[0]
-
-        # Use all non-ghost waters.
-        else:
-            _logger.debug("Sampling within the entire simulation box")
-            candidates = _np.where(self._water_state != 0)[0]
-            target = None
-
-        # Set the number of waters.
-        self._N = len(candidates)
-
-        # Log the current number of waters.
-        _logger.debug(f"Number of waters in sampling volume: {self._N}")
-
-        # Perform a batch of insertion trials.
-        if self._rng.integers(2) == 0:
-            context, is_accepted, move = self._insertion_move(
-                context, target=target, initial_energy=initial_energy
+            # Perform the energy calculation.
+            self._kernels["energy"](
+                self._water_positions,
+                self._energy_coul,
+                self._energy_lj,
+                candidates_gpu,
+                is_deletion_gpu,
+                block=(self._num_threads, 1, 1),
+                grid=(self._atom_blocks, self._batch_size, 1),
             )
-        # Perform a batch of deletion trials.
-        else:
-            context, is_accepted, move = self._deletion_move(
-                context, positions, candidates, initial_energy=initial_energy
+
+            # Compute the acceptance probabilities.
+            self._kernels["acceptance"](
+                _np.int32(self._N),
+                _np.float32(exp_B),
+                _np.float32(exp_minus_B),
+                _np.float32(self._beta),
+                is_deletion_gpu,
+                self._energy_coul,
+                self._energy_lj,
+                self._energy_change,
+                self._probability,
+                self._accepted,
+                block=(self._num_threads, 1, 1),
+                grid=(self._batch_blocks, 1, 1),
             )
+
+            # Get the acceptance array.
+            accepted = _np.where(self._accepted.get().flatten() == 1)[0]
+
+            # Store the number of accepted attempts.
+            num_accepted_attempts = len(accepted)
+            self._num_accepted_attempts += num_accepted_attempts
+
+            _logger.debug(f"Number of accepted attempts: {num_accepted_attempts}")
+            _logger.debug(
+                f"Total number of accepted attempts: {self._num_accepted_attempts}"
+            )
+
+            # No moves where accepted.
+            if num_accepted_attempts == 0:
+                return context, False, None
+
+            # Choose the first accepted trial state.
+            state = accepted[0]
+
+            # Update the number of attempts.
+            num_attempts += state
+
+            # We've exceeded the number of attempts so reject the move.
+            if num_attempts > self._num_attempts and not self._is_pme:
+                move = None
+                batch_accepted = False
+                break
+
+            # Insertion move.
+            if is_deletion[state] == 0:
+                # Accept the move.
+                context, idx = self._accept_insertion(state, context)
+
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_insertions += 1
+
+                # Initalise the acceptance variables.
+                batch_accepted = True
+                move = "insertion"
+
+                # Set null values for the PME energy and probability.
+                pme_energy = None
+                pme_probability = None
+
+                # Apply the PME correction.
+                if self._is_pme:
+                    # Get the energy change in kcal/mol.
+                    dE_rf = (
+                        self._energy_change.get().flatten()[state]
+                        * _openmm.unit.kilocalories_per_mole
+                    )
+
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                    )
+
+                    # Store the PME energy change and acceptance probability.
+                    pme_energy = final_energy - initial_energy
+                    pme_probability = acc_prob
+
+                    # The move was accepted.
+                    if self._rng.random() < acc_prob:
+                        # Revert if we've exceeded the number of attempts.
+                        if num_attempts > self._num_attempts:
+                            # Revert the move by deleting the water.
+                            context, _ = self._accept_deletion(idx, context)
+
+                            # Update the acceptance statistics.
+                            self._num_accepted -= 1
+                            self._num_insertions -= 1
+
+                            batch_accepted = False
+                            move = None
+                    # The move was rejected.
+                    else:
+                        # Revert the move by deleting the water.
+                        context, _ = self._accept_deletion(idx, context)
+
+                        # Update the acceptance statistics.
+                        self._num_accepted -= 1
+                        self._num_insertions -= 1
+
+                        # Revert the number of attempts.
+                        num_attempts -= state
+
+                        batch_accepted = False
+                        move = None
+
+                # Log the insertion.
+                if batch_accepted and self._is_debug:
+                    self._log_insertion(
+                        state,
+                        idx,
+                        pme_energy=pme_energy,
+                        pme_probability=pme_probability,
+                    )
+
+            # Deletion move.
+            else:
+                # Accept the move.
+                context, previous_state = self._accept_deletion(
+                    candidates[state], context
+                )
+
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_deletions += 1
+
+                # Initalise the acceptance variables.
+                batch_accepted = True
+                move = "deletion"
+
+                # Set null values for the PME energy and probability.
+                pme_energy = None
+                pme_probability = None
+
+                # Apply the PME correction.
+                if self._is_pme:
+                    # Get the energy change in kcal/mol.
+                    dE_rf = (
+                        self._energy_change.get().flatten()[state]
+                        * _openmm.unit.kilocalories_per_mole
+                    )
+
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                    )
+
+                    # Store the PME energy change and acceptance probability.
+                    pme_energy = final_energy - initial_energy
+                    pme_probability = acc_prob
+
+                    # The move was accepted.
+                    if self._rng.random() < acc_prob:
+                        # Revert if we've exceeded the number of attempts.
+                        if num_attempts > self._num_attempts:
+                            # Revert the move by inserting the water.
+                            context, _ = self._accept_insertion(previous_state, context)
+
+                            # Update the acceptance statistics.
+                            self._num_accepted -= 1
+                            self._num_deletions -= 1
+
+                            batch_accepted = False
+                            move = None
+                    # The move was rejected.
+                    else:
+                        # Revert the move.
+                        context = self._reject_deletion(
+                            candidates[state], previous_state, context
+                        )
+
+                        # Update the acceptance statistics.
+                        self._num_accepted -= 1
+                        self._num_deletions -= 1
+
+                        # Revert the number of attempts.
+                        num_attempts -= state
+
+                        batch_accepted = False
+                        move = None
+
+                # Log the deletion.
+                if batch_accepted and self._is_debug:
+                    self._log_deletion(
+                        state,
+                        candidates,
+                        positions,
+                        pme_energy=pme_energy,
+                        pme_probability=pme_probability,
+                    )
+
+            # Update the move acceptance flag.
+            if batch_accepted:
+                is_accepted = True
+
+                # Return immediately if we're in test mode.
+                if self._is_test:
+                    return context, is_accepted, move
 
         # If this was a bulk sampling move, then store the context. This allows
         # us to work out the number of waters in the GCMC sphere if the user
         # calls self.num_waters() after the move.
         if self._reference is not None and self._is_bulk:
             self._context = context
-
-        return context, is_accepted, move
-
-    def _insertion_move(self, context, target=None, initial_energy=None):
-        """
-        Perform a trial insertion move.
-
-        Parameters
-        ----------
-
-        context: openmm.Context
-            The OpenMM context to use.
-
-        target: pycuda.gpuarray.GPUArray
-            The center of the GCMC sphere.
-
-        initial_energy: openmm.unit.Quantity
-            The initial energy of the system. This is only needed when
-            using PME in order to correct the acceptance probability.
-
-        Returns
-        -------
-
-        context: openmm.Context
-            The updated OpenMM context.
-
-        is_accepted: bool
-            Whether the move was accepted.
-
-        move: str
-            The type of move. (If accepted.)
-        """
-
-        _logger.debug("Performing insertion move.")
-
-        if target is None:
-            target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
-            is_target = _np.int32(0)
-            exp_B = self._exp_B_bulk
-        else:
-            is_target = _np.int32(1)
-            exp_B = self._exp_B
-
-        # Generate the random water positions and orientations.
-        self._kernels["water"](
-            self._water_template_positions,
-            target,
-            _np.float32(self._radius.value()),
-            self._water_positions,
-            is_target,
-            block=(self._num_threads, 1, 1),
-            grid=(self._attempt_blocks, 1, 1),
-        )
-
-        # Perform the energy calculation.
-        self._kernels["energy"](
-            self._water_positions,
-            self._energy_coul,
-            self._energy_lj,
-            self._deletion_candidates,
-            _np.int32(0),
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, self._num_attempts, 1),
-        )
-
-        # Compute the acceptance probabilities.
-        self._kernels["acceptance"](
-            _np.int32(self._N),
-            _np.int32(1),
-            _np.float32(1.0),
-            _np.float32(exp_B),
-            _np.float32(self._beta),
-            self._energy_coul,
-            self._energy_lj,
-            self._energy_change,
-            self._probability,
-            self._accepted,
-            block=(self._num_threads, 1, 1),
-            grid=(self._attempt_blocks, 1, 1),
-        )
-
-        # Get the indices of the accepted insertions.
-        accepted = _np.where(self._accepted.get().flatten() == 1)[0]
-
-        # Update the number of accepted attempts.
-        num_accepted_attempts = len(accepted)
-        self._num_accepted_attempts += num_accepted_attempts
-        self._num_accepted_insertions += num_accepted_attempts
-
-        _logger.debug(
-            f"Number of accepted insertion candidates: {num_accepted_attempts}"
-        )
-        _logger.debug(
-            f"Total number of accepted insertion candidates: {self._num_accepted_insertions}"
-        )
-
-        if num_accepted_attempts == 0:
-            return context, [], None
-
-        # Choose a random insertion.
-        state = self._rng.choice(accepted)
-
-        # Accept the move.
-        context, idx = self._accept_insertion(state, context)
-
-        # Update the acceptance statistics.
-        self._num_accepted += 1
-        self._num_accepted_attempts += num_accepted_attempts
-        self._num_insertions += 1
-
-        # Initalise the acceptance variables.
-        is_accepted = True
-        move = "insertion"
-
-        # Set null values for the PME energy and probability.
-        pme_energy = None
-        pme_probability = None
-
-        # Apply the PME correction.
-        if self._is_pme:
-            # Get the energy change in kcal/mol.
-            dE_rf = (
-                self._energy_change.get().flatten()[state]
-                * _openmm.unit.kilocalories_per_mole
-            )
-
-            # Get the new energy.
-            final_energy = context.getState(getEnergy=True).getPotentialEnergy()
-
-            # Compute the PME acceptance correction.
-            acc_prob = _np.exp(
-                -self._beta_openmm * (final_energy - initial_energy - dE_rf)
-            )
-
-            # Store the PME energy change and acceptance probability.
-            pme_energy = final_energy - initial_energy
-            pme_probability = acc_prob
-
-            # The move was rejected.
-            if acc_prob < self._rng.random():
-                # Revert the move by deleting the water.
-                context, _ = self._accept_deletion(idx, context)
-
-                # Update the acceptance statistics.
-                self._num_accepted -= 1
-                self._num_insertions -= 1
-
-                is_accepted = False
-                move = None
-
-        # Log the insertion.
-        if is_accepted and self._is_debug:
-            self._log_insertion(
-                state,
-                idx,
-                pme_energy=pme_energy,
-                pme_probability=pme_probability,
-            )
-
-        return context, is_accepted, move
-
-    def _deletion_move(self, context, positions, candidates, initial_energy=None):
-        """
-        Perform a trial deletion move.
-
-        Parameters
-        ----------
-
-        context: openmm.Context
-            The OpenMM context to use.
-
-        positions: np.ndarray
-            The current positions of the atoms.
-
-        candidates: np.ndarray
-            The indices of the candidate waters.
-
-        initial_energy: openmm.unit.Quantity
-            The initial energy of the system. This is only needed when
-            using PME in order to correct the acceptance probability.
-
-        Returns
-        -------
-
-        context: openmm.Context
-            The updated OpenMM context.
-
-        accepted: bool
-            Whether the move was accepted.
-
-        move: str
-            The type of move. (If accepted.)
-        """
-
-        _logger.debug("Performing deletion move.")
-
-        # Log the candidates.
-        _logger.debug(f"Number of deletion candidates: {len(candidates)}")
-        _logger.debug(f"Deletion candidates: {candidates}")
-
-        if len(candidates) == 0:
-            return [], candidates, None
-        else:
-            # Replace only if num_attempts is greater than the number of candidates.
-            replace = self._num_attempts > len(candidates)
-
-            # Draw num_attempts samples from the candidates.
-            candidates = self._rng.choice(
-                candidates, size=self._num_attempts, replace=replace
-            )
-
-        # Set the Adams factor.
-        if self._is_bulk:
-            exp_minus_B = self._exp_minus_B_bulk
-        else:
-            exp_minus_B = self._exp_minus_B
-
-        # Compute the energy of the candidate deletions.
-        self._kernels["energy"](
-            self._water_positions,
-            self._energy_coul,
-            self._energy_lj,
-            _gpuarray.to_gpu(candidates.astype(_np.int32)),
-            _np.int32(1),
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, self._num_attempts, 1),
-        )
-
-        # Compute the acceptance probabilities.
-        self._kernels["acceptance"](
-            _np.int32(0),
-            _np.int32(self._N),
-            _np.float32(-1.0),
-            _np.float32(exp_minus_B),
-            _np.float32(self._beta),
-            self._energy_coul,
-            self._energy_lj,
-            self._energy_change,
-            self._probability,
-            self._accepted,
-            block=(self._num_threads, 1, 1),
-            grid=(self._attempt_blocks, 1, 1),
-        )
-
-        # Get the indices of the accepted deletions.
-        accepted = _np.where(self._accepted.get().flatten() == 1)[0]
-
-        # Update the number of accepted attempts.
-        num_accepted_attempts = len(accepted)
-        self._num_accepted_attempts += num_accepted_attempts
-        self._num_accepted_deletions += num_accepted_attempts
-
-        _logger.debug(
-            f"Number of accepted deletion candidates: {num_accepted_attempts}"
-        )
-        _logger.debug(
-            f"Total number of accepted deletion candidates: {self._num_accepted_deletions}"
-        )
-
-        if num_accepted_attempts == 0:
-            return context, [], None
-
-        # Choose a random deletion.
-        state = self._rng.choice(accepted)
-
-        # Accept the move.
-        context, previous_state = self._accept_deletion(candidates[state], context)
-
-        # Update the acceptance statistics.
-        self._num_accepted += 1
-        self._num_accepted_attempts += num_accepted_attempts
-        self._num_deletions += 1
-
-        # Initalise the acceptance variables.
-        is_accepted = True
-        move = "deletion"
-
-        # Set null values for the PME energy and probability.
-        pme_energy = None
-        pme_probability = None
-
-        # Apply the PME correction.
-        if self._is_pme:
-            # Get the energy change in kcal/mol.
-            dE_rf = (
-                self._energy_change.get().flatten()[state]
-                * _openmm.unit.kilocalories_per_mole
-            )
-
-            # Get the new energy.
-            final_energy = context.getState(getEnergy=True).getPotentialEnergy()
-
-            # Compute the PME acceptance correction.
-            acc_prob = _np.exp(
-                -self._beta_openmm * (final_energy - initial_energy - dE_rf)
-            )
-
-            # Store the PME energy change and acceptance probability.
-            pme_energy = final_energy - initial_energy
-            pme_probability = acc_prob
-
-            # The move was rejected.
-            if acc_prob < self._rng.random():
-                # Revert the move.
-                context = self._reject_deletion(
-                    candidates[state], previous_state, context
-                )
-
-                # Update the acceptance statistics.
-                self._num_accepted -= 1
-                self._num_deletions -= 1
-
-                is_accepted = False
-                move = None
-
-        # Log the deletion.
-        if is_accepted and self._is_debug:
-            self._log_deletion(
-                state,
-                candidates,
-                positions,
-                pme_energy=pme_energy,
-                pme_probability=pme_probability,
-            )
 
         return context, is_accepted, move
 
@@ -1301,11 +1259,11 @@ class GCMCSampler:
         self._kernels["rng"](
             _gpuarray.to_gpu(
                 _np.random.randint(
-                    _np.iinfo(_np.int32).max, size=(1, self._num_attempts)
+                    _np.iinfo(_np.int32).max, size=(1, self._batch_size)
                 ).astype(_np.int32)
             ),
             block=(self._num_threads, 1, 1),
-            grid=(self._attempt_blocks, 1, 1),
+            grid=(self._batch_blocks, 1, 1),
         )
 
         # Initialise the reaction field parameters.
@@ -1339,22 +1297,22 @@ class GCMCSampler:
 
         # Initialise the memory to store the water positions.
         self._water_positions = _gpuarray.empty(
-            (1, self._num_attempts * 3 * self._num_points), _np.float32
+            (1, self._batch_size * 3 * self._num_points), _np.float32
         )
 
         # Initialise memory to store the energy.
         self._energy_coul = _gpuarray.empty(
-            (1, self._num_attempts * self._num_atoms), _np.float32
+            (1, self._batch_size * self._num_atoms), _np.float32
         )
         self._energy_lj = _gpuarray.empty(
-            (1, self._num_attempts * self._num_atoms), _np.float32
+            (1, self._batch_size * self._num_atoms), _np.float32
         )
 
         # Initialise memory to store whether each attempt is accepted and
         # the probability of acceptance.
-        self._accepted = _gpuarray.empty((1, self._num_attempts), _np.int32)
-        self._energy_change = _gpuarray.empty((1, self._num_attempts), _np.float32)
-        self._probability = _gpuarray.empty((1, self._num_attempts), _np.float32)
+        self._accepted = _gpuarray.empty((1, self._batch_size), _np.int32)
+        self._energy_change = _gpuarray.empty((1, self._batch_size), _np.float32)
+        self._probability = _gpuarray.empty((1, self._batch_size), _np.float32)
 
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
@@ -1382,18 +1340,21 @@ class GCMCSampler:
             The index of the water that was inserted.
         """
 
-        if self._N >= self._total_waters:
+        # Check if we can insert more waters.
+        ghost_waters = _np.where(self._water_state == 0)[0]
+
+        if len(ghost_waters) == 0:
             raise RuntimeError(
                 "Cannot insert any more waters. Please increase 'max_gcmc_waters'."
             )
 
         # Get the new water positions.
         water_positions = self._water_positions.get().reshape(
-            (self._num_attempts, 3, self._num_points)
+            (self._batch_size, 3, self._num_points)
         )[state]
 
         # Choose a random ghost water.
-        idx = self._rng.choice(_np.where(self._water_state == 0)[0])
+        idx = self._rng.choice(ghost_waters)
 
         # Update the water state.
         self._water_state[idx] = 1
@@ -1609,13 +1570,13 @@ class GCMCSampler:
         """
         # Get the energies.
         energy_coul = self._energy_coul.get().reshape(
-            (self._num_attempts, self._num_atoms)
+            (self._batch_size, self._num_atoms)
         )
-        energy_lj = self._energy_lj.get().reshape((self._num_attempts, self._num_atoms))
+        energy_lj = self._energy_lj.get().reshape((self._batch_size, self._num_atoms))
 
         # Get the water positions.
         water_positions = self._water_positions.get().reshape(
-            (self._num_attempts, self._num_points, 3)
+            (self._batch_size, self._num_points, 3)
         )
 
         # Get the RF acceptance probability.
@@ -1682,9 +1643,9 @@ class GCMCSampler:
         """
         # Get the coulomb and LJ energies.
         energy_coul = self._energy_coul.get().reshape(
-            (self._num_attempts, self._num_atoms)
+            (self._batch_size, self._num_atoms)
         )
-        energy_lj = self._energy_lj.get().reshape((self._num_attempts, self._num_atoms))
+        energy_lj = self._energy_lj.get().reshape((self._batch_size, self._num_atoms))
 
         # Get the RF acceptance probability.
         probability = self._probability.get().flatten()

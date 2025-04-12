@@ -51,10 +51,17 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "--num-attempts",
-    help="The number of GCMC insertion attempts",
+    "--batch-size",
+    help="The number of GCMC trials per batch",
     type=int,
     default=1000,
+    required=False,
+)
+parser.add_argument(
+    "--num-attempts",
+    help="The number of GCMC attempts per move",
+    type=int,
+    default=10000,
     required=False,
 )
 parser.add_argument(
@@ -96,6 +103,7 @@ sr.save(
 sampler = GCMCSampler(
     mols,
     reference=reference,
+    batch_size=args.batch_size,
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,

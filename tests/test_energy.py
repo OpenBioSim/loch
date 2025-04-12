@@ -15,7 +15,7 @@ def test_energy(water_box):
     Test that the RF energy difference agrees with OpenMM.
     """
     # Create a GCMC sampler.
-    sampler = GCMCSampler(water_box, reference=None, log_level="debug")
+    sampler = GCMCSampler(water_box, reference=None, log_level="debug", test=True)
 
     # Create a dynamics object using the modified GCMC system.
     d = sampler.system().dynamics(

@@ -28,10 +28,17 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "--num-attempts",
-    help="The number of GCMC insertion attempts",
+    "--batch-size",
+    help="The number of GCMC trials per batch",
     type=int,
     default=1000,
+    required=False,
+)
+parser.add_argument(
+    "--num-attempts",
+    help="The number of GCMC attempts per move",
+    type=int,
+    default=10000,
     required=False,
 )
 parser.add_argument(
@@ -52,6 +59,7 @@ mols = sr.load_test_files("bpti.prm7", "bpti.rst7")
 sampler = GCMCSampler(
     mols,
     reference="(residx 9 and atomname CA) or (residx 43 and atomname CA)",
+    batch_size=args.batch_size,
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,

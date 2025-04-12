@@ -29,14 +29,14 @@ code = """
     // Constants.
     const float pi = 3.14159265359f;
     const int num_points = %(NUM_POINTS)s;
-    const int num_attempts = %(NUM_ATTEMPTS)s;
+    const int num_batch = %(NUM_BATCH)s;
     const int num_atoms = %(NUM_ATOMS)s;
     const int num_waters = %(NUM_WATERS)s;
     const int num_water_atoms = 3*num_points;
     const float prefactor = 332.0637090025476f;
 
     // Random number generator state for each water thread.
-    __device__ curandState_t* states[num_attempts];
+    __device__ curandState_t* states[num_batch];
 
     // Reaction field parameters.
     __device__ float rf_dielectric;
@@ -70,7 +70,7 @@ code = """
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
-            if (tidx < num_attempts)
+            if (tidx < num_batch)
             {
                 curandState_t* s = new curandState_t;
                 if (s != 0)
@@ -458,7 +458,7 @@ code = """
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
             // Make sure we are within the number of waters.
-            if (tidx < num_attempts)
+            if (tidx < num_batch)
             {
                 // Get the RNG state.
                 curandState_t state = *states[tidx];
@@ -551,7 +551,7 @@ code = """
             float* energy_coul,
             float* energy_lj,
             int* deletion_candidates,
-            int is_deletion)
+            int* is_deletion)
         {
             // Work out the atom index.
             const int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
@@ -591,7 +591,7 @@ code = """
                 }
 
                 // This is a deletion move, so we need to get the correct water index.
-                if (is_deletion == 1)
+                if (is_deletion[idx_water] == 1)
                 {
                     const int idx_water_context = water_idx[deletion_candidates[idx_water]];
                     const auto delta = idx_atom - idx_water_context;
@@ -627,7 +627,7 @@ code = """
                 {
                     // Get the water atom position.
                     float v1[3];
-                    if (is_deletion == 1)
+                    if (is_deletion[idx_water] == 1)
                     {
                         const int idx_water_context = water_idx[deletion_candidates[idx_water]];
                         v1[0] = position[3 * idx_water_context + 3 * i];
@@ -684,11 +684,11 @@ code = """
 
         // Calculate whether each attempt is accepted.
         __global__ void checkAcceptance(
-            int N_insert,
-            int N_delete,
-            float sign,
-            float expB,
+            int N,
+            float exp_B,
+            float exp_minus_B,
             float beta,
+            int* is_deletion,
             float* energy_coul,
             float* energy_lj,
             float* energy_change,
@@ -697,10 +697,30 @@ code = """
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
-            if (tidx < num_attempts)
+            if (tidx < num_batch)
             {
                 // Zero the energy.
                 float energy = 0.0;
+
+                // Work out the acceptance factors based on the move type.
+                float sign;
+                float expB;
+                int N_insert;
+                int N_delete;
+                if (is_deletion[tidx] == 1)
+                {
+                    sign = -1.0f;
+                    expB = exp_minus_B;
+                    N_insert = 0;
+                    N_delete = N;
+                }
+                else
+                {
+                    sign = 1.0f;
+                    expB = exp_B;
+                    N_insert = N;
+                    N_delete = 1;
+                }
 
                 // Sum the energy contributions from all the atoms.
                 for (int i = 0; i < num_atoms; i++)
