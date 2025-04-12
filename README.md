@@ -4,7 +4,7 @@ Prototype GCMC water sampling code.
 
 ## Installation
 
-```bash
+```
 conda create -f environment.yml
 ```
 
@@ -15,7 +15,7 @@ conda create -f environment.yml
 Run 100 1ps dynamics blocks for scytalone dehydratase, performing GCMC trial
 moves after each block:
 
-```bash
+```
 cd examples/scytalone
 python sd.py --cutoff-type pme
 ```
@@ -28,7 +28,7 @@ configuration is written to `initial.pdb`.
 
 Run 10ns of bulk water sampling, with GCMC moves every 1ps:
 
-```bash
+```
 cd examples/water
 python water.py --cutoff-type pme
 ```
