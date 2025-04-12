@@ -49,7 +49,7 @@ class GCMCSampler:
         radius="4.0 A",
         cutoff_type="rf",
         cutoff="10.0 A",
-        excess_chemical_potential="-6.09 kcal/mol",
+        excess_chemical_potential="-6.07 kcal/mol",
         standard_volume="30.543 A^3",
         temperature="298 K",
         adams_shift=0.0,
