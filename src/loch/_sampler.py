@@ -812,168 +812,153 @@ class GCMCSampler:
                 num_attempts += self._batch_size
                 break
 
-            # For PME we evaluate states until one is accepted.
-            if self._is_pme:
-                max_accepted = num_accepted_attempts
-            # For RF, we take the first accepted state.
-            else:
-                max_accepted = 1
+            # Choose the first accepted state.
+            state = accepted[0]
 
-            # Loop over the states.
-            for i in range(max_accepted):
-                # Store the accepted trial state.
-                state = accepted[i]
+            # Update the number of attempts.
+            num_attempts += state + 1
 
-                # Update the number of attempts.
-                num_attempts += state + 1
+            # We've exceeded the number of attempts so reject the move.
+            if num_attempts > self._num_attempts:
+                move = None
+                batch_accepted = False
+                break
 
-                # We've exceeded the number of attempts so reject the move.
-                if num_attempts > self._num_attempts:
-                    move = None
-                    batch_accepted = False
-                    break
+            # Insertion move.
+            if is_deletion[state] == 0:
+                # Accept the move.
+                context, idx = self._accept_insertion(state, context)
 
-                # Insertion move.
-                if is_deletion[state] == 0:
-                    # Accept the move.
-                    context, idx = self._accept_insertion(state, context)
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_insertions += 1
 
-                    # Update the acceptance statistics.
-                    self._num_accepted += 1
-                    self._num_insertions += 1
+                # Initalise the acceptance variables.
+                batch_accepted = True
+                move = 0
 
-                    # Initalise the acceptance variables.
-                    batch_accepted = True
-                    move = 0
+                # Set null values for the PME energy and probability.
+                pme_energy = None
+                pme_probability = None
 
-                    # Set null values for the PME energy and probability.
-                    pme_energy = None
-                    pme_probability = None
-
-                    # Apply the PME correction.
-                    if self._is_pme:
-                        # Get the energy change in kcal/mol.
-                        dE_rf = (
-                            self._energy_change.get().flatten()[state]
-                            * _openmm.unit.kilocalories_per_mole
-                        )
-
-                        # Get the new energy.
-                        final_energy = context.getState(
-                            getEnergy=True
-                        ).getPotentialEnergy()
-
-                        # Compute the PME acceptance correction.
-                        acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_rf)
-                        )
-
-                        # Store the PME energy change and acceptance probability.
-                        pme_energy = final_energy - initial_energy
-                        pme_probability = acc_prob
-
-                        # The move was rejected.
-                        if acc_prob < self._rng.random():
-                            # Revert the move.
-                            context, _ = self._accept_deletion(idx, context)
-
-                            # Update the acceptance statistics.
-                            self._num_accepted -= 1
-                            self._num_insertions -= 1
-
-                            # Revert the number of attempts.
-                            num_attempts -= state + 1
-
-                            batch_accepted = False
-                            move = None
-
-                    # Log the insertion.
-                    if batch_accepted and self._is_debug:
-                        self._log_insertion(
-                            state,
-                            idx,
-                            pme_energy=pme_energy,
-                            pme_probability=pme_probability,
-                        )
-
-                # Deletion move.
-                else:
-                    # Accept the move.
-                    context, previous_state = self._accept_deletion(
-                        candidates[state], context
+                # Apply the PME correction.
+                if self._is_pme:
+                    # Get the energy change in kcal/mol.
+                    dE_rf = (
+                        self._energy_change.get().flatten()[state]
+                        * _openmm.unit.kilocalories_per_mole
                     )
 
-                    # Update the acceptance statistics.
-                    self._num_accepted += 1
-                    self._num_deletions += 1
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
 
-                    # Initalise the acceptance variables.
-                    batch_accepted = True
-                    move = 1
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                    )
 
-                    # Set null values for the PME energy and probability.
-                    pme_energy = None
-                    pme_probability = None
+                    # Store the PME energy change and acceptance probability.
+                    pme_energy = final_energy - initial_energy
+                    pme_probability = acc_prob
 
-                    # Apply the PME correction.
-                    if self._is_pme:
-                        # Get the energy change in kcal/mol.
-                        dE_rf = (
-                            self._energy_change.get().flatten()[state]
-                            * _openmm.unit.kilocalories_per_mole
+                    # The move was rejected.
+                    if acc_prob < self._rng.random():
+                        # Revert the move.
+                        context, _ = self._accept_deletion(idx, context)
+
+                        # Update the acceptance statistics.
+                        self._num_accepted -= 1
+                        self._num_insertions -= 1
+
+                        # Revert the number of attempts.
+                        num_attempts -= state + 1
+
+                        batch_accepted = False
+                        move = None
+
+                # Log the insertion.
+                if batch_accepted and self._is_debug:
+                    self._log_insertion(
+                        state,
+                        idx,
+                        pme_energy=pme_energy,
+                        pme_probability=pme_probability,
+                    )
+
+            # Deletion move.
+            else:
+                # Accept the move.
+                context, previous_state = self._accept_deletion(
+                    candidates[state], context
+                )
+
+                # Update the acceptance statistics.
+                self._num_accepted += 1
+                self._num_deletions += 1
+
+                # Initalise the acceptance variables.
+                batch_accepted = True
+                move = 1
+
+                # Set null values for the PME energy and probability.
+                pme_energy = None
+                pme_probability = None
+
+                # Apply the PME correction.
+                if self._is_pme:
+                    # Get the energy change in kcal/mol.
+                    dE_rf = (
+                        self._energy_change.get().flatten()[state]
+                        * _openmm.unit.kilocalories_per_mole
+                    )
+
+                    # Get the new energy.
+                    final_energy = context.getState(getEnergy=True).getPotentialEnergy()
+
+                    # Compute the PME acceptance correction.
+                    acc_prob = _np.exp(
+                        -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                    )
+
+                    # Store the PME energy change and acceptance probability.
+                    pme_energy = final_energy - initial_energy
+                    pme_probability = acc_prob
+
+                    # The move was rejected.
+                    if acc_prob < self._rng.random():
+                        # Revert the move.
+                        context = self._reject_deletion(
+                            candidates[state], previous_state, context
                         )
 
-                        # Get the new energy.
-                        final_energy = context.getState(
-                            getEnergy=True
-                        ).getPotentialEnergy()
+                        # Update the acceptance statistics.
+                        self._num_accepted -= 1
+                        self._num_deletions -= 1
 
-                        # Compute the PME acceptance correction.
-                        acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_rf)
-                        )
+                        # Revert the number of attempts.
+                        num_attempts -= state + 1
 
-                        # Store the PME energy change and acceptance probability.
-                        pme_energy = final_energy - initial_energy
-                        pme_probability = acc_prob
+                        batch_accepted = False
+                        move = None
 
-                        # The move was rejected.
-                        if acc_prob < self._rng.random():
-                            # Revert the move.
-                            context = self._reject_deletion(
-                                candidates[state], previous_state, context
-                            )
+                # Log the deletion.
+                if batch_accepted and self._is_debug:
+                    self._log_deletion(
+                        state,
+                        candidates,
+                        positions,
+                        pme_energy=pme_energy,
+                        pme_probability=pme_probability,
+                    )
 
-                            # Update the acceptance statistics.
-                            self._num_accepted -= 1
-                            self._num_deletions -= 1
+            # Update the move acceptance flag and append the move.
+            if batch_accepted:
+                is_accepted = True
+                moves.append(move)
 
-                            # Revert the number of attempts.
-                            num_attempts -= state + 1
-
-                            batch_accepted = False
-                            move = None
-
-                    # Log the deletion.
-                    if batch_accepted and self._is_debug:
-                        self._log_deletion(
-                            state,
-                            candidates,
-                            positions,
-                            pme_energy=pme_energy,
-                            pme_probability=pme_probability,
-                        )
-
-                # Update the move acceptance flag and append the move.
-                if batch_accepted:
-                    is_accepted = True
-                    moves.append(move)
-
-                    # Return immediately if we're in test mode.
-                    if self._is_test:
-                        return context, is_accepted, moves
-
-                    break
+                # Return immediately if we're in test mode.
+                if self._is_test:
+                    return context, is_accepted, moves
 
             # Increment the number of batches.
             num_batches += 1
