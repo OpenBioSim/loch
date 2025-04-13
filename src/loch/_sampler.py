@@ -873,7 +873,7 @@ class GCMCSampler:
                         pme_probability = acc_prob
 
                         # The move was rejected.
-                        if acc_prob > self._rng.random():
+                        if acc_prob < self._rng.random():
                             # Revert the move.
                             context, _ = self._accept_deletion(idx, context)
 
@@ -938,7 +938,7 @@ class GCMCSampler:
                         pme_probability = acc_prob
 
                         # The move was rejected.
-                        if acc_prob > self._rng.random():
+                        if acc_prob < self._rng.random():
                             # Revert the move.
                             context = self._reject_deletion(
                                 candidates[state], previous_state, context
