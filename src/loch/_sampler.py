@@ -217,7 +217,7 @@ class GCMCSampler:
             raise ValueError("'num_attempts' must be of type 'int'")
         if num_attempts <= 0:
             raise ValueError("'num_attempts' must be greater than 0")
-        if num_attempts < batch_size:
+        if num_attempts <= batch_size:
             raise ValueError("'num_attempts' must be greater than 'batch_size'")
         if not num_attempts % 2 == 0:
             raise ValueError("'num_attempts' must be a multiple of 2")
