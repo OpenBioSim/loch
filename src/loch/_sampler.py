@@ -823,7 +823,7 @@ class GCMCSampler:
                 num_attempts += state + 1
 
                 # We've exceeded the number of attempts so reject the move.
-                if num_attempts > self._num_attempts and not self._is_pme:
+                if num_attempts > self._num_attempts:
                     move = None
                     batch_accepted = False
                     break
@@ -867,17 +867,9 @@ class GCMCSampler:
                         pme_energy = final_energy - initial_energy
                         pme_probability = acc_prob
 
-                        # The move was accepted.
-                        if self._rng.random() < acc_prob:
-                            # Revert if we've exceeded the number of attempts.
-                            if num_attempts > self._num_attempts:
-                                batch_accepted = False
                         # The move was rejected.
-                        else:
-                            batch_accepted = False
-
-                        # Revert the move.
-                        if not batch_accepted:
+                        if acc_prob > self._rng.random():
+                            # Revert the move.
                             context, _ = self._accept_deletion(idx, context)
 
                             # Update the acceptance statistics.
@@ -940,17 +932,9 @@ class GCMCSampler:
                         pme_energy = final_energy - initial_energy
                         pme_probability = acc_prob
 
-                        # The move was accepted.
-                        if self._rng.random() < acc_prob:
-                            # Reject if we've exceeded the number of attempts.
-                            if num_attempts > self._num_attempts:
-                                batch_accepted = False
                         # The move was rejected.
-                        else:
-                            batch_accepted = False
-
-                        # Revert the move.
-                        if not batch_accepted:
+                        if acc_prob > self._rng.random():
+                            # Revert the move.
                             context = self._reject_deletion(
                                 candidates[state], previous_state, context
                             )
