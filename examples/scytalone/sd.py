@@ -61,7 +61,7 @@ parser.add_argument(
     "--num-attempts",
     help="The number of GCMC attempts per move",
     type=int,
-    default=10000,
+    default=1000,
     required=False,
 )
 parser.add_argument(

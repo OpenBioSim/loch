@@ -55,7 +55,7 @@ class GCMCSampler:
         adams_shift=0.0,
         max_gcmc_waters=10,
         batch_size=1000,
-        num_attempts=10000,
+        num_attempts=1000,
         num_threads=1024,
         bulk_sampling_probability=0.1,
         water_template=None,
@@ -217,8 +217,10 @@ class GCMCSampler:
             raise ValueError("'num_attempts' must be of type 'int'")
         if num_attempts <= 0:
             raise ValueError("'num_attempts' must be greater than 0")
-        if num_attempts <= batch_size:
-            raise ValueError("'num_attempts' must be greater than 'batch_size'")
+        if num_attempts < batch_size:
+            raise ValueError(
+                "'num_attempts' must be greater than or equal to 'batch_size'"
+            )
         if not num_attempts % 2 == 0:
             raise ValueError("'num_attempts' must be a multiple of 2")
         self._num_attempts = num_attempts
@@ -658,13 +660,11 @@ class GCMCSampler:
         num_attempts = 0
         num_batches = 1
 
-        # Set the acceptance flag.
+        # Initialise the acceptance flags.
         is_accepted = False
+        batch_accepted = False
 
         while num_attempts < self._num_attempts:
-
-            # Whether the batch was accepted.
-            batch_accepted = False
 
             _logger.debug(f"Processing batch number {num_batches}")
             _logger.debug(
@@ -675,7 +675,7 @@ class GCMCSampler:
             _logger.debug(f"Number of accepted deletions: {self._num_deletions}")
 
             # Prepare the GPU state for the next batch.
-            if num_attempts == 0 or is_accepted:
+            if num_attempts == 0 or batch_accepted:
                 # Get the OpenMM state.
                 state = context.getState(getPositions=True, getEnergy=self._is_pme)
 
@@ -730,6 +730,9 @@ class GCMCSampler:
                 # Set the number of waters.
                 self._N = len(candidates)
 
+            # Reset the batch acceptance flag.
+            batch_accepted = False
+
             # Log the current number of waters.
             _logger.debug(f"Number of waters in sampling volume: {self._N}")
             _logger.debug(f"Water indices: {candidates}")
@@ -739,13 +742,12 @@ class GCMCSampler:
             candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
 
             # Generate the array of moves types. (0 = insertion, 1 = deletion)
-            # We strictly want to use a 50/50 split between insertions and
-            # deletions so, for simplicity, we just tile an array of zeros
-            # and ones.
-            is_deletion = _np.tile(_np.array([0, 1]), self._batch_size // 2)
+            # We strictly require an equal number of insertion and deletion
+            # trials so, for simplicity, we just tile the array.
+            is_deletion = _np.tile([0, 1], self._batch_size // 2)
             is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
 
-            _logger.debug("Preparing insertion candidates.")
+            _logger.debug("Preparing insertion candidates")
 
             if target is None:
                 target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
@@ -815,7 +817,7 @@ class GCMCSampler:
             state = accepted[0]
 
             # Update the number of attempts.
-            num_attempts += state
+            num_attempts += state + 1
 
             # We've exceeded the number of attempts so reject the move.
             if num_attempts > self._num_attempts and not self._is_pme:
@@ -883,7 +885,7 @@ class GCMCSampler:
                         self._num_insertions -= 1
 
                         # Revert the number of attempts.
-                        num_attempts -= state
+                        num_attempts -= state + 1
 
                         batch_accepted = False
                         move = None
@@ -940,8 +942,10 @@ class GCMCSampler:
                     if self._rng.random() < acc_prob:
                         # Revert if we've exceeded the number of attempts.
                         if num_attempts > self._num_attempts:
-                            # Revert the move by inserting the water.
-                            context, _ = self._accept_insertion(previous_state, context)
+                            # Revert the move.
+                            context = self._reject_deletion(
+                                candidates[state], previous_state, context
+                            )
 
                             # Update the acceptance statistics.
                             self._num_accepted -= 1
@@ -949,6 +953,8 @@ class GCMCSampler:
 
                             batch_accepted = False
                             move = None
+
+                            _logger.debug("Rejected PME deletion move")
                     # The move was rejected.
                     else:
                         # Revert the move.
@@ -961,10 +967,12 @@ class GCMCSampler:
                         self._num_deletions -= 1
 
                         # Revert the number of attempts.
-                        num_attempts -= state
+                        num_attempts -= state + 1
 
                         batch_accepted = False
                         move = None
+
+                        _logger.debug("Rejected PME deletion move")
 
                 # Log the deletion.
                 if batch_accepted and self._is_debug:
