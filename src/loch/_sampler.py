@@ -105,17 +105,14 @@ class GCMCSampler:
             The number of random insertions and deletion trials per batch.
             This should be tuned according to the attempt acceptance
             probability i.e. aim to accept an average of 1 move per batch
-            to avoid wasted computation. This must be a multiple of 2 in
-            order to maintain an exact 50/50 split between insertions and
-            deletion trials.
+            to avoid wasted computation.
 
         num_attempts: int
             The total number of attempts per move. In each batch, the lowest
             candidate index of the first accepted state will be used to
             determine the number of attempts, i.e. we will only accept
-            the first accepted state. This must be greater than the batch
-            size and must also be divislbe by 2 in order to maintain an
-            exact 50/50 split between insertions and deletion trials.
+            the first accepted state. This must be greater than or equal
+            to the batch size.
 
         num_threads: int
             The number of threads per block. (Must be a multiple of 32.)
@@ -209,8 +206,6 @@ class GCMCSampler:
             raise ValueError("'batch_size' must be of type 'int'")
         if batch_size <= 0:
             raise ValueError("'batch_size' must be greater than 0")
-        if not batch_size % 2 == 0:
-            raise ValueError("'batch_size' must be a multiple of 2")
         self._batch_size = batch_size
 
         if not isinstance(num_attempts, int):
@@ -221,8 +216,6 @@ class GCMCSampler:
             raise ValueError(
                 "'num_attempts' must be greater than or equal to 'batch_size'"
             )
-        if not num_attempts % 2 == 0:
-            raise ValueError("'num_attempts' must be a multiple of 2")
         self._num_attempts = num_attempts
 
         if not isinstance(num_threads, int):
@@ -742,9 +735,7 @@ class GCMCSampler:
             candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
 
             # Generate the array of moves types. (0 = insertion, 1 = deletion)
-            # We strictly require an equal number of insertion and deletion
-            # trials so, for simplicity, we just tile the array.
-            is_deletion = _np.tile([0, 1], self._batch_size // 2)
+            is_deletion = self._rng.choice(2, size=self._batch_size)
             is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
 
             _logger.debug("Preparing insertion candidates")
