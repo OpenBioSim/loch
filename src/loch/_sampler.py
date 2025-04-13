@@ -726,6 +726,9 @@ class GCMCSampler:
             # Reset the batch acceptance flag.
             batch_accepted = False
 
+            # Reset the move type.
+            move = None
+
             # Log the current number of waters.
             _logger.debug(f"Number of waters in sampling volume: {self._N}")
             _logger.debug(f"Water indices: {candidates}")
@@ -800,12 +803,11 @@ class GCMCSampler:
                 f"Total number of accepted attempts: {self._num_accepted_attempts}"
             )
 
-            # No moves where accepted.
+            # No moves were accepted for this batch. Just increment the
+            # number of attempts.
             if num_accepted_attempts == 0:
                 num_attempts += self._batch_size
-                return context, False, None
-
-            # Set the maximum state to evalulate.
+                break
 
             # For PME we evaluate states until one is accepted.
             if self._is_pme:
