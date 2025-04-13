@@ -975,12 +975,6 @@ class GCMCSampler:
 
                     break
 
-                # No moves were accepted, increment the number
-                # of attempts by the batch size if using PME.
-                else:
-                    if self._is_pme:
-                        num_attempts += self._batch_size
-
             # Increment the number of batches.
             num_batches += 1
 
