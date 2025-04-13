@@ -809,13 +809,13 @@ class GCMCSampler:
 
             # For PME we evaluate states until one is accepted.
             if self._is_pme:
-                max_state = num_accepted_attempts
+                max_accepted = num_accepted_attempts
             # For RF, we take the first accepted state.
             else:
-                max_state = 1
+                max_accepted = 1
 
             # Loop over the states.
-            for i in range(max_state):
+            for i in range(max_accepted):
                 # Store the accepted trial state.
                 state = accepted[i]
 
