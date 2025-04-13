@@ -871,18 +871,13 @@ class GCMCSampler:
                         if self._rng.random() < acc_prob:
                             # Revert if we've exceeded the number of attempts.
                             if num_attempts > self._num_attempts:
-                                # Revert the move by deleting the water.
-                                context, _ = self._accept_deletion(idx, context)
-
-                                # Update the acceptance statistics.
-                                self._num_accepted -= 1
-                                self._num_insertions -= 1
-
                                 batch_accepted = False
-                                move = None
                         # The move was rejected.
                         else:
-                            # Revert the move by deleting the water.
+                            batch_accepted = False
+
+                        # Revert the move.
+                        if not batch_accepted:
                             context, _ = self._accept_deletion(idx, context)
 
                             # Update the acceptance statistics.
@@ -947,24 +942,15 @@ class GCMCSampler:
 
                         # The move was accepted.
                         if self._rng.random() < acc_prob:
-                            # Revert if we've exceeded the number of attempts.
+                            # Reject if we've exceeded the number of attempts.
                             if num_attempts > self._num_attempts:
-                                # Revert the move.
-                                context = self._reject_deletion(
-                                    candidates[state], previous_state, context
-                                )
-
-                                # Update the acceptance statistics.
-                                self._num_accepted -= 1
-                                self._num_deletions -= 1
-
                                 batch_accepted = False
-                                move = None
-
-                                _logger.debug("Rejected PME deletion move")
                         # The move was rejected.
                         else:
-                            # Revert the move.
+                            batch_accepted = False
+
+                        # Revert the move.
+                        if not batch_accepted:
                             context = self._reject_deletion(
                                 candidates[state], previous_state, context
                             )
@@ -978,8 +964,6 @@ class GCMCSampler:
 
                             batch_accepted = False
                             move = None
-
-                            _logger.debug("Rejected PME deletion move")
 
                     # Log the deletion.
                     if batch_accepted and self._is_debug:
