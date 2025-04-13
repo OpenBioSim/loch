@@ -802,6 +802,7 @@ class GCMCSampler:
 
             # No moves where accepted.
             if num_accepted_attempts == 0:
+                num_attempts += self._batch_size
                 return context, False, None
 
             # Set the maximum state to evalulate.
@@ -815,7 +816,7 @@ class GCMCSampler:
 
             # Loop over the states.
             for i in range(max_state):
-                # Choose the first accepted trial state.
+                # Store the accepted trial state.
                 state = accepted[i]
 
                 # Update the number of attempts.
@@ -999,6 +1000,12 @@ class GCMCSampler:
                         return context, is_accepted, move
 
                     break
+
+                # No moves were accepted, increment the number
+                # of attempts by the batch size if using PME.
+                else:
+                    if self._is_pme:
+                        num_attempts += self._batch_size
 
             # Increment the number of batches.
             num_batches += 1
