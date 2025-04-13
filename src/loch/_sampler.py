@@ -639,8 +639,8 @@ class GCMCSampler:
         accepted: bool
             Whether the move was accepted.
 
-        move: str
-            The type of move. (If accepted.)
+        moves: [int]
+            A list of the accepted moves. (0 = insertion, 1 = deletion)
         """
 
         # Increment the number of moves.
@@ -656,6 +656,9 @@ class GCMCSampler:
         # Initialise the acceptance flags.
         is_accepted = False
         batch_accepted = False
+
+        # Create the moves list.
+        moves = []
 
         while num_attempts < self._num_attempts:
 
@@ -841,7 +844,7 @@ class GCMCSampler:
 
                     # Initalise the acceptance variables.
                     batch_accepted = True
-                    move = "insertion"
+                    move = 0
 
                     # Set null values for the PME energy and probability.
                     pme_energy = None
@@ -906,7 +909,7 @@ class GCMCSampler:
 
                     # Initalise the acceptance variables.
                     batch_accepted = True
-                    move = "deletion"
+                    move = 1
 
                     # Set null values for the PME energy and probability.
                     pme_energy = None
@@ -961,13 +964,14 @@ class GCMCSampler:
                             pme_probability=pme_probability,
                         )
 
-                # Update the move acceptance flag.
+                # Update the move acceptance flag and append the move.
                 if batch_accepted:
                     is_accepted = True
+                    moves.append(move)
 
                     # Return immediately if we're in test mode.
                     if self._is_test:
-                        return context, is_accepted, move
+                        return context, is_accepted, moves
 
                     break
 
@@ -986,7 +990,7 @@ class GCMCSampler:
         if self._reference is not None and self._is_bulk:
             self._context = context
 
-        return context, is_accepted, move
+        return context, is_accepted, moves
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
