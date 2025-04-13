@@ -1000,6 +1000,9 @@ class GCMCSampler:
 
                     break
 
+            # Increment the number of batches.
+            num_batches += 1
+
         # If this was a bulk sampling move, then store the context. This allows
         # us to work out the number of waters in the GCMC sphere if the user
         # calls self.num_waters() after the move.
