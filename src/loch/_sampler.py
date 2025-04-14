@@ -712,19 +712,19 @@ class GCMCSampler:
                     )
 
                     # Get the candidates.
-                    candidates = self._deletion_candidates.get().flatten()
+                    deletion_candidates = self._deletion_candidates.get().flatten()
 
                     # Find the waters within the GCMC sphere.
-                    candidates = _np.where(candidates == 1)[0]
+                    deletion_candidates = _np.where(candidates == 1)[0]
 
                 # Use all non-ghost waters.
                 else:
                     _logger.debug("Sampling within the entire simulation box")
-                    candidates = _np.where(self._water_state != 0)[0]
+                    deletion_candidates = _np.where(self._water_state != 0)[0]
                     target = None
 
                 # Set the number of waters.
-                self._N = len(candidates)
+                self._N = len(deletion_candidates)
 
             # Reset the batch acceptance flag.
             batch_accepted = False
@@ -734,10 +734,10 @@ class GCMCSampler:
 
             # Log the current number of waters.
             _logger.debug(f"Number of waters in sampling volume: {self._N}")
-            _logger.debug(f"Water indices: {candidates}")
+            _logger.debug(f"Water indices: {deletion_candidates}")
 
             # Draw batch_size samples from the deletion candidates.
-            candidates = self._rng.choice(candidates, size=self._batch_size)
+            candidates = self._rng.choice(deletion_candidates, size=self._batch_size)
             candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
 
             # Generate the array of moves types. (0 = insertion, 1 = deletion)
