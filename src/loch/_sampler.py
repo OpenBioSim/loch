@@ -872,6 +872,7 @@ class GCMCSampler:
 
                         # Revert the number of attempts.
                         num_attempts -= state + 1
+                        self._num_accepted_attempts -= num_accepted_attempts
 
                         batch_accepted = False
                         move = None
@@ -937,6 +938,7 @@ class GCMCSampler:
 
                         # Revert the number of attempts.
                         num_attempts -= state + 1
+                        self._num_accepted_attempts -= num_accepted_attempts
 
                         batch_accepted = False
                         move = None
