@@ -671,7 +671,7 @@ class GCMCSampler:
             _logger.debug(f"Number of accepted deletions: {self._num_deletions}")
 
             # Prepare the GPU state for the next batch.
-            if num_attempts == 0 or batch_accepted:
+            if num_batches == 1 or batch_accepted:
                 # Get the OpenMM state.
                 state = context.getState(getPositions=True, getEnergy=self._is_pme)
 
@@ -810,6 +810,7 @@ class GCMCSampler:
             # number of attempts.
             if num_accepted_attempts == 0:
                 num_attempts += self._batch_size
+                num_batches += 1
                 continue
 
             # Choose the first accepted state.
