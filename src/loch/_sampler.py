@@ -810,7 +810,7 @@ class GCMCSampler:
             # number of attempts.
             if num_accepted_attempts == 0:
                 num_attempts += self._batch_size
-                break
+                continue
 
             # Choose the first accepted state.
             state = accepted[0]
