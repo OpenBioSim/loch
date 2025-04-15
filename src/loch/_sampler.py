@@ -690,8 +690,8 @@ class GCMCSampler:
                 if self._reference is not None:
                     # Sample within the GCMC sphere.
                     if self._rng.random() > self._bulk_sampling_probability:
-                        target = _gpuarray.to_gpu(
-                            self._get_target_position(positions).astype(_np.float32)
+                        target = self._get_target_position(positions).astype(
+                            _np.float32
                         )
                         self._is_bulk = False
 
@@ -749,11 +749,12 @@ class GCMCSampler:
             _logger.debug("Preparing insertion candidates")
 
             if target is None:
-                target = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
+                target_gpu = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
                 is_target = _np.int32(0)
                 exp_B = self._exp_B_bulk
                 exp_minus_B = self._exp_minus_B_bulk
             else:
+                target_gpu = _gpuarray.to_gpu(target.astype(_np.float32))
                 is_target = _np.int32(1)
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
@@ -761,7 +762,7 @@ class GCMCSampler:
             # Generate the random water positions and orientations.
             self._kernels["water"](
                 self._water_template_positions,
-                target,
+                target_gpu,
                 _np.float32(self._radius.value()),
                 self._water_positions,
                 is_target,
