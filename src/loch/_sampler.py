@@ -549,7 +549,8 @@ class GCMCSampler:
 
     def num_accepted_attempts(self):
         """
-        Return the number accepted attempts.
+        Return the number accepted attempts. (Note that, when using PME, this
+        is the number of accepted attempts for the approximate RF potential.)
 
         Returns
         -------
@@ -573,7 +574,8 @@ class GCMCSampler:
 
     def attempt_acceptance_probability(self):
         """
-        Return the acceptance probability per attempt.
+        Return the acceptance probability per attempt. (Note that, when using
+        PME, this is acceptance probability for the approximate RF potential.)
 
         Returns
         -------
@@ -871,10 +873,6 @@ class GCMCSampler:
                         self._num_accepted -= 1
                         self._num_insertions -= 1
 
-                        # Revert the number of attempts.
-                        num_attempts -= state + 1
-                        self._num_accepted_attempts -= num_accepted_attempts
-
                         batch_accepted = False
                         move = None
 
@@ -936,10 +934,6 @@ class GCMCSampler:
                         # Update the acceptance statistics.
                         self._num_accepted -= 1
                         self._num_deletions -= 1
-
-                        # Revert the number of attempts.
-                        num_attempts -= state + 1
-                        self._num_accepted_attempts -= num_accepted_attempts
 
                         batch_accepted = False
                         move = None
