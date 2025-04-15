@@ -880,7 +880,7 @@ class GCMCSampler:
                         # The move was rejected.
                         if acc_prob < self._rng.random():
                             # Revert the move.
-                            context, _ = self._accept_deletion(idx, context)
+                            context, _ = self._accept_deletion(water_idx, context)
 
                             # Update the acceptance statistics.
                             self._num_accepted -= 1
