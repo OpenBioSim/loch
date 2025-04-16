@@ -658,6 +658,12 @@ class GCMCSampler:
         # Create the moves list.
         moves = []
 
+        # Decide if this is a bulk sampling move.
+        self._is_bulk = True
+        if self._reference is not None:
+            if self._rng.random() > self._bulk_sampling_probability:
+                self._is_bulk = False
+
         # Loop until we have the required number of attempts.
         while num_attempts < self._num_attempts:
             _logger.debug(f"Processing batch number {num_batches}")
@@ -682,14 +688,9 @@ class GCMCSampler:
                 else:
                     initial_energy = None
 
-                self._is_bulk = True
-                if self._reference is not None:
-                    # Sample within the GCMC sphere.
-                    if self._rng.random() > self._bulk_sampling_probability:
-                        target = self._get_target_position(positions).astype(
-                            _np.float32
-                        )
-                        self._is_bulk = False
+                # Sample within the GCMC sphere.
+                if self._reference is not None and not self._is_bulk:
+                    target = self._get_target_position(positions).astype(_np.float32)
 
                 # Set the positions on the GPU.
                 self._kernels["atom_positions"](
