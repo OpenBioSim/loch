@@ -138,10 +138,10 @@ for i in range(10000):
     # Run 1ps of dynamics.
     d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
 
-    context, accepted, moves = sampler.move(d.context())
+    context, moves = sampler.move(d.context())
 
-    # If the move was accepted, update the dynamics object.
-    if accepted:
+    # If a move was accepted, update the dynamics object.
+    if len(moves) > 0:
         d._d._omm_mols = context
 
     print(

@@ -146,13 +146,13 @@ for i in range(args.num_cycles):
 
     # Perform a GCMC move.
     start = time()
-    context, accepted, moves = sampler.move(d.context())
+    context, moves = sampler.move(d.context())
     end = time()
     if i > 0:
         total += end - start
 
-    # If the move was accepted, update the dynamics object.
-    if accepted:
+    # If a move was accepted, update the dynamics object.
+    if len(moves) > 0:
         d._d._omm_mols = context
 
 print(f"Insertions: {sampler.num_insertions()}")

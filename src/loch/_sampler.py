@@ -624,7 +624,7 @@ class GCMCSampler:
 
     def move(self, context):
         """
-        Perform a trial move.
+        Perform num_attempts trial moves.
 
         Parameters
         ----------
@@ -637,9 +637,6 @@ class GCMCSampler:
 
         context: openmm.Context
             The updated OpenMM context.
-
-        accepted: bool
-            Whether the move was accepted.
 
         moves: [int]
             A list of the accepted moves. (0 = insertion, 1 = deletion)
@@ -657,7 +654,6 @@ class GCMCSampler:
 
         # Initialise the acceptance flags.
         is_accepted = False
-        batch_accepted = False
 
         # Create the moves list.
         moves = []
@@ -673,7 +669,7 @@ class GCMCSampler:
             _logger.debug(f"Number of accepted deletions: {self._num_deletions}")
 
             # Prepare the GPU state for the next batch.
-            if num_batches == 1 or batch_accepted:
+            if num_batches == 1 or is_accepted:
                 # Get the OpenMM state.
                 state = context.getState(getPositions=True, getEnergy=self._is_pme)
 
@@ -729,7 +725,7 @@ class GCMCSampler:
                 self._N = len(deletion_candidates)
 
             # Reset the batch acceptance flag.
-            batch_accepted = False
+            is_accepted = False
 
             # Reset the move type.
             move = None
@@ -835,7 +831,7 @@ class GCMCSampler:
                 # We've exceeded the number of attempts so reject the move.
                 if num_attempts > self._num_attempts:
                     move = None
-                    batch_accepted = False
+                    is_accepted = False
                     break
 
                 # Insertion move.
@@ -848,7 +844,7 @@ class GCMCSampler:
                     self._num_insertions += 1
 
                     # Initalise the acceptance variables.
-                    batch_accepted = True
+                    is_accepted = True
                     move = 0
 
                     # Set null values for the PME energy and probability.
@@ -889,11 +885,11 @@ class GCMCSampler:
                             # Revert the number of attempts.
                             num_attempts -= idx + 1
 
-                            batch_accepted = False
+                            is_accepted = False
                             move = None
 
                     # Log the insertion.
-                    if batch_accepted and self._is_debug:
+                    if is_accepted and self._is_debug:
                         self._log_insertion(
                             idx,
                             water_idx,
@@ -913,7 +909,7 @@ class GCMCSampler:
                     self._num_deletions += 1
 
                     # Initalise the acceptance variables.
-                    batch_accepted = True
+                    is_accepted = True
                     move = 1
 
                     # Set null values for the PME energy and probability.
@@ -956,11 +952,11 @@ class GCMCSampler:
                             # Revert the number of attempts.
                             num_attempts -= idx + 1
 
-                            batch_accepted = False
+                            is_accepted = False
                             move = None
 
                     # Log the deletion.
-                    if batch_accepted and self._is_debug:
+                    if is_accepted and self._is_debug:
                         self._log_deletion(
                             idx,
                             candidates,
@@ -970,13 +966,12 @@ class GCMCSampler:
                         )
 
             # Update the move acceptance flag and append the move.
-            if batch_accepted:
-                is_accepted = True
+            if is_accepted:
                 moves.append(move)
 
                 # Return immediately if we're in test mode.
                 if self._is_test:
-                    return context, is_accepted, moves
+                    return context, moves
             # If no moves were accepted at the PME level, then update the
             # number of attempts by the batch size.
             else:
@@ -992,7 +987,7 @@ class GCMCSampler:
         if self._reference is not None and self._is_bulk:
             self._context = context
 
-        return context, is_accepted, moves
+        return context, moves
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):

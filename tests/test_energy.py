@@ -42,11 +42,18 @@ def test_energy(water_box):
         )
 
         # Perform a GCMC move.
-        context, is_accepted, moves = sampler.move(d.context())
+        context, moves = sampler.move(d.context())
 
-        # This wasn't an insertion move.
-        if is_accepted and moves[0] != 0:
+        # No moves were made.
+        if len(moves) == 0:
             is_accepted = False
+        else:
+            # Deletion move.
+            if moves[0] != 0:
+                is_accepted = False
+            # Insertion move.
+            else:
+                is_accepted = True
 
     # Store the final energy in kcal/mol.
     final_energy = (
@@ -77,11 +84,18 @@ def test_energy(water_box):
         )
 
         # Perform a GCMC move.
-        context, is_accepted, moves = sampler.move(d.context())
+        context, moves = sampler.move(d.context())
 
-        # This wasn't a deletion move.
-        if is_accepted and moves[0] != 1:
+        # No moves were made.
+        if len(moves) == 0:
             is_accepted = False
+        else:
+            # Insertion move.
+            if moves[0] != 1:
+                is_accepted = False
+            # Deletion move.
+            else:
+                is_accepted = True
 
     # Store the final energy in kcal/mol.
     final_energy = (
