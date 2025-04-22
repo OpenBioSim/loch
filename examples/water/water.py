@@ -128,10 +128,6 @@ for i in range(args.num_cycles):
     if i > 0:
         total += end - start
 
-    # If a move was accepted, update the dynamics object.
-    if len(moves) > 0:
-        d._d._omm_mols = context
-
     print(
         f"Cycle {i}, N = {sampler.num_waters()}, "
         f"insertions = {sampler.num_insertions()}, "

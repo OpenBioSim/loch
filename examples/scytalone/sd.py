@@ -148,10 +148,6 @@ for i in range(args.num_cycles):
     if i > 0:
         total += end - start
 
-    # If a move was accepted, update the dynamics object.
-    if len(moves) > 0:
-        d._d._omm_mols = context
-
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
 print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")

@@ -104,10 +104,6 @@ for i in range(100):
     # Perform a GCMC move.
     context, moves = sampler.move(d.context())
 
-    # If a move was accepted, update the dynamics object.
-    if len(moves) > 0:
-        d._d._omm_mols = context
-
 # 3) Run 500ps of regular NPT dynamics.
 print("Running 500ps of NPT dynamics...")
 
@@ -142,10 +138,6 @@ for i in range(10000):
 
     # Perform a GCMC move.
     context, moves = sampler.move(d.context())
-
-    # If a move was accepted, update the dynamics object.
-    if len(moves) > 0:
-        d._d._omm_mols = context
 
     print(
         f"Cycle {i}, N = {sampler.num_waters()}, "
