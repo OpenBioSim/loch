@@ -1367,9 +1367,9 @@ class GCMCSampler:
         ghost_waters = _np.where(self._water_state == 0)[0]
 
         if len(ghost_waters) == 0:
-            raise RuntimeError(
-                "Cannot insert any more waters. Please increase 'max_gcmc_waters'."
-            )
+            msg = f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
+            _logger.error(msg)
+            raise RuntimeError(msg)
 
         # Get the new water positions.
         water_positions = self._water_positions.get().reshape(
