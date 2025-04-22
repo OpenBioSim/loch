@@ -714,7 +714,7 @@ class GCMCSampler:
                     deletion_candidates = self._deletion_candidates.get().flatten()
 
                     # Find the waters within the GCMC sphere.
-                    deletion_candidates = _np.where(candidates == 1)[0]
+                    deletion_candidates = _np.where(deletion_candidates == 1)[0]
 
                 # Use all non-ghost waters.
                 else:
