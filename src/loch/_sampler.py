@@ -266,8 +266,8 @@ class GCMCSampler:
                 raise ValueError("'device' must be of type 'int'")
             _os.environ["CUDA_DEVICE"] = str(device)
         cuda.init()
-        self._context = make_default_context()
-        self._device = self._context.get_device()
+        self._pycuda_context = make_default_context()
+        self._device = self._pycuda_context.get_device()
 
         # Check for waters and validate the template.
         try:
@@ -464,8 +464,8 @@ class GCMCSampler:
         """
         from pycuda.tools import clear_context_caches
 
-        self._context.pop()
-        self._context = None
+        self._pycuda_context.pop()
+        self._pycuda_context = None
         clear_context_caches()
 
     def system(self):
@@ -495,7 +495,7 @@ class GCMCSampler:
         # the number of waters in the GCMC sphere.
         if self._reference is not None and self._is_bulk:
             # Get the OpenMM state.
-            state = self._context.getState(getPositions=True)
+            state = self._openmm_context.getState(getPositions=True)
 
             # Get the current positions in Angstrom.
             positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
@@ -996,7 +996,7 @@ class GCMCSampler:
         # us to work out the number of waters in the GCMC sphere if the user
         # calls self.num_waters() after the move.
         if self._reference is not None and self._is_bulk:
-            self._context = context
+            self._openmm_context = context
 
         return context, moves
 
