@@ -126,10 +126,8 @@ d.minimise()
 # Run the dynamics.
 d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 
-# Copy the positions between the two contexts.
-d._d._omm_mols.setPositions(
-    d_npt._d._omm_mols.getState(getPositions=True).getPositions()
-)
+# Copy the state between the two contexts.
+d._d._omm_mols.setState(d_npt._d._omm_mols.getState())
 
 # 4) Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
