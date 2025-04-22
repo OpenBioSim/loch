@@ -149,6 +149,7 @@ for i in range(10000):
 
 # Save the trajectory.
 mols = d.commit()
+sr.save(mols, "bpti_final.prm7")
 sr.save(mols.trajectory(), "bpti.dcd")
 
 print(f"Insertions: {sampler.num_insertions()}")
