@@ -626,6 +626,24 @@ class GCMCSampler:
         self._num_accepted_insertions = 0
         self._num_accepted_deletions = 0
 
+    def ghost_indices(self):
+        """
+        Return the current indices of the ghost water atoms in the OpenMM
+        context. (This returns the indices of the oxygen atoms only.)
+
+        Returns
+        -------
+
+        ghost_indices: np.ndarray
+            The indices of the ghost oxygen atoms.
+        """
+
+        # First get the indices of the ghost waters.
+        ghost_waters = _np.where(self._water_state == 0)[0]
+
+        # Now extract and return the oxygen indices.
+        return self._water_indices[ghost_waters]
+
     def move(self, context):
         """
         Perform num_attempts trial moves.

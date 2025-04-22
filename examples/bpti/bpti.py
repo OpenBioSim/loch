@@ -129,9 +129,30 @@ d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 # Copy the state between the two contexts.
 d._d._omm_mols.setState(d_npt._d._omm_mols.getState())
 
+# Store the frame frequency.
+frame_frequency = 50
+frame = 0
+
+# Clear the ghost index file.
+try:
+    with open("ghost_indices.txt", "w") as f:
+        pass
+except FileNotFoundError:
+    pass
+
 # 4) Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
 for i in range(10000):
+    # If we hit the frame frequency, then save the current ghost atom indices.
+    if i > 0 and i % frame_frequency == 0:
+        ghost_indices = sampler.ghost_indices()
+
+        with open("ghost_indices.txt", "a") as f:
+            for index in ghost_indices:
+                f.write(f"{frame} {index}\n")
+
+        frame += 1
+
     # Run 1ps of dynamics.
     d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
 
