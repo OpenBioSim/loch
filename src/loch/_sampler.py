@@ -903,14 +903,17 @@ class GCMCSampler:
                             is_accepted = False
                             move = None
 
-                    # Log the insertion.
-                    if is_accepted and self._is_debug:
-                        self._log_insertion(
-                            idx,
-                            water_idx,
-                            pme_energy=pme_energy,
-                            pme_probability=pme_probability,
-                        )
+                    # Log the insertion and break.
+                    if is_accepted:
+                        if self._is_debug:
+                            self._log_insertion(
+                                idx,
+                                water_idx,
+                                positions,
+                                pme_energy=pme_energy,
+                                pme_probability=pme_probability,
+                            )
+                        break
 
                 # Deletion move.
                 else:
@@ -970,15 +973,17 @@ class GCMCSampler:
                             is_accepted = False
                             move = None
 
-                    # Log the deletion.
-                    if is_accepted and self._is_debug:
-                        self._log_deletion(
-                            idx,
-                            candidates,
-                            positions,
-                            pme_energy=pme_energy,
-                            pme_probability=pme_probability,
-                        )
+                    # Log the deletion and break.
+                    if is_accepted:
+                        if self._is_debug:
+                            self._log_deletion(
+                                idx,
+                                candidates,
+                                positions,
+                                pme_energy=pme_energy,
+                                pme_probability=pme_probability,
+                            )
+                        break
 
             # Update the move acceptance flag and append the move.
             if is_accepted:
