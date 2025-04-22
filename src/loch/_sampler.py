@@ -224,8 +224,12 @@ class GCMCSampler:
             raise ValueError("'num_threads' must be a multiple of 32")
         self._num_threads = num_threads
 
-        if not isinstance(bulk_sampling_probability, float):
-            raise ValueError("'bulk_sampling_probability' must be of type 'float'")
+        try:
+            bulk_sampling_probability = float(bulk_sampling_probability)
+        except Exception as e:
+            raise ValueError(
+                f"Could not convert 'bulk_sampling_probability' to float: {e}"
+            )
         if not 0.0 <= bulk_sampling_probability <= 1.0:
             raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
         self._bulk_sampling_probability = bulk_sampling_probability
