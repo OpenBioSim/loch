@@ -504,7 +504,7 @@ class GCMCSampler:
             # Get the current positions in Angstrom.
             positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
 
-            # Get the position of the GCMC sphere center.
+            # Get the position of the GCMC sphere centre.
             target = _gpuarray.to_gpu(
                 self._get_target_position(positions).astype(_np.float32)
             )
@@ -1566,7 +1566,7 @@ class GCMCSampler:
 
     def _get_target_position(self, positions):
         """
-        Get the current center of the GCMC sphere.
+        Get the current centre of the GCMC sphere.
 
         Parameters
         ----------
@@ -1578,20 +1578,20 @@ class GCMCSampler:
         -------
 
         target: numpy.ndarray
-            The center of the GCMC sphere.
+            The centre of the GCMC sphere.
         """
 
-        # Work out center of geometry of the reference atoms.
-        com = _sr.maths.Vector(*positions[self._reference_indices[0]])
-        target = com
+        # Work out centre of geometry of the reference atoms.
+        centre = _sr.maths.Vector(*positions[self._reference_indices[0]])
+        target = centre
         for index in self._reference_indices[1:]:
             delta = self._space.calcDistVector(
                 target, _sr.maths.Vector(*positions[index])
             )
-            com += target + _sr.maths.Vector(delta.x(), delta.y(), delta.z())
-        target = _np.array([x.value() for x in com / len(self._reference_indices)])
+            centre += target + _sr.maths.Vector(delta.x(), delta.y(), delta.z())
+        target = _np.array([x.value() for x in centre / len(self._reference_indices)])
 
-        _logger.debug(f"GCMC sphere center: {target}")
+        _logger.debug(f"GCMC sphere centre: {target}")
 
         return target
 
