@@ -736,12 +736,22 @@ class GCMCSampler:
             _logger.debug(f"Water indices: {deletion_candidates}")
 
             # Draw batch_size samples from the deletion candidates.
-            candidates = self._rng.choice(deletion_candidates, size=self._batch_size)
-            candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
+            if len(deletion_candidates) > 0:
+                candidates = self._rng.choice(
+                    deletion_candidates, size=self._batch_size
+                )
+                candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
 
-            # Generate the array of moves types. (0 = insertion, 1 = deletion)
-            is_deletion = self._rng.choice(2, size=self._batch_size)
-            is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
+                # Generate the array of moves types. (0 = insertion, 1 = deletion)
+                is_deletion = self._rng.choice(2, size=self._batch_size)
+                is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
+            # If there are no deletion candidates, then we can only perform
+            # insertion moves.
+            else:
+                candidates = _np.zeros(self._batch_size, dtype=_np.int32)
+                candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
+                is_deletion = _np.zeros(self._batch_size, dtype=_np.int32)
+                is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
 
             _logger.debug("Preparing insertion candidates")
 
