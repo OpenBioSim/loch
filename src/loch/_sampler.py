@@ -1585,7 +1585,7 @@ class GCMCSampler:
         centre = _sr.maths.Vector(*positions[self._reference_indices[0]])
         target = centre
         for index in self._reference_indices[1:]:
-            delta = self._space.calcDistVector(
+            delta = self._space.calc_dist_vector(
                 target, _sr.maths.Vector(*positions[index])
             )
             centre += target + _sr.maths.Vector(delta.x(), delta.y(), delta.z())
