@@ -33,7 +33,7 @@ parser.add_argument(
     "--ligand",
     help="The ligand index",
     type=int,
-    default=None,
+    default=1,
     required=False,
 )
 parser.add_argument(
@@ -82,13 +82,10 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Load the scytalone dehydratase system.
-if args.ligand is None:
-    mols = sr.load(f"outputs/*7")
-else:
-    mols = sr.load(f"outputs/lig{args.ligand}/*7")
+mols = sr.load_test_files(f"sd{args.ligand}.prm7", f"sd{args.ligand}.rst7")
 
 # Create the PDB suffix.
-suffix = f"_lig{args.ligand}" if args.ligand is not None else ""
+suffix = f"_lig{args.ligand}"
 
 # Store the reference selection.
 reference = "(residx 22 or residx 42) and (atomname OH)"
