@@ -65,7 +65,8 @@ sampler = GCMCSampler(
     cutoff=args.cutoff,
     radius="4.2 A",
     temperature=args.temperature,
-    max_gcmc_waters=20,
+    max_gcmc_waters=100,
+    bulk_sampling_probability=0,
     log_level=args.log_level,
 )
 
