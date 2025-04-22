@@ -92,7 +92,7 @@ context = d.context()
 # 1) Perform 100 GCMC moves.
 print("Equilibrating the system with GCMC moves...")
 for i in range(100):
-    context, accepted, moves = sampler.move(context)
+    context, moves = sampler.move(context)
 d._d._omm_mols = context
 
 # 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
@@ -102,8 +102,10 @@ for i in range(100):
     d.run("10 fs", save_frequency=0, energy_frequency=0, frame_frequency=0)
 
     # Perform a GCMC move.
-    context, accepted, moves = sampler.move(d.context())
-    if accepted:
+    context, moves = sampler.move(d.context())
+
+    # If a move was accepted, update the dynamics object.
+    if len(moves) > 0:
         d._d._omm_mols = context
 
 # 3) Run 500ps of regular NPT dynamics.
@@ -138,6 +140,7 @@ for i in range(10000):
     # Run 1ps of dynamics.
     d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
 
+    # Perform a GCMC move.
     context, moves = sampler.move(d.context())
 
     # If a move was accepted, update the dynamics object.
