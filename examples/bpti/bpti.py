@@ -58,7 +58,7 @@ mols = sr.load_test_files("bpti.prm7", "bpti.rst7")
 # Create a GCMC sampler.
 sampler = GCMCSampler(
     mols,
-    reference="(residx 9 and atomname CA) or (residx 43 and atomname CA)",
+    reference="(resnum 10 and atomname CA) or (resnum 43 and atomname CA)",
     batch_size=args.batch_size,
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
