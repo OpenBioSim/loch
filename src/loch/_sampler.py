@@ -299,11 +299,6 @@ class GCMCSampler:
         if self._reference is not None:
             self._reference_indices = self._get_reference_indices(system, reference)
 
-        # Set the box information.
-        self._space, self._cell_matrix, self._cell_matrix_inverse, self._M = (
-            self._get_box_information(system)
-        )
-
         # Prepare the system for GCMC sampling.
         try:
             self._system, self._water_indices = self._prepare_system(
@@ -350,6 +345,9 @@ class GCMCSampler:
 
         # Initialise the GPU memory.
         self._initialise_gpu_memory()
+
+        # Set the box information.
+        self.set_box(system)
 
         # Set constants.
 
@@ -483,6 +481,35 @@ class GCMCSampler:
             The GCMC system.
         """
         return self._system
+
+    def set_box(self, system):
+        """
+        Set the box information.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+        """
+
+        # Validate the input.
+        if not isinstance(system, _sr.system.System):
+            raise ValueError("'system' must be of type 'sire.system.System'")
+
+        # Get the box information.
+        self._space, self._cell_matrix, self._cell_matrix_inverse, self._M = (
+            self._get_box_information(system)
+        )
+
+        # Update the cell matrix information on the GPU.
+        self._kernels["cell"](
+            self._cell_matrix,
+            self._cell_matrix_inverse,
+            self._M,
+            block=(1, 1, 1),
+            grid=(1, 1, 1),
+        )
 
     def num_waters(self):
         """
@@ -1291,15 +1318,6 @@ class GCMCSampler:
                 is_ghost.extend([1] * self._num_points)
         self._water_state = _np.array(water_state).astype(_np.int32)
         is_ghost = _gpuarray.to_gpu(_np.array(is_ghost).astype(_np.int32))
-
-        # Initialise the cell.
-        self._kernels["cell"](
-            self._cell_matrix,
-            self._cell_matrix_inverse,
-            self._M,
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
 
         # Initialise the random number generator.
         self._kernels["rng"](
