@@ -143,6 +143,12 @@ except FileNotFoundError:
 # 4) Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
 for i in range(10000):
+    # Run 1ps of dynamics.
+    d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
+
+    # Perform a GCMC move.
+    context, moves = sampler.move(d.context())
+
     # If we hit the frame frequency, then save the current ghost atom indices.
     if i > 0 and i % frame_frequency == 0:
         ghost_indices = sampler.ghost_indices()
@@ -152,12 +158,6 @@ for i in range(10000):
                 f.write(f"{frame} {index}\n")
 
         frame += 1
-
-    # Run 1ps of dynamics.
-    d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
-
-    # Perform a GCMC move.
-    context, moves = sampler.move(d.context())
 
     print(
         f"Cycle {i}, N = {sampler.num_waters()}, "
