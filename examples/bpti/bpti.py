@@ -125,9 +125,15 @@ d.minimise()
 # Run the dynamics.
 d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 
+# Get the updated Sire system from the dynamics object.
+mols = d_npt.commit()
+
 # Copy the state between the two contexts and re-minimise.
 d._d._omm_mols.setState(d_npt._d._omm_mols.getState())
 d.minimise()
+
+# Update the box information in the GCMC sampler.
+sampler.set_box(mols)
 
 # Store the frame frequency.
 frame_frequency = 50
