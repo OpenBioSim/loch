@@ -94,7 +94,6 @@ context = d.context()
 print("Equilibrating the system with GCMC moves...")
 for i in range(100):
     context, moves = sampler.move(context)
-d._d._omm_mols = context
 
 # 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
 print("Running 1ps of dynamics with GCMC moves...")
