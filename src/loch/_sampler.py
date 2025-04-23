@@ -1613,7 +1613,9 @@ class GCMCSampler:
 
         return target
 
-    def _log_insertion(self, idx, water_idx, pme_energy=None, pme_probability=None):
+    def _log_insertion(
+        self, idx, water_idx, positions, pme_energy=None, pme_probability=None
+    ):
         """
         Log information about the accepted insertion move.
 
@@ -1625,6 +1627,9 @@ class GCMCSampler:
 
         water_idx: int
             The index of the water that was inserted.
+
+        positions: numpy.ndarray
+            The positions of the system.
 
         pme_energy: openmm.Quantity
             The PME energy difference.
