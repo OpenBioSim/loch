@@ -125,8 +125,9 @@ d.minimise()
 # Run the dynamics.
 d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 
-# Copy the state between the two contexts.
+# Copy the state between the two contexts and re-minimise.
 d._d._omm_mols.setState(d_npt._d._omm_mols.getState())
+d.minimise()
 
 # Store the frame frequency.
 frame_frequency = 50
