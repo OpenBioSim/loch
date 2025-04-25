@@ -47,7 +47,7 @@ class GCMCSampler:
         system,
         reference=None,
         radius="4.0 A",
-        cutoff_type="rf",
+        cutoff_type="pme",
         cutoff="10.0 A",
         excess_chemical_potential="-6.09 kcal/mol",
         standard_volume="30.543 A^3",
@@ -81,7 +81,7 @@ class GCMCSampler:
             The radius of the GCMC sphere.
 
         cutoff_type: str
-            The type of cutoff to use.
+            The type of cutoff to use: "pme" or "rf".
 
         cutoff: str
             The cutoff distance for the non-bonded interactions.
