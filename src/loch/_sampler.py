@@ -684,9 +684,6 @@ class GCMCSampler:
         Returns
         -------
 
-        context: openmm.Context
-            The updated OpenMM context.
-
         moves: [int]
             A list of the accepted moves. (0 = insertion, 1 = deletion)
         """
@@ -897,7 +894,7 @@ class GCMCSampler:
                 # Insertion move.
                 if is_deletion[idx] == 0:
                     # Accept the move.
-                    context, water_idx = self._accept_insertion(idx, context)
+                    water_idx = self._accept_insertion(idx, context)
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -936,7 +933,7 @@ class GCMCSampler:
                         # The move was rejected.
                         if acc_prob < self._rng.random():
                             # Revert the move.
-                            context, _ = self._accept_deletion(water_idx, context)
+                            _ = self._accept_deletion(water_idx, context)
 
                             # Update the acceptance statistics.
                             self._num_accepted -= 1
@@ -963,9 +960,7 @@ class GCMCSampler:
                 # Deletion move.
                 else:
                     # Accept the move.
-                    context, previous_state = self._accept_deletion(
-                        candidates[idx], context
-                    )
+                    previous_state = self._accept_deletion(candidates[idx], context)
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -1036,7 +1031,7 @@ class GCMCSampler:
 
                 # Return immediately if we're in test mode.
                 if self._is_test:
-                    return context, moves
+                    return moves
             # If no moves were accepted at the PME level, then update the
             # number of attempts by the batch size.
             else:
@@ -1052,7 +1047,7 @@ class GCMCSampler:
         if self._reference is not None and self._is_bulk:
             self._openmm_context = context
 
-        return context, moves
+        return moves
 
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
@@ -1397,9 +1392,6 @@ class GCMCSampler:
         Returns
         -------
 
-        context: openmm.Context
-            The updated OpenMM context.
-
         water_idx: int
             The index of the water that was inserted.
         """
@@ -1456,7 +1448,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N += 1
 
-        return context, water_idx
+        return water_idx
 
     def _accept_deletion(self, idx, context):
         """
@@ -1473,9 +1465,6 @@ class GCMCSampler:
 
         Returns
         -------
-
-        context: openmm.Context
-            The updated OpenMM context.
 
         previous_state: int
             The previous state of the water.
@@ -1508,7 +1497,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N -= 1
 
-        return context, previous_state
+        return previous_state
 
     def _reject_deletion(self, idx, state, context):
         """
@@ -1525,12 +1514,6 @@ class GCMCSampler:
 
         context: openmm.Context
             The OpenMM context to update.
-
-        Returns
-        -------
-
-        context: openmm.Context
-            The updated OpenMM context.
         """
 
         # Reset the water state.
@@ -1561,8 +1544,6 @@ class GCMCSampler:
 
         # Update the number of waters in the sampling volume.
         self._N += 1
-
-        return context
 
     def _set_nonbonded_force(self, context):
         """

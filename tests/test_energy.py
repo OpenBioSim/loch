@@ -42,7 +42,7 @@ def test_energy(water_box):
         )
 
         # Perform a GCMC move.
-        context, moves = sampler.move(d.context())
+        moves = sampler.move(d.context())
 
         # No moves were made.
         if len(moves) == 0:
@@ -84,7 +84,7 @@ def test_energy(water_box):
         )
 
         # Perform a GCMC move.
-        context, moves = sampler.move(d.context())
+        moves = sampler.move(d.context())
 
         # No moves were made.
         if len(moves) == 0:
