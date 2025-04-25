@@ -491,17 +491,33 @@ class GCMCSampler:
         Parameters
         ----------
 
-        system: sire.system.System
-            The molecular system.
+        system: sire.system.System, openmm.Context
+            The molecular system, or OpenMM context.
         """
 
-        # Validate the input.
-        if not isinstance(system, _sr.system.System):
-            raise ValueError("'system' must be of type 'sire.system.System'")
+        # Get the space property from the system.
+        if isinstance(system, _sr.system.System):
+            try:
+                self._space = system.property("space")
+            except:
+                raise ValueError("'system' must contain a 'space' property")
+        # Create a Sire TriclinicBox from the OpenMM box vectors.
+        elif isinstance(system, _openmm.Context):
+            box = system.getState().getPeriodicBoxVectors()
+            v0 = [10 * box[0].x, 10 * box[0].y, 10 * box[0].z]
+            v1 = [10 * box[1].x, 10 * box[1].y, 10 * box[1].z]
+            v2 = [10 * box[2].x, 10 * box[2].y, 10 * box[2].z]
+            self._space = sr.space.TriclinicBox(
+                _sr.maths.Vector(*v0), _sr.maths.Vector(*v1), _sr.maths.Vector(*v2)
+            )
+        else:
+            raise ValueError(
+                "'system' must be of type 'sire.system.System' or 'openmm.Context'"
+            )
 
         # Get the box information.
-        self._space, self._cell_matrix, self._cell_matrix_inverse, self._M = (
-            self._get_box_information(system)
+        self._cell_matrix, self._cell_matrix_inverse, self._M = (
+            self._get_box_information(self._space)
         )
 
         # Update the cell matrix information on the GPU.
@@ -1107,15 +1123,15 @@ class GCMCSampler:
         return u
 
     @staticmethod
-    def _get_box_information(system):
+    def _get_box_information(space):
         """
         Get the box information from the system.
 
         Parameters
         ----------
 
-        system: sire.system.System
-            The molecular system.
+        space: sire.vol.PeriodicBox, sire.vol.TriclinicBox
+            The simulation box.
 
         Returns
         -------
@@ -1129,11 +1145,12 @@ class GCMCSampler:
         M: pycuda.gpuarray.GPUArray
             The matrix M.
         """
-        # Get the box.
-        try:
-            space = system.property("space")
-        except Exception as e:
-            raise ValueError(f"System does not contain a periodic box information!")
+
+        # Validate input.
+        if not isinstance(space, _sr.vol.Cartesian):
+            raise ValueError(
+                "'space' must be of type 'sire.vol.PeriodicBox' or 'sire.vol.TriclinicBox'"
+            )
 
         cell_matrix = space.box_matrix()
         cell_matrix_inverse = cell_matrix.inverse()
@@ -1160,7 +1177,7 @@ class GCMCSampler:
         )
         M = _gpuarray.to_gpu(M.flatten().astype(_np.float32))
 
-        return space, cell_matrix, cell_matrix_inverse, M
+        return cell_matrix, cell_matrix_inverse, M
 
     @staticmethod
     def _get_reference_indices(system, reference):
