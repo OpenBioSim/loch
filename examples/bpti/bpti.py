@@ -157,11 +157,11 @@ for i in range(10000):
 
     # If we hit the frame frequency, then save the current ghost atom indices.
     if i > 0 and i % frame_frequency == 0:
-        ghost_indices = sampler.ghost_indices()
+        ghost_residues = sampler.ghost_residues()
 
-        with open("ghost_indices.txt", "a") as f:
-            for index in ghost_indices:
-                f.write(f"{frame} {index}\n")
+        # Append a comma-separated list of ghost residue indices to the file.
+        with open("ghost_residues.txt", "a") as f:
+            f.write(f"{', '.join([str(x) for x in ghost_residues])}\n")
 
         frame += 1
 

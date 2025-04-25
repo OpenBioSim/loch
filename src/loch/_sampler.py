@@ -301,8 +301,10 @@ class GCMCSampler:
 
         # Prepare the system for GCMC sampling.
         try:
-            self._system, self._water_indices = self._prepare_system(
-                system, self._water_template, self._rng, self._max_gcmc_waters
+            self._system, self._water_indices, self._water_residues = (
+                self._prepare_system(
+                    system, self._water_template, self._rng, self._max_gcmc_waters
+                )
             )
             self._num_atoms = self._system.num_atoms()
             self._num_waters = len(self._water_indices)
@@ -668,8 +670,26 @@ class GCMCSampler:
         # First get the indices of the ghost waters.
         ghost_waters = _np.where(self._water_state == 0)[0]
 
-        # Now extract and return the oxygen indices.
+        # Now extract and return the residue indices.
         return self._water_indices[ghost_waters]
+
+    def ghost_residues(self):
+        """
+        Return the current indices of the ghost water residues in the OpenMM
+        context.
+
+        Returns
+        -------
+
+        ghost_residues: np.ndarray
+            The indices of the ghost water residues.
+        """
+
+        # First get the indices of the ghost waters.
+        ghost_waters = _np.where(self._water_state == 0)[0]
+
+        # Now extract and return the residue indices.
+        return self._water_residues[ghost_waters]
 
     def move(self, context):
         """
@@ -1206,6 +1226,9 @@ class GCMCSampler:
 
         water_indices: numpy.ndarray
             The indices of the oxygen atoms in each water molecule.
+
+        water_residues: numpy.ndarray
+            The indices of the water residues.
         """
 
         # Edit the template so that it is non-interacting.
@@ -1234,12 +1257,22 @@ class GCMCSampler:
         # Add the waters to the system.
         bss_system += waters
 
-        # Search for the water oxygen atoms.
+        # Search for the water oxygen atoms and their residues.
         water_indices = []
+        water_residues = []
         for atom in bss_system.search("water and element O").atoms():
             water_indices.append(bss_system.getIndex(atom))
+            water_residues.append(
+                bss_system.getIndex(
+                    _BSS._SireWrappers.Residue(atom._sire_object.residue())
+                )
+            )
 
-        return _sr.system.System(bss_system._sire_object), _np.array(water_indices)
+        return (
+            _sr.system.System(bss_system._sire_object),
+            _np.array(water_indices),
+            _np.array(water_residues),
+        )
 
     def _initialise_gpu_memory(self):
         """
