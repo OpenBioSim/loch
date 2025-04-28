@@ -12,7 +12,7 @@ parser.add_argument(
     "--cutoff-type",
     help="The non-bonded cutoff type",
     type=str,
-    default="rf",
+    default="pme",
     choices=["rf", "pme"],
     required=False,
 )
