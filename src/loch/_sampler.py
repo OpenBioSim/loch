@@ -63,7 +63,7 @@ class GCMCSampler:
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
-        log_level="info",
+        log_level="error",
         seed=None,
         **kwargs,
     ):
@@ -457,7 +457,7 @@ class GCMCSampler:
         _logger.add(self._log_file, level=self._log_level.upper())
 
         # Log the Adams value.
-        _logger.debug(f"Adams value: {B:.6f}")
+        _logger.info(f"Adams value: {B:.6f}")
 
         import atexit
 
@@ -790,13 +790,13 @@ class GCMCSampler:
 
         # Loop until we have the required number of attempts.
         while num_attempts < self._num_attempts:
-            _logger.debug(f"Processing batch number {num_batches}")
-            _logger.debug(
+            _logger.info(f"Processing batch number {num_batches}")
+            _logger.info(
                 f"Completed of attempts: {num_attempts} of {self._num_attempts}"
             )
-            _logger.debug(f"Number of accepted moves: {self._num_accepted}")
-            _logger.debug(f"Number of accepted insertions: {self._num_insertions}")
-            _logger.debug(f"Number of accepted deletions: {self._num_deletions}")
+            _logger.info(f"Number of accepted moves: {self._num_accepted}")
+            _logger.info(f"Number of accepted insertions: {self._num_insertions}")
+            _logger.info(f"Number of accepted deletions: {self._num_deletions}")
 
             # Prepare the GPU state for the next batch.
             if num_batches == 1 or is_accepted:
@@ -842,7 +842,7 @@ class GCMCSampler:
 
                 # Use all non-ghost waters.
                 else:
-                    _logger.debug("Sampling within the entire simulation box")
+                    _logger.info("Sampling within the entire simulation box")
                     deletion_candidates = _np.where(self._water_state != 0)[0]
                     target = None
 
@@ -856,8 +856,8 @@ class GCMCSampler:
             move = None
 
             # Log the current number of waters.
-            _logger.debug(f"Number of waters in sampling volume: {self._N}")
-            _logger.debug(f"Water indices: {deletion_candidates}")
+            _logger.info(f"Number of waters in sampling volume: {self._N}")
+            _logger.info(f"Water indices: {deletion_candidates}")
 
             # Draw batch_size samples from the deletion candidates.
             if len(deletion_candidates) > 0:
@@ -877,7 +877,7 @@ class GCMCSampler:
                 is_deletion = _np.zeros(self._batch_size, dtype=_np.int32)
                 is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
 
-            _logger.debug("Preparing insertion candidates")
+            _logger.info("Preparing insertion candidates")
 
             if target is None:
                 target_gpu = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
@@ -935,8 +935,8 @@ class GCMCSampler:
             num_accepted_attempts = len(accepted)
             self._num_accepted_attempts += num_accepted_attempts
 
-            _logger.debug(f"Number of accepted attempts: {num_accepted_attempts}")
-            _logger.debug(
+            _logger.info(f"Number of accepted attempts: {num_accepted_attempts}")
+            _logger.info(
                 f"Total number of accepted attempts: {self._num_accepted_attempts}"
             )
 
@@ -1682,7 +1682,7 @@ class GCMCSampler:
             centre += target + _sr.maths.Vector(delta.x(), delta.y(), delta.z())
         target = _np.array([x.value() for x in centre / len(self._reference_indices)])
 
-        _logger.debug(f"GCMC sphere centre: {target}")
+        _logger.info(f"GCMC sphere centre: {target}")
 
         return target
 
