@@ -164,7 +164,7 @@ for i in range(10000):
 
 # Save the trajectory.
 mols = d.commit()
-sr.save(mols, "bpti_final.prm7")
+sr.save(mols, "bpti_final.pdb")
 sr.save(mols.trajectory(), "bpti.dcd")
 
 # Define reference atoms for the GCMC sphere, in grand format.
@@ -176,7 +176,7 @@ ref_atoms = [
 
 # Remove ghost waters from GCMC region.
 trj = grand.utils.shift_ghost_waters(
-    ghost_file="ghosts.txt", topology="bpti_final.prm7", trajectory="bpti.dcd"
+    ghost_file="ghosts.txt", topology="bpti_final.pdb", trajectory="bpti.dcd"
 )
 
 # Centre the trajectory on a particular residue
@@ -189,7 +189,7 @@ grand.utils.align_traj(t=trj, output="bpti_aligned.dcd")
 grand.utils.write_sphere_traj(
     radius=4.2,
     ref_atoms=ref_atoms,
-    topology="bpti_final.prm7",
+    topology="bpti_final.pdb",
     trajectory="bpti_aligned.dcd",
     output="bpti_gcmc_sphere.pdb",
     initial_frame=True,
@@ -197,7 +197,7 @@ grand.utils.write_sphere_traj(
 
 # Cluster water sites.
 grand.utils.cluster_waters(
-    topology="bpti_final.prm7",
+    topology="bpti_final.pdb",
     trajectory="bpti_aligned.dcd",
     sphere_radius=4.2,
     ref_atoms=ref_atoms,
