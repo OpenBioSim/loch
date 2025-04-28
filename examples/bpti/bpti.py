@@ -175,7 +175,7 @@ ref_atoms = [
 
 # Remove ghost waters from GCMC region.
 trj = grand.utils.shift_ghost_waters(
-    ghost_file="ghost_file.txt", topology="bpti_final.prm7", trajectory="bpti.dcd"
+    ghost_file="ghosts.txt", topology="bpti_final.prm7", trajectory="bpti.dcd"
 )
 
 # Centre the trajectory on a particular residue
