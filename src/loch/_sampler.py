@@ -1077,7 +1077,7 @@ class GCMCSampler:
                         # The move was rejected.
                         if acc_prob < self._rng.random():
                             # Revert the move.
-                            context = self._reject_deletion(
+                            self._reject_deletion(
                                 candidates[idx], previous_state, context
                             )
 
