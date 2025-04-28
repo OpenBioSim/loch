@@ -167,10 +167,11 @@ mols = d.commit()
 sr.save(mols, "bpti_final.prm7")
 sr.save(mols.trajectory(), "bpti.dcd")
 
-# Define reference atoms for the GCMC sphere (grand format).
+# Define reference atoms for the GCMC sphere, in grand format.
+# Note that the grand resid values are wrong, since they are one-indexed.
 ref_atoms = [
-    {"name": "CA", "resname": "TYR", "resid": "10", "chain": 0},
-    {"name": "CA", "resname": "ASN", "resid": "43", "chain": 0},
+    {"name": "CA", "resname": "TYR", "resid": "9", "chain": 0},
+    {"name": "CA", "resname": "ASN", "resid": "42", "chain": 0},
 ]
 
 # Remove ghost waters from GCMC region.
