@@ -236,15 +236,7 @@ class GCMCSampler:
             raise ValueError("'num_threads' must be a multiple of 32")
         self._num_threads = num_threads
 
-        try:
-            bulk_sampling_probability = float(bulk_sampling_probability)
-        except Exception as e:
-            raise ValueError(
-                f"Could not convert 'bulk_sampling_probability' to float: {e}"
-            )
-        if not 0.0 <= bulk_sampling_probability <= 1.0:
-            raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
-        self._bulk_sampling_probability = bulk_sampling_probability
+        self.set_bulk_sampling_probability(bulk_sampling_probability)
 
         if not isinstance(overwrite, bool):
             raise ValueError("'overwrite' must be of type 'bool'")
@@ -576,6 +568,28 @@ class GCMCSampler:
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
+
+    def set_bulk_sampling_probability(self, probability):
+        """
+        Set the bulk sampling probability.
+
+        Parameters
+        ----------
+
+        probability: float
+            The bulk sampling probability. This should be between 0 and 1.
+        """
+        try:
+            probability = float(probability)
+        except Exception as e:
+            raise ValueError(
+                f"Could not convert 'bulk_sampling_probability' to float: {e}"
+            )
+
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
+
+        self._bulk_sampling_probability = probability
 
     def num_waters(self):
         """
