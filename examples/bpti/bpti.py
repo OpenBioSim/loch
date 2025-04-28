@@ -1,4 +1,5 @@
 import argparse
+import grand
 
 from loch import GCMCSampler
 
@@ -68,6 +69,7 @@ sampler = GCMCSampler(
     max_gcmc_waters=100,
     bulk_sampling_probability=0,
     log_level=args.log_level,
+    overwrite=True,
 )
 
 # Create a dynamics object using the modified GCMC system.
@@ -92,7 +94,7 @@ context = d.context()
 
 # 1) Perform 100 GCMC moves.
 print("Equilibrating the system with GCMC moves...")
-for i in range(100):
+for i in range(10000):
     moves = sampler.move(context)
 
 # 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
@@ -138,16 +140,9 @@ sampler.set_box(mols)
 # Store the frame frequency.
 frame_frequency = 50
 
-# Clear the ghost index file.
-try:
-    with open("ghost_indices.txt", "w") as f:
-        pass
-except FileNotFoundError:
-    pass
-
 # 4) Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
-for i in range(10000):
+for i in range(1000):
     # Run 1ps of dynamics.
     d.run("1ps", energy_frequency="50ps", frame_frequency="50ps")
 
@@ -171,6 +166,43 @@ for i in range(10000):
 mols = d.commit()
 sr.save(mols, "bpti_final.prm7")
 sr.save(mols.trajectory(), "bpti.dcd")
+
+# Define reference atoms for the GCMC sphere (grand format).
+ref_atoms = [
+    {"name": "CA", "resname": "TYR", "resid": "10", "chain": 0},
+    {"name": "CA", "resname": "ASN", "resid": "43", "chain": 0},
+]
+
+# Remove ghost waters from GCMC region.
+trj = grand.utils.shift_ghost_waters(
+    ghost_file="ghost_file.txt", topology="bpti_final.prm7", trajectory="bpti.dcd"
+)
+
+# Centre the trajectory on a particular residue
+trj = grand.utils.recentre_traj(t=trj, resname="TYR", name="CA", resid=9)
+
+# Align the trajectory to the protein.
+grand.utils.align_traj(t=trj, output="bpti_aligned.dcd")
+
+# Write out a PDB trajectory of the GCMC sphere
+grand.utils.write_sphere_traj(
+    radius=4.2,
+    ref_atoms=ref_atoms,
+    topology="bpti_final.prm7",
+    trajectory="bpti_aligned.dcd",
+    output="bpti_gcmc_sphere.pdb",
+    initial_frame=True,
+)
+
+# Cluster water sites.
+grand.utils.cluster_waters(
+    topology="bpti_final.prm7",
+    trajectory="bpti_aligned.dcd",
+    sphere_radius=4.2,
+    ref_atoms=ref_atoms,
+    cutoff=2.4,
+    output="bpti_clusters.pdb",
+)
 
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
