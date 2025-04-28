@@ -1,5 +1,5 @@
 ######################################################################
-# Loch: GPU accelerated GMCC water sampling engine.
+# Loch: GPU accelerated GCMC water sampling engine.
 #
 # Copyright: 2025
 #
