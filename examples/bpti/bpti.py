@@ -1,5 +1,8 @@
 import argparse
 import grand
+import MDAnalysis as mda
+
+from MDAnalysis.analysis import align
 
 from loch import GCMCSampler
 
@@ -56,15 +59,21 @@ args = parser.parse_args()
 # Load the system.
 mols = sr.load_test_files("bpti.prm7", "bpti.rst7")
 
+# Store the reference for the center of geometry of the GCMC sphere.
+reference = "(resnum 10 and atomname CA) or (resnum 43 and atomname CA)"
+
+# Store the GCMC radius.
+radius = 4.2
+
 # Create a GCMC sampler.
 sampler = GCMCSampler(
     mols,
-    reference="(resnum 10 and atomname CA) or (resnum 43 and atomname CA)",
+    reference=reference,
     batch_size=args.batch_size,
     num_attempts=args.num_attempts,
     cutoff_type=args.cutoff_type,
     cutoff=args.cutoff,
-    radius="4.2 A",
+    radius=f"{radius} A",
     temperature=args.temperature,
     max_gcmc_waters=100,
     bulk_sampling_probability=0,
@@ -207,6 +216,56 @@ grand.utils.cluster_waters(
 # Read and write the clustered waters with Sire to recover the element records.
 mols = sr.load("bpti_clusters.pdb")
 sr.save(mols, "bpti_clusters.pdb")
+
+# Average the position of the protein over the aligned trajectory.
+mols = sr.load("bpti_final.pdb", "bpti_aligned.dcd")
+mol_num = mols[reference].molecules()[0].number()
+for frame in mols.trajectory():
+    # Get the molecule containing the reference atoms.
+    mol = frame[mol_num]
+
+    # Get the coordinates array.
+    coords = sr.io.get_coords_array(mol)
+
+    # Udpate the average position of the first molecule.
+    try:
+        average_position += coords
+    except:
+        average_position = coords
+
+# Write the average positions to file.
+average_position /= mols.num_frames()
+mol = mols[mol_num]
+cursor = mol.cursor()
+for i, atom in enumerate(cursor.atoms()):
+    coords = sr.maths.Vector(*average_position[i])
+    atom["coordinates"] = coords
+mol = cursor.commit()
+sr.save(mol, "bpti_reference.pdb")
+
+# Align the crystal structure to the average position.
+u0 = mda.Universe("bpti_reference.pdb")
+u1 = mda.Universe("5pti.pdb")
+rmsds = align.alignto(u1, u0, select="name CA", match_atoms=False)
+u1.atoms.write("5pti_aligned.pdb")
+
+# Load the aligned structure.
+mols = sr.load("5pti_aligned.pdb")
+space = mols.space()
+
+# Get the center of geometry of the reference atoms.
+center = mols[reference].coordinates()
+
+# Find the water oxygens close to the reference position.
+atom_nums = []
+for atom in mols.atoms():
+    if atom.element() == sr.mol.Element("O") and atom.residue().name().value() == "DOD":
+        dist = space.calc_dist(center, atom.coordinates())
+        if dist < radius:
+            atom_nums.append(str(atom.number().value()))
+
+# Save the positions of the crystal water oxygens.
+sr.save(mols[f"atomnum {','.join(atom_nums)}"], "bpti_crystal_waters.pdb")
 
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
