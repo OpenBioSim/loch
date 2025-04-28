@@ -137,7 +137,6 @@ sampler.set_box(mols)
 
 # Store the frame frequency.
 frame_frequency = 50
-frame = 0
 
 # Clear the ghost index file.
 try:
@@ -155,15 +154,9 @@ for i in range(10000):
     # Perform a GCMC move.
     moves = sampler.move(d.context())
 
-    # If we hit the frame frequency, then save the current ghost atom indices.
+    # If we hit the frame frequency, then save the current ghost residue indices.
     if i > 0 and i % frame_frequency == 0:
-        ghost_residues = sampler.ghost_residues()
-
-        # Append a comma-separated list of ghost residue indices to the file.
-        with open("ghost_residues.txt", "a") as f:
-            f.write(f"{', '.join([str(x) for x in ghost_residues])}\n")
-
-        frame += 1
+        sampler.write_ghost_residues()
 
     print(
         f"Cycle {i}, N = {sampler.num_waters()}, "

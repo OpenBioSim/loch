@@ -60,6 +60,9 @@ class GCMCSampler:
         bulk_sampling_probability=0.1,
         water_template=None,
         device=None,
+        overwrite=False,
+        ghost_file="ghosts.txt",
+        log_file="gcmc.txt",
         log_level="info",
         seed=None,
         **kwargs,
@@ -130,6 +133,15 @@ class GCMCSampler:
         device: int
             The CUDA device index. (This is the index in the list of visible
             devices.)
+
+        overwrite: bool
+            Overwrite existing log files.
+
+        dcd_file: str
+            The file to write the GCMC trajectory to.
+
+        ghost_file: str
+            The file to write the ghost residue indices to.
 
         log_level: str
             The logging level.
@@ -233,6 +245,38 @@ class GCMCSampler:
         if not 0.0 <= bulk_sampling_probability <= 1.0:
             raise ValueError("'bulk_sampling_probability' must be between 0 and 1")
         self._bulk_sampling_probability = bulk_sampling_probability
+
+        if not isinstance(overwrite, bool):
+            raise ValueError("'overwrite' must be of type 'bool'")
+        self._overwrite = overwrite
+
+        if not isinstance(ghost_file, str):
+            raise ValueError("'ghost_file' must be of type 'str'")
+        self._ghost_file = ghost_file
+        if not isinstance(ghost_file, str):
+            raise ValueError("'ghost_file' must be of type 'str'")
+        self._ghost_file = ghost_file
+
+        if _os.path.exists(self._ghost_file):
+            if not self._overwrite:
+                raise ValueError(
+                    "'ghost_file' already exists. Use 'overwrite=True' to overwrite it."
+                )
+            else:
+                with open(self._ghost_file, "w") as f:
+                    f.write("")
+
+        if not isinstance(log_file, str):
+            raise ValueError("'log_file' must be of type 'str'")
+        self._log_file = log_file
+        if _os.path.exists(self._log_file):
+            if not self._overwrite:
+                raise ValueError(
+                    "'log_file' already exists. Use 'overwrite=True' to overwrite it."
+                )
+            else:
+                with open(self._log_file, "w") as f:
+                    f.write("")
 
         if not isinstance(log_level, str):
             raise ValueError("'log_level' must be of type 'str'")
@@ -407,9 +451,10 @@ class GCMCSampler:
 
         import sys
 
-        # Create a logger that writes to stderr.
+        # Create a logger that writes to stderr and the log file.
         _logger.remove()
         _logger.add(sys.stderr, level=self._log_level.upper())
+        _logger.add(self._log_file, level=self._log_level.upper())
 
         # Log the Adams value.
         _logger.debug(f"Adams value: {B:.6f}")
@@ -451,6 +496,9 @@ class GCMCSampler:
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
             f"water_template={self._water_template}, "
             f"device={self._device}, "
+            f"overwrite={self._overwrite}, "
+            f"ghost_file={self._ghost_file}, "
+            f"log_file={self._log_file}, "
             f"log_level={self._log_level}, "
             f"seed={self._seed})"
         )
@@ -671,24 +719,6 @@ class GCMCSampler:
         self._num_accepted_insertions = 0
         self._num_accepted_deletions = 0
 
-    def ghost_indices(self):
-        """
-        Return the current indices of the ghost water atoms in the OpenMM
-        context. (This returns the indices of the oxygen atoms only.)
-
-        Returns
-        -------
-
-        ghost_indices: np.ndarray
-            The indices of the ghost oxygen atoms.
-        """
-
-        # First get the indices of the ghost waters.
-        ghost_waters = _np.where(self._water_state == 0)[0]
-
-        # Now extract and return the residue indices.
-        return self._water_indices[ghost_waters]
-
     def ghost_residues(self):
         """
         Return the current indices of the ghost water residues in the OpenMM
@@ -706,6 +736,18 @@ class GCMCSampler:
 
         # Now extract and return the residue indices.
         return self._water_residues[ghost_waters]
+
+    def write_ghost_residues(self):
+        """
+        Write the current indices of the ghost water residues to a file.
+        """
+
+        # Get the ghost residues.
+        ghost_residues = self.ghost_residues()
+
+        # Append a comma-separated list of ghost residue indices to the file.
+        with open(self._ghost_file, "a") as f:
+            f.write(f"{', '.join([str(x) for x in ghost_residues])}\n")
 
     def move(self, context):
         """
