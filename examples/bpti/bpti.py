@@ -204,6 +204,10 @@ grand.utils.cluster_waters(
     output="bpti_clusters.pdb",
 )
 
+# Read and write the clustered waters with Sire to recover the element records.
+mols = sr.load("bpti_clusters.pdb")
+sr.save(mols, "bpti_clusters.pdb")
+
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
 print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
