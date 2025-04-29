@@ -391,7 +391,7 @@ class GCMCSampler:
         self._initialise_gpu_memory()
 
         # Set the box information.
-        self.set_box(system)
+        self.set_box(self._system)
 
         # Set constants.
 
