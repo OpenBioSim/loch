@@ -1606,7 +1606,7 @@ class GCMCSampler:
                 start_idx + i,
                 self._water_charge[i] * _openmm.unit.elementary_charge,
                 self._water_sigma[i] * _openmm.unit.angstrom,
-                self._water_epsilon[i] * _openmm.unit.kilocalorie_per_mole,
+                self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
             )
 
         # Set the new positions.
@@ -1706,7 +1706,7 @@ class GCMCSampler:
                 start_idx + i,
                 self._water_charge[i] * _openmm.unit.elementary_charge,
                 self._water_sigma[i] * _openmm.unit.angstrom,
-                self._water_epsilon[i] * _openmm.unit.kilocalorie_per_mole,
+                self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
             )
 
         # Update the NonbondedForce parameters in the context.
@@ -1833,7 +1833,7 @@ class GCMCSampler:
         # Add PME energy if available.
         if pme_energy is not None:
             self._debug["pme_energy"] = pme_energy.value_in_unit(
-                _openmm.unit.kilocalorie_per_mole
+                _openmm.unit.kilocalories_per_mole
             )
             self._debug["probability_pme"] = pme_probability
 
@@ -1901,7 +1901,7 @@ class GCMCSampler:
         # Add PME energy if available.
         if pme_energy is not None:
             self._debug["pme_energy"] = pme_energy.value_in_unit(
-                _openmm.unit.kilocalorie_per_mole
+                _openmm.unit.kilocalories_per_mole
             )
             self._debug["probability_pme"] = pme_probability
 
