@@ -138,7 +138,9 @@ d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 mols = d_npt.commit()
 
 # Copy the state between the two contexts.
-d._d._omm_mols.setState(d_npt._d._omm_mols.getState())
+d._d._omm_mols.setState(
+    d_npt._d._omm_mols.getState(getPositions=True, getVelocities=True)
+)
 
 # Update the box information in the GCMC sampler.
 sampler.set_box(mols)
