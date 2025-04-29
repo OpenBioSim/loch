@@ -1049,6 +1049,11 @@ class GCMCSampler:
 
                     # Log the insertion and break.
                     if is_accepted:
+                        # Log the accepted candidate.
+                        _logger.info(
+                            f"Accepted insertion: candidate={idx}, water={idx}"
+                        )
+
                         if self._is_debug:
                             self._log_insertion(
                                 idx,
@@ -1117,6 +1122,11 @@ class GCMCSampler:
 
                     # Log the deletion and break.
                     if is_accepted:
+                        # Log the accepted candidate.
+                        _logger.info(
+                            f"Accepted deletion: candidate={idx}, water={candidates[idx]}"
+                        )
+
                         if self._is_debug:
                             self._log_deletion(
                                 idx,
@@ -1757,9 +1767,6 @@ class GCMCSampler:
             "probability_rf": probability[idx],
         }
 
-        # Log the accepted candidate.
-        _logger.debug(f"Accepted insertion: candidate={idx}, water={idx}")
-
         # Log the position of the inserted oxygen atom.
         _logger.debug(f"Inserted oxygen position: {water_positions[idx, 0]}")
 
@@ -1815,9 +1822,6 @@ class GCMCSampler:
 
         # Get the RF acceptance probability.
         probability = self._probability.get().flatten()
-
-        # Log the accepted candidate.
-        _logger.debug(f"Accepted deletion: candidate={idx}, water={candidates[idx]}")
 
         # Get the water index.
         water_idx = self._water_indices[candidates[idx]]
