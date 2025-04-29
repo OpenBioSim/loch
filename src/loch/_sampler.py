@@ -554,7 +554,7 @@ class GCMCSampler:
             v0 = [10 * box[0].x, 10 * box[0].y, 10 * box[0].z]
             v1 = [10 * box[1].x, 10 * box[1].y, 10 * box[1].z]
             v2 = [10 * box[2].x, 10 * box[2].y, 10 * box[2].z]
-            self._space = sr.space.TriclinicBox(
+            self._space = _sr.space.TriclinicBox(
                 _sr.maths.Vector(*v0), _sr.maths.Vector(*v1), _sr.maths.Vector(*v2)
             )
         else:
