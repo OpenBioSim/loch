@@ -174,6 +174,7 @@ for i in range(10000):
 # Save the trajectory.
 mols = d.commit()
 sr.save(mols, "bpti_final.pdb")
+sr.save(mols, "bpti_final.prm7")
 sr.save(mols.trajectory(), "bpti.dcd")
 
 # Define reference atoms for the GCMC sphere (grand format).
