@@ -867,7 +867,7 @@ class GCMCSampler:
         while num_attempts < self._num_attempts:
             _logger.info(f"Processing batch number {num_batches}")
             _logger.info(
-                f"Completed of attempts: {num_attempts} of {self._num_attempts}"
+                f"Completed {num_attempts} of {self._num_attempts} attempts"
             )
             _logger.info(f"Number of accepted moves: {self._num_accepted}")
             _logger.info(f"Number of accepted insertions: {self._num_insertions}")
