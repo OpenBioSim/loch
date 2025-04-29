@@ -612,6 +612,42 @@ class GCMCSampler:
 
         self._bulk_sampling_probability = probability
 
+    def delete_waters(self, context):
+        """
+        Delete any waters within the GCMC sphere. (Convert to ghosts.)
+
+        Parameters
+        ----------
+
+        context: openmm.Context
+            The OpenMM context to use.
+        """
+
+        # Set the NonBondedForce.
+        self._set_nonbonded_force(context)
+
+        # Find the non-ghost waters within the GCMC region.
+        self._kernels["deletion"](
+            self._deletion_candidates,
+            _gpuarray.to_gpu(target.astype(_np.float32)),
+            _np.float32(self._radius.value()),
+            block=(self._num_threads, 1, 1),
+            grid=(self._water_blocks, 1, 1),
+        )
+
+        # Get the candidates.
+        candidates = self._deletion_candidates.get().flatten()
+
+        # Find the waters within the GCMC sphere.
+        candidates = _np.where(candidates == 1)[0]
+
+        # Loop over the candidates and delete them.
+        for idx in range(len(candidates)):
+            self._accept_deletion(idx, context)
+
+        # Set the number of waters in the GCMC sphere to zero.
+        self._N = 0
+
     def num_waters(self):
         """
         Return the number of waters in the GCMC region.
@@ -645,6 +681,7 @@ class GCMCSampler:
                 grid=(self._atom_blocks, 1, 1),
             )
 
+            # Find the non-ghost waters within the GCMC region.
             self._kernels["deletion"](
                 self._deletion_candidates,
                 _gpuarray.to_gpu(target.astype(_np.float32)),
