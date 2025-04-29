@@ -693,7 +693,8 @@ code = """
             float* energy_lj,
             float* energy_change,
             float* probability,
-            int* accepted)
+            int* accepted,
+            float tolerance)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -741,8 +742,10 @@ code = """
                 // Get the RNG state.
                 curandState_t state = *states[tidx];
 
-                // Accept or reject based on the Boltzmann weight.
-                if (curand_uniform(&state) < prob)
+                // Accept or reject based on the Boltzmann weight. A tolerance
+                // can be used to reject low probability states that can cause
+                // instabilities and/or crashes in the MD engine.
+                if (prob > tolerance and curand_uniform(&state) < prob)
                 {
                     accepted[tidx] = 1;
                 }

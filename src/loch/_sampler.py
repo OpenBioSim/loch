@@ -60,6 +60,7 @@ class GCMCSampler:
         bulk_sampling_probability=0.1,
         water_template=None,
         device=None,
+        tolerance=0.0,
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
@@ -133,6 +134,12 @@ class GCMCSampler:
         device: int
             The CUDA device index. (This is the index in the list of visible
             devices.)
+
+        tolerance: float
+            The tolerance for the acceptance probability, i.e. the minimum
+            probability of acceptance for a move. This can be used to exclude
+            low probability candidates that can cause instabilities or crashes
+            for the MD engine.
 
         overwrite: bool
             Overwrite existing log files.
@@ -315,6 +322,12 @@ class GCMCSampler:
         self._pycuda_context = make_default_context()
         self._device = self._pycuda_context.get_device()
 
+        # Set the tolerance.
+        try:
+            self._tolerance = float(tolerance)
+        except Exception as e:
+            raise ValueError(f"Could not convert 'tolerance' to float: {e}")
+
         # Check for waters and validate the template.
         try:
             self._water_template = system["water"][0]
@@ -495,6 +508,7 @@ class GCMCSampler:
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
             f"water_template={self._water_template}, "
             f"device={self._device}, "
+            f"tolerance={self._tolerance}, "
             f"overwrite={self._overwrite}, "
             f"ghost_file={self._ghost_file}, "
             f"log_file={self._log_file}, "
@@ -948,6 +962,7 @@ class GCMCSampler:
                 self._energy_change,
                 self._probability,
                 self._accepted,
+                _np.float32(self._tolerance),
                 block=(self._num_threads, 1, 1),
                 grid=(self._batch_blocks, 1, 1),
             )
