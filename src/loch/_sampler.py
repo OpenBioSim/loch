@@ -242,33 +242,39 @@ class GCMCSampler:
             raise ValueError("'overwrite' must be of type 'bool'")
         self._overwrite = overwrite
 
-        if not isinstance(ghost_file, str):
-            raise ValueError("'ghost_file' must be of type 'str'")
-        self._ghost_file = ghost_file
-        if not isinstance(ghost_file, str):
-            raise ValueError("'ghost_file' must be of type 'str'")
-        self._ghost_file = ghost_file
+        if ghost_file is not None:
+            if not isinstance(ghost_file, str):
+                raise ValueError("'ghost_file' must be of type 'str'")
+            self._ghost_file = ghost_file
+            if not isinstance(ghost_file, str):
+                raise ValueError("'ghost_file' must be of type 'str'")
+            self._ghost_file = ghost_file
 
-        if _os.path.exists(self._ghost_file):
-            if not self._overwrite:
-                raise ValueError(
-                    "'ghost_file' already exists. Use 'overwrite=True' to overwrite it."
-                )
-            else:
-                with open(self._ghost_file, "w") as f:
-                    f.write("")
+            if _os.path.exists(self._ghost_file):
+                if not self._overwrite:
+                    raise ValueError(
+                        "'ghost_file' already exists. Use 'overwrite=True' to overwrite it."
+                    )
+                else:
+                    with open(self._ghost_file, "w") as f:
+                        f.write("")
+        else:
+            self._ghost_file = None
 
-        if not isinstance(log_file, str):
-            raise ValueError("'log_file' must be of type 'str'")
-        self._log_file = log_file
-        if _os.path.exists(self._log_file):
-            if not self._overwrite:
-                raise ValueError(
-                    "'log_file' already exists. Use 'overwrite=True' to overwrite it."
-                )
-            else:
-                with open(self._log_file, "w") as f:
-                    f.write("")
+        if log_file is not None:
+            if not isinstance(log_file, str):
+                raise ValueError("'log_file' must be of type 'str'")
+            self._log_file = log_file
+            if _os.path.exists(self._log_file):
+                if not self._overwrite:
+                    raise ValueError(
+                        "'log_file' already exists. Use 'overwrite=True' to overwrite it."
+                    )
+                else:
+                    with open(self._log_file, "w") as f:
+                        f.write("")
+        else:
+            self._log_file = None
 
         if not isinstance(log_level, str):
             raise ValueError("'log_level' must be of type 'str'")
@@ -446,7 +452,8 @@ class GCMCSampler:
         # Create a logger that writes to stderr and the log file.
         _logger.remove()
         _logger.add(sys.stderr, level=self._log_level.upper())
-        _logger.add(self._log_file, level=self._log_level.upper())
+        if self._log_file is not None:
+            _logger.add(self._log_file, level=self._log_level.upper())
 
         # Log the Adams value.
         _logger.info(f"Adams value: {B:.6f}")
@@ -755,6 +762,9 @@ class GCMCSampler:
         """
         Write the current indices of the ghost water residues to a file.
         """
+
+        if self._ghost_file is None:
+            raise ValueError("'ghost_file' is set to None!")
 
         # Get the ghost residues.
         ghost_residues = self.ghost_residues()
