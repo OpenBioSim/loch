@@ -17,6 +17,8 @@ def test_energy(water_box):
     # Create a GCMC sampler.
     sampler = GCMCSampler(
         water_box,
+        cutoff_type="rf",
+        cutoff="10 A",
         reference=None,
         log_level="debug",
         ghost_file=None,
