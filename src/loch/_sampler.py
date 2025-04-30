@@ -363,7 +363,6 @@ class GCMCSampler:
             )
             self._num_atoms = self._system.num_atoms()
             self._num_waters = len(self._water_indices)
-            self._total_waters = self._num_waters + self._max_gcmc_waters
         except Exception as e:
             raise ValueError(f"Could not prepare the system for GCMC sampling: {e}")
 
@@ -866,9 +865,7 @@ class GCMCSampler:
         # Loop until we have the required number of attempts.
         while num_attempts < self._num_attempts:
             _logger.info(f"Processing batch number {num_batches}")
-            _logger.info(
-                f"Completed {num_attempts} of {self._num_attempts} attempts"
-            )
+            _logger.info(f"Completed {num_attempts} of {self._num_attempts} attempts")
             _logger.info(f"Number of accepted moves: {self._num_accepted}")
             _logger.info(f"Number of accepted insertions: {self._num_insertions}")
             _logger.info(f"Number of accepted deletions: {self._num_deletions}")
