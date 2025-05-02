@@ -10,13 +10,18 @@ from loch import GCMCSampler
     socket.gethostname() != "porridge",
     reason="Local test requiring CUDA enabled GPU.",
 )
-def test_energy(water_box):
+@pytest.mark.parametrize("fixture", ["water_box", "bpti"])
+def test_energy(fixture, request):
     """
     Test that the RF energy difference agrees with OpenMM.
     """
+
+    # Get the fixture.
+    mols = request.getfixturevalue(fixture)
+
     # Create a GCMC sampler.
     sampler = GCMCSampler(
-        water_box,
+        mols,
         cutoff_type="rf",
         cutoff="10 A",
         reference=None,
