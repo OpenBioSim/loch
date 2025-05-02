@@ -1378,7 +1378,7 @@ class GCMCSampler:
         for atom in cursor.atoms():
             atom["charge"] = 0.0 * _sr.units.mod_electron
             atom["LJ"] = _sr.legacy.MM.LJParameter(
-                1.0 * _sr.units.nanometer, 0.0 * _sr.units.kcal_per_mol
+                atom["LJ"].sigma(), 0.0 * _sr.units.kcal_per_mol
             )
         water_template = _BSS._SireWrappers.Molecule(cursor.commit())
 
@@ -1655,7 +1655,9 @@ class GCMCSampler:
 
         # Update the NonBondedForce.
         for i in range(self._num_points):
-            self._nonbonded_force.setParticleParameters(start_idx + i, 0.0, 1.0, 0.0)
+            self._nonbonded_force.setParticleParameters(
+                start_idx + i, 0.0, self._water_sigma[i] * _openmm.unit.angstrom, 0.0
+            )
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)

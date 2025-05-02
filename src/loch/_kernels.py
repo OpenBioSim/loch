@@ -178,14 +178,12 @@ code = """
                 if (state == 0)
                 {
                     charge[idx_context + i] = 0.0f;
-                    sigma[idx_context + i] = 1.0f;
                     epsilon[idx_context + i] = 0.0f;
                     is_ghost[idx_context + i] = 1;
                 }
                 else
                 {
                     charge[idx_context + i] = charge_water[i];
-                    sigma[idx_context + i] = sigma_water[i];
                     epsilon[idx_context + i] = epsilon_water[i];
                     is_ghost[idx_context + i] = 0;
                 }
