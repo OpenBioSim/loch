@@ -1378,7 +1378,7 @@ class GCMCSampler:
         for atom in cursor.atoms():
             atom["charge"] = 0.0 * _sr.units.mod_electron
             atom["LJ"] = _sr.legacy.MM.LJParameter(
-                1.0 * _sr.units.angstrom, 0.0 * _sr.units.kcal_per_mol
+                1.0 * _sr.units.nanometer, 0.0 * _sr.units.kcal_per_mol
             )
         water_template = _BSS._SireWrappers.Molecule(cursor.commit())
 
