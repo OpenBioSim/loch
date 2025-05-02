@@ -1478,16 +1478,15 @@ class GCMCSampler:
 
         # Initialise the water state: 0 = ghost, 1 = GCMC, 2 = normal.
         water_state = []
-        is_ghost = []
+        is_ghost = _np.zeros(self._num_atoms, dtype=_np.int32)
         for i in range(self._num_waters):
             if i < self._num_waters - self._max_gcmc_waters:
                 water_state.append(2)
-                is_ghost.extend([0] * self._num_points)
             else:
                 water_state.append(0)
-                is_ghost.extend([1] * self._num_points)
+                for j in range(self._num_points):
+                    is_ghost[self._water_indices[i] + j] = 1
         self._water_state = _np.array(water_state).astype(_np.int32)
-        is_ghost = _gpuarray.to_gpu(_np.array(is_ghost).astype(_np.int32))
 
         # Initialise the random number generator.
         self._kernels["rng"](
@@ -1513,7 +1512,7 @@ class GCMCSampler:
             charges,
             sigmas,
             epsilons,
-            is_ghost,
+            _gpuarray.to_gpu(is_ghost.astype(_np.int32)),
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
         )
