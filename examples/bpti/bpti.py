@@ -143,6 +143,9 @@ d.minimise()
 # Update the box information in the GCMC sampler.
 sampler.set_box(mols)
 
+# Reset the sampling statistics.
+sampler.reset()
+
 # Store the frame frequency.
 frame_frequency = 50
 
