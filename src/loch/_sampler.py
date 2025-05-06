@@ -1062,7 +1062,7 @@ class GCMCSampler:
                     # Apply the PME correction.
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
-                        dE_rf = (
+                        dE_RF = (
                             self._energy_change.get().flatten()[idx]
                             * _openmm.unit.kilocalories_per_mole
                         )
@@ -1074,7 +1074,7 @@ class GCMCSampler:
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                            -self._beta_openmm * (final_energy - initial_energy - dE_RF)
                         )
 
                         # Store the PME energy change and acceptance probability.
@@ -1095,6 +1095,20 @@ class GCMCSampler:
 
                             is_accepted = False
                             move = None
+
+                            # Log that the insertion was rejected.
+                            if self._is_debug:
+                                dE_RF = dE_RF.value_in_unit(
+                                    _openmm.unit.kilocalories_per_mole
+                                )
+                                dE_PME = (final_energy - initial_energy).value_in_unit(
+                                    _openmm.unit.kilocalories_per_mole
+                                )
+
+                                _logger.debug(
+                                    f"Rejected PME insertion: dE RF={dE_RF:.3f} kcal/mol, "
+                                    f"dE PME={dE_PME:.3f} kcal/mol, acc prob={acc_prob:.3f}"
+                                )
 
                     # Log the insertion and break.
                     if is_accepted:
@@ -1133,7 +1147,7 @@ class GCMCSampler:
                     # Apply the PME correction.
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
-                        dE_rf = (
+                        dE_RF = (
                             self._energy_change.get().flatten()[idx]
                             * _openmm.unit.kilocalories_per_mole
                         )
@@ -1145,7 +1159,7 @@ class GCMCSampler:
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_rf)
+                            -self._beta_openmm * (final_energy - initial_energy - dE_RF)
                         )
 
                         # Store the PME energy change and acceptance probability.
@@ -1168,6 +1182,20 @@ class GCMCSampler:
 
                             is_accepted = False
                             move = None
+
+                            # Log that the deletion was rejected.
+                            if self._is_debug:
+                                dE_RF = dE_RF.value_in_unit(
+                                    _openmm.unit.kilocalories_per_mole
+                                )
+                                dE_PME = (final_energy - initial_energy).value_in_unit(
+                                    _openmm.unit.kilocalories_per_mole
+                                )
+
+                                _logger.debug(
+                                    f"Rejected PME deletion: dE RF={dE_RF:.3f} kcal/mol, "
+                                    f"dE PME={dE_PME:.3f} kcal/mol, acc prob={acc_prob:.3f}"
+                                )
 
                     # Log the deletion and break.
                     if is_accepted:
