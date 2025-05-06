@@ -1404,6 +1404,7 @@ class GCMCSampler:
         # Edit the template so that it is non-interacting.
         cursor = water_template.cursor()
         for atom in cursor.atoms():
+            atom["mass"] = 0.0 * _sr.units.g_per_mol
             atom["charge"] = 0.0 * _sr.units.mod_electron
             atom["LJ"] = _sr.legacy.MM.LJParameter(
                 atom["LJ"].sigma(), 0.0 * _sr.units.kcal_per_mol
@@ -1482,16 +1483,19 @@ class GCMCSampler:
 
         # Get the water properties.
         try:
+            mass_water = []
             charge_water = []
             sigma_water = []
             epsilon_water = []
             for atom in self._water_template.atoms():
+                mass_water.append(atom.mass().value())
                 charge_water.append(atom.charge().value())
                 lj = atom.property("LJ")
                 sigma_water.append(lj.sigma().value())
                 epsilon_water.append(lj.epsilon().value())
 
             # Store the water properties.
+            self._water_mass = _np.array(mass_water)
             self._water_charge = _np.array(charge_water)
             self._water_sigma = _np.array(sigma_water)
             self._water_epsilon = _np.array(epsilon_water)
@@ -1620,7 +1624,10 @@ class GCMCSampler:
         # Get the starting atom index.
         start_idx = self._water_indices[water_idx]
 
-        # Update the water positions and NonBondedForce.
+        # Get the system.
+        system = context.getSystem()
+
+        # Update the water positions, NonBondedForce, and particle mass.
         positions = context.getState(getPositions=True).getPositions(asNumpy=True)
         for i in range(self._num_points):
             positions[start_idx + i] = _openmm.unit.Quantity(
@@ -1632,6 +1639,7 @@ class GCMCSampler:
                 self._water_sigma[i] * _openmm.unit.angstrom,
                 self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
             )
+            system.setParticleMass(start_idx + i, self._water_mass[i])
 
         # Set the new positions.
         context.setPositions(positions)
@@ -1681,11 +1689,15 @@ class GCMCSampler:
         # Get the starting atom index.
         start_idx = self._water_indices[idx]
 
-        # Update the NonBondedForce.
+        # Get the system.
+        system = context.getSystem()
+
+        # Update the NonBondedForce and particle mass.
         for i in range(self._num_points):
             self._nonbonded_force.setParticleParameters(
                 start_idx + i, 0.0, self._water_sigma[i] * _openmm.unit.angstrom, 0.0
             )
+            system.setParticleMass(start_idx + i, 0.0)
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)
