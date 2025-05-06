@@ -99,11 +99,8 @@ d.randomise_velocities()
 
 # 1) Perform 100 GCMC moves.
 print("Equilibrating the system with GCMC moves...")
-for i in range(10):
+for i in range(100):
     moves = sampler.move(d.context())
-
-import sys
-sys.exit()
 
 # 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
 print("Running 1ps of dynamics with GCMC moves...")
@@ -137,7 +134,7 @@ d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
 # Get the updated Sire system from the dynamics object.
 mols = d_npt.commit()
 
-# Copy the state between the two contexts and minmise the system.
+# Copy the state between the two contexts and minimise the system.
 d._d._omm_mols.setState(
     d_npt._d._omm_mols.getState(getPositions=True, getVelocities=True)
 )
