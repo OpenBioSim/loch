@@ -10,25 +10,32 @@ conda create -f environment.yml
 
 ## Examples
 
-### Scytalone dehydratase
-
-Run 100 1ps dynamics blocks for scytalone dehydratase, performing GCMC trial
-moves after each block:
-
-```
-cd examples/scytalone
-python sd.py --cutoff-type pme
-```
-
-When complete, the script will write a PDB file containing all molecules
-within the GCMC sphere radius, e.g. `final_rf.pdb`. For comparison, the initial
-configuration is written to `initial.pdb`.
-
 ### Bulk water
 
 Run 10ns of bulk water sampling, with GCMC moves every 1ps:
 
 ```
 cd examples/water
-python water.py --cutoff-type pme
+python water.py
 ```
+
+### Bovine pancreatic trypsin inhibitor (BPTI)
+
+Sample water positions in the binding site of BPTI:
+
+```
+cd examples/bpti
+python bpti.py
+```
+
+When complete, the script will write a PDB file, `bpti_clusters.pdb`, containing
+the water clusters that were sampled within the GCMC sphere radius over the course
+of the trajectory. Aligned positions of the crystal waters are also written to the
+`bpti_crystal_waters.pdb` file. The script will also write a reference structure for
+BPTI, `bpti_reference.pdb`. The clusters can be visualised using `VMD` or `PyMOL`,
+e.g. for `VMD`:
+
+```
+vmd -m bpti_reference.pdb bpti_crystal_waters.pdb bpti_clusters.pdb
+```
+
