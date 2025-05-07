@@ -94,6 +94,13 @@ d = sampler.system().dynamics(
     timestep="2 fs",
 )
 d.randomise_velocities()
+d.minimise()
+
+mols = d.commit()
+sr.save(mols, "minimised.pdb")
+
+import sys
+sys.exit()
 
 # Equilibrate the system.
 

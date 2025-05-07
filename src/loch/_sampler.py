@@ -1401,6 +1401,16 @@ class GCMCSampler:
             The indices of the water residues.
         """
 
+        # Get the space property from the system.
+        try:
+            space = system.property("space")
+        except:
+            raise ValueError("'system' must contain a 'space' property")
+
+        # Get the box matrix and diagonal.
+        box_matrix = space.box_matrix()
+        box = _np.array([box_matrix.xx(), box_matrix.yy(), box_matrix.zz()])
+
         # Edit the template so that it is non-interacting.
         cursor = water_template.cursor()
         for atom in cursor.atoms():
@@ -1413,15 +1423,30 @@ class GCMCSampler:
         # Create a BioSimSpace system.
         bss_system = _BSS._SireWrappers.System(system._system)
 
+        # Get the initial positions of the atoms.
+        positions = _sr.io.get_coords_array(water_template._sire_object)
+
         # Create the GCMC waters.
         waters = []
         for i in range(max_gcmc_waters):
             # Create a copy of the water template with a new molecule number.
             water = water_template.copy()
-            # Randomly translate the water so that it is not on top of another.
-            water.translate(
-                (2.0 * rng.random() - 1.0) * _BSS.Units.Length.angstrom * [1, 1, 1]
-            )
+
+            # Make the water editable.
+            cursor = water._sire_object.cursor()
+
+            # Work out the new position for the oxygen atom.
+            oxygen = rng.random(3) * box
+
+            # Loop over the atoms and update the positions.
+            for j, atom in enumerate(cursor.atoms()):
+                new_position = positions[j] + oxygen - positions[0]
+                atom["coordinates"] = _sr.maths.Vector(*new_position)
+
+            # Commit the changes to the water.
+            water._sire_object = cursor.commit()
+
+            # Append the water to the list.
             waters.append(water)
 
         # Add the waters to the system.
