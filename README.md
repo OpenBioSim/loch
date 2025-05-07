@@ -39,3 +39,11 @@ e.g. for `VMD`:
 vmd -m bpti_reference.pdb bpti_crystal_waters.pdb bpti_clusters.pdb
 ```
 
+To view the GCMC sphere over the course of the trajectory, use the `PyMOL`
+visualisation script from [grand](https://github.com/essex-lab/grand/blob/v1.0.0/grand/scripts/gcmc_pymol.py):
+
+```
+python gcmc_pymol.py --topology bpti_final.pdb --trajectory bpti_aligned.dcd --sphere bpti_gcmc_sphere.pdb
+```
+
+(You will likely need to reset the view in `PyMOL` once loaded.)
