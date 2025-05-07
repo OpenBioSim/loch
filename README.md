@@ -1,6 +1,6 @@
 # Loch
 
-Prototype GCMC water sampling code.
+Prototype CUDA accelerated GCMC water sampling code.
 
 ## Installation
 
