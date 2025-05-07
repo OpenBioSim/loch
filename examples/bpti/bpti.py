@@ -166,7 +166,7 @@ for i in range(10000):
     moves = sampler.move(d.context())
 
     # If we hit the frame frequency, then save the current ghost residue indices.
-    if i > 0 and i + 1 % frame_frequency == 0:
+    if i > 0 and (i + 1) % frame_frequency == 0:
         sampler.write_ghost_residues()
 
     print(
