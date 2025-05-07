@@ -1414,7 +1414,7 @@ class GCMCSampler:
         # Create a BioSimSpace system.
         bss_system = _BSS._SireWrappers.System(system._system)
 
-        # First create the GCMC waters.
+        # Create the GCMC waters.
         waters = []
         for i in range(max_gcmc_waters):
             # Create a copy of the water template with a new molecule number.
