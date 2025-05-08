@@ -1062,7 +1062,7 @@ class GCMCSampler:
                 # Insertion move.
                 if is_deletion[idx] == 0:
                     # Accept the move.
-                    water_idx = self._accept_insertion(idx, idx_water, context)
+                    self._accept_insertion(idx, idx_water, context)
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -1101,7 +1101,7 @@ class GCMCSampler:
                         # The move was rejected.
                         if acc_prob < self._rng.random():
                             # Revert the move.
-                            _ = self._accept_deletion(water_idx, context)
+                            _ = self._accept_deletion(idx_water, context)
 
                             # Update the acceptance statistics.
                             self._num_accepted -= 1
@@ -1137,7 +1137,7 @@ class GCMCSampler:
                         if self._is_debug:
                             self._log_insertion(
                                 idx,
-                                water_idx,
+                                idx_water,
                                 positions,
                                 pme_energy=pme_energy,
                                 pme_probability=pme_probability,
@@ -1635,12 +1635,6 @@ class GCMCSampler:
 
         context: openmm.Context
             The OpenMM context to update.
-
-        Returns
-        -------
-
-        idx_water: int
-            The index of the water that was inserted.
         """
 
         # Get the new water positions.
@@ -1683,8 +1677,6 @@ class GCMCSampler:
 
         # Update the number of waters in the sampling volume.
         self._N += 1
-
-        return idx_water
 
     def _accept_deletion(self, idx, context):
         """
@@ -1833,7 +1825,7 @@ class GCMCSampler:
         return target
 
     def _log_insertion(
-        self, idx, water_idx, positions, pme_energy=None, pme_probability=None
+        self, idx, idx_water, positions, pme_energy=None, pme_probability=None
     ):
         """
         Log information about the accepted insertion move.
@@ -1844,7 +1836,7 @@ class GCMCSampler:
         idx: int
             The index of the accepted trial move.
 
-        water_idx: int
+        idx_water: int
             The index of the water that was inserted.
 
         positions: numpy.ndarray
@@ -1873,7 +1865,7 @@ class GCMCSampler:
         # Store debugging attributes.
         self._debug = {
             "move": "insertion",
-            "idx": water_idx,
+            "idx": idx_water,
             "energy_coul": self._prefactor * energy_coul[idx].sum(),
             "energy_lj": energy_lj[idx].sum(),
             "probability_rf": probability[idx],
@@ -1936,7 +1928,7 @@ class GCMCSampler:
         probability = self._probability.get().flatten()
 
         # Get the water index.
-        water_idx = self._water_indices[candidates[idx]]
+        idx_water = self._water_indices[candidates[idx]]
 
         # Store debugging attributes.
         self._debug = {
@@ -1948,7 +1940,7 @@ class GCMCSampler:
         }
 
         # Log the oxygen position.
-        _logger.debug(f"Deleted oxygen position: {positions[water_idx]}")
+        _logger.debug(f"Deleted oxygen position: {positions[idx_water]}")
 
         # Log the energies of the accepted candidate.
         _logger.debug(f"RF coulomb energy: {self._debug['energy_coul']:.6f} kcal/mol")
