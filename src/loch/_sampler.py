@@ -345,11 +345,6 @@ class GCMCSampler:
             self._water_template = water_template
         self._num_points = self._water_template.num_atoms()
 
-        # Store the positions of the template.
-        self._water_template_positions = _gpuarray.to_gpu(
-            _sr.io.get_coords_array(self._water_template).flatten().astype(_np.float32)
-        )
-
         # Get the indices of the reference atoms.
         if self._reference is not None:
             self._reference_indices = self._get_reference_indices(system, reference)
@@ -962,9 +957,31 @@ class GCMCSampler:
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
 
+            # Get the current ghost waters.
+            ghost_waters = _np.where(self._water_state == 0)[0]
+
+            # If there are no ghost waters, then we can't perform any insertions.
+            if len(ghost_waters) == 0:
+                msg = (
+                    f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
+                )
+                _logger.error(msg)
+                raise RuntimeError(msg)
+
+            # Choose a random ghost water.
+            idx_water = self._rng.choice(ghost_waters)
+
+            # Get the template positions for the water insertion.
+            start_idx = self._water_indices[idx_water]
+            template_positions = _gpuarray.to_gpu(
+                positions[start_idx : start_idx + self._num_points]
+                .astype(_np.float32)
+                .flatten()
+            )
+
             # Generate the random water positions and orientations.
             self._kernels["water"](
-                self._water_template_positions,
+                template_positions,
                 target_gpu,
                 _np.float32(self._radius.value()),
                 self._water_positions,
@@ -1045,7 +1062,7 @@ class GCMCSampler:
                 # Insertion move.
                 if is_deletion[idx] == 0:
                     # Accept the move.
-                    water_idx = self._accept_insertion(idx, context)
+                    water_idx = self._accept_insertion(idx, idx_water, context)
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -1603,7 +1620,7 @@ class GCMCSampler:
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
 
-    def _accept_insertion(self, idx, context):
+    def _accept_insertion(self, idx, idx_water, context):
         """
         Accept a insertion move.
 
@@ -1613,37 +1630,29 @@ class GCMCSampler:
         idx: int
             The index of the accepted state.
 
+        idx_water: int
+            The index of the ghost water to use for the insertion.
+
         context: openmm.Context
             The OpenMM context to update.
 
         Returns
         -------
 
-        water_idx: int
+        idx_water: int
             The index of the water that was inserted.
         """
-
-        # Check if we can insert more waters.
-        ghost_waters = _np.where(self._water_state == 0)[0]
-
-        if len(ghost_waters) == 0:
-            msg = f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
-            _logger.error(msg)
-            raise RuntimeError(msg)
 
         # Get the new water positions.
         water_positions = self._water_positions.get().reshape(
             (self._batch_size, 3, self._num_points)
         )[idx]
 
-        # Choose a random ghost water.
-        water_idx = self._rng.choice(ghost_waters)
-
         # Update the water state.
-        self._water_state[water_idx] = 1
+        self._water_state[idx_water] = 1
 
         # Get the starting atom index.
-        start_idx = self._water_indices[water_idx]
+        start_idx = self._water_indices[idx_water]
 
         # Update the water positions and NonBondedForce.
         positions = context.getState(getPositions=True).getPositions(asNumpy=True)
@@ -1666,7 +1675,7 @@ class GCMCSampler:
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
-            _np.int32(water_idx),
+            _np.int32(idx_water),
             _np.int32(1),
             block=(1, 1, 1),
             grid=(1, 1, 1),
@@ -1675,7 +1684,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N += 1
 
-        return water_idx
+        return idx_water
 
     def _accept_deletion(self, idx, context):
         """

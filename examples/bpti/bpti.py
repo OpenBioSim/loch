@@ -97,9 +97,9 @@ d.randomise_velocities()
 
 # Equilibrate the system.
 
-# 1) Perform 1000 GCMC moves.
+# 1) Perform 100 GCMC moves.
 print("Equilibrating the system with GCMC moves...")
-for i in range(1000):
+for i in range(100):
     moves = sampler.move(d.context())
 
 # 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
