@@ -95,61 +95,13 @@ d = sampler.system().dynamics(
 )
 d.randomise_velocities()
 
-# Equilibrate the system.
-
-# 1) Perform 100 GCMC moves.
-print("Equilibrating the system with GCMC moves...")
-for i in range(100):
-    moves = sampler.move(d.context())
-
-# 2) Run 1ps of dynamics, performing GCMC moves every 10fs.
-print("Running 1ps of dynamics with GCMC moves...")
-for i in range(100):
-    # Run 10fs of dynamics.
-    d.run("10 fs", save_frequency=0, energy_frequency=0, frame_frequency=0)
-
-    # Perform a GCMC move.
-    moves = sampler.move(d.context())
-
-# 3) Run 500ps of regular NPT dynamics.
-print("Running 500ps of NPT dynamics...")
-
-# Get a new Sire system from the dynamics object.
-mols = d.commit()
-
-# Create a NPT dynamics object.
-d_npt = mols.dynamics(
-    cutoff_type=args.cutoff_type,
-    cutoff=args.cutoff,
-    temperature=args.temperature,
-    integrator="langevin_middle",
-    pressure="1 bar",
-    constraint="h_bonds",
-    timestep="2 fs",
-)
-
-# Run the dynamics.
-d_npt.run("500 ps", save_frequency=0, energy_frequency=0, frame_frequency=0)
-
-# Get the updated Sire system from the dynamics object.
-mols = d_npt.commit()
-
-# Copy the state between the two contexts and minimise the system.
-d._d._omm_mols.setState(
-    d_npt._d._omm_mols.getState(getPositions=True, getVelocities=True)
-)
-d.minimise()
-
-# Update the box information in the GCMC sampler.
-sampler.set_box(mols)
-
-# Reset the sampling statistics.
-sampler.reset()
-
 # Store the frame frequency.
 frame_frequency = 50
 
-# 4) Run 10ns dynamics with GCMC moves every 1ps.
+# Delete any existing waters from the GCMC region.
+sampler.delete_waters(d.context())
+
+# Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
 for i in range(10000):
     # Run 1ps of dynamics.
