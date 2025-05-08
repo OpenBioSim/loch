@@ -913,6 +913,26 @@ class GCMCSampler:
                     deletion_candidates = _np.where(self._water_state != 0)[0]
                     target = None
 
+                # Get the current ghost waters.
+                ghost_waters = _np.where(self._water_state == 0)[0]
+
+                # If there are no ghost waters, then we can't perform any insertions.
+                if len(ghost_waters) == 0:
+                    msg = f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
+                    _logger.error(msg)
+                    raise RuntimeError(msg)
+
+                # Choose a random ghost water.
+                idx_water = self._rng.choice(ghost_waters)
+
+                # Get the template positions for the water insertion.
+                start_idx = self._water_indices[idx_water]
+                template_positions = _gpuarray.to_gpu(
+                    positions[start_idx : start_idx + self._num_points]
+                    .astype(_np.float32)
+                    .flatten()
+                )
+
                 # Set the number of waters.
                 self._N = len(deletion_candidates)
 
@@ -956,28 +976,6 @@ class GCMCSampler:
                 is_target = _np.int32(1)
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
-
-            # Get the current ghost waters.
-            ghost_waters = _np.where(self._water_state == 0)[0]
-
-            # If there are no ghost waters, then we can't perform any insertions.
-            if len(ghost_waters) == 0:
-                msg = (
-                    f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
-                )
-                _logger.error(msg)
-                raise RuntimeError(msg)
-
-            # Choose a random ghost water.
-            idx_water = self._rng.choice(ghost_waters)
-
-            # Get the template positions for the water insertion.
-            start_idx = self._water_indices[idx_water]
-            template_positions = _gpuarray.to_gpu(
-                positions[start_idx : start_idx + self._num_points]
-                .astype(_np.float32)
-                .flatten()
-            )
 
             # Generate the random water positions and orientations.
             self._kernels["water"](
