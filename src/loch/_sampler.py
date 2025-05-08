@@ -620,6 +620,25 @@ class GCMCSampler:
         # Set the NonBondedForce.
         self._set_nonbonded_force(context)
 
+        # Get the OpenMM state.
+        state = context.getState(getPositions=True)
+
+        # Get the current positions in Angstrom.
+        positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+        # Get the position of the GCMC sphere centre.
+        target = _gpuarray.to_gpu(
+            self._get_target_position(positions).astype(_np.float32)
+        )
+
+        # Set the positions on the GPU.
+        self._kernels["atom_positions"](
+            _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
+            _np.float32(1.0),
+            block=(self._num_threads, 1, 1),
+            grid=(self._atom_blocks, 1, 1),
+        )
+
         # Find the non-ghost waters within the GCMC region.
         self._kernels["deletion"](
             self._deletion_candidates,
@@ -635,8 +654,10 @@ class GCMCSampler:
         # Find the waters within the GCMC sphere.
         candidates = _np.where(candidates == 1)[0]
 
+        _logger.info(f"Deleting {len(candidates)} waters from the GCMC sphere")
+
         # Loop over the candidates and delete them.
-        for idx in range(len(candidates)):
+        for idx in candidates:
             self._accept_deletion(idx, context)
 
         # Set the number of waters in the GCMC sphere to zero.
