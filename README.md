@@ -36,7 +36,7 @@ BPTI, `bpti_reference.pdb`. The clusters can be visualised using `VMD` or `PyMOL
 e.g. for `VMD`:
 
 ```
-vmd -m bpti_reference.pdb bpti_crystal_waters.pdb bpti_clusters.pdb
+vmd -m bpti_reference.pdb bpti_crystal_waters.pdb bpti_clusters.pdb -startup vmd.tcl
 ```
 
 To view the GCMC sphere over the course of the trajectory, use the `PyMOL`
