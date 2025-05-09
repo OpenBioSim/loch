@@ -1,6 +1,5 @@
 import argparse
-
-from time import time
+import math
 
 from loch import GCMCSampler
 
@@ -84,17 +83,8 @@ args = parser.parse_args()
 # Load the scytalone dehydratase system.
 mols = sr.load_test_files(f"sd{args.ligand}.prm7", f"sd{args.ligand}.rst7")
 
-# Create the PDB suffix.
-suffix = f"_lig{args.ligand}"
-
 # Store the reference selection.
 reference = "(residx 22 or residx 42) and (atomname OH)"
-
-# Save the initial configuration.
-sr.save(
-    mols[f"mols within {args.radius} of {reference}"],
-    f"initial{suffix}.pdb",
-)
 
 # Create a GCMC sampler.
 sampler = GCMCSampler(
@@ -106,7 +96,10 @@ sampler = GCMCSampler(
     cutoff=args.cutoff,
     radius=args.radius,
     temperature=args.temperature,
+    max_gcmc_waters=100,
+    bulk_sampling_probability=0,
     log_level=args.log_level,
+    overwrite=True,
 )
 
 # Create a dynamics object using the modified GCMC system.
@@ -123,14 +116,29 @@ d = sampler.system().dynamics(
 )
 d.randomise_velocities()
 
-# Get the context.
-context = d.context()
+# Delete any existing waters from the GCMC region.
+sampler.delete_waters(d.context())
+
+# Perform initial GCMC equilibration on the initial structure.
+print("Equilibrating the system with GCMC moves...")
+for i in range(100):
+    sampler.move(d.context())
 
 # Run dynamics cycles with a GCMC move after each.
+print("Runing dynamics with GCMC moves...")
 total = 0
 for i in range(args.num_cycles):
+    # Run a dynamics block.
+    d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
+
+    # Perform a GCMC move.
+    moves = sampler.move(d.context())
+
+    # Report.
+    N = sampler.num_waters()
+    total += N
     print(
-        f"Cycle {i}, N = {sampler.num_waters()}, "
+        f"Cycle {i+1}, N = {N}, "
         f"insertions = {sampler.num_insertions()}, "
         f"deletions = {sampler.num_deletions()}"
     )
@@ -138,25 +146,40 @@ for i in range(args.num_cycles):
         f"Current potential energy: {d.current_potential_energy().value():.3f} kcal/mol"
     )
 
-    # Run 1ps of dynamics.
-    d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
-
-    # Perform a GCMC move.
-    start = time()
-    moves = sampler.move(d.context())
-    end = time()
-    if i > 0:
-        total += end - start
-
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
+print(f"Average number of waters: {total / args.num_cycles:.2f}")
 print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
 print(f"Attempt acceptance probability: {sampler.attempt_acceptance_probability():.4f}")
-print(f"Average time: {1000*total / (args.num_cycles - 1):.3f} ms")
 
 # Save the final configuration.
 mols = d.commit()
-sr.save(
-    mols[f"mols within {sampler._radius.value()} of {reference}"],
-    f"final_{args.cutoff_type}{suffix}.pdb",
-)
+
+# Store the periodic space.
+space = mols.space()
+
+# Save the final positions for SD and the ligand.
+sr.save(mols["molidx 1"], f"sd_{args.ligand}.pdb")
+sr.save(mols["molidx 0"], f"ligand_{args.ligand}.pdb")
+
+# Get the reference coordinates.
+centre = mols[reference].coordinates()
+
+# Find the water oxygens within the GCMC sphere.
+nums = []
+radius = sampler._radius.value()
+for i, atom in enumerate(mols.atoms()):
+    # This is a water oxygen.
+    if atom.element() == sr.mol.Element("O") and atom.residue().name().value() == "WAT":
+        # Get the charge for this atom from the OpenMM nonbonded force.
+        charge, _, _ = sampler._nonbonded_force.getParticleParameters(i)
+        # This is a physical water.
+        if not math.isclose(charge._value, 0.0):
+            dist = space.calc_dist(centre, atom.coordinates())
+            # The oxygen is within the GCMC sphere.
+            if dist < radius:
+                nums.append(str(atom.molecule().number().value()))
+
+# Save the waters.
+if len(nums) > 0:
+    sr.save(mols[f"molnum {','.join(nums)}"], f"water_{args.ligand}.pdb")
