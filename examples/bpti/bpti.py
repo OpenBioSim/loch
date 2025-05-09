@@ -101,6 +101,11 @@ frame_frequency = 50
 # Delete any existing waters from the GCMC region.
 sampler.delete_waters(d.context())
 
+# Perform initial GCMC equilibration on the initial structure.
+print("Equilibrating the system with GCMC moves...")
+for i in range(100):
+    sampler.move(d.context())
+
 # Run 10ns dynamics with GCMC moves every 1ps.
 print("Running 10ns of dynamics with GCMC moves...")
 for i in range(10000):
