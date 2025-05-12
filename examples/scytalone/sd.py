@@ -163,7 +163,7 @@ trj = grand.utils.shift_ghost_waters(
 )
 
 # Centre the trajectory on a particular residue
-trj = grand.utils.recentre_traj(t=trj, resname="TYR", name="CA", resid=10)
+trj = grand.utils.recentre_traj(t=trj, resname="TYR", name="CA", resid=24)
 
 # Align the trajectory to the protein.
 grand.utils.align_traj(t=trj, output=f"sd_{lig}_aligned.dcd")
