@@ -67,3 +67,6 @@ indicates the ligand index that was specified.) To visualise with `VMD`:
 ```
 vmd -m sd_1_reference.pdb ligand_1_reference.pdb clusters_1.pdb -startup vmd.tcl
 ```
+
+(Note that the cluster file might be empty if no waters were sampled in the
+binding site for a particular ligand index.)
