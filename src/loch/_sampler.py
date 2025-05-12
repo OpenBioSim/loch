@@ -129,7 +129,9 @@ class GCMCSampler:
 
         water_template: sire.molecule.Molecule
             A water molecule to use as a template. This is only required when
-            the system does not contain any water molecules.
+            the system does not contain any water molecules. If provided, water
+            parameters for the GCMC insertion and deletion trials will be taken
+            from the template.
 
         device: int
             The CUDA device index. (This is the index in the list of visible
