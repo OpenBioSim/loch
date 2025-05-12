@@ -24,4 +24,4 @@ display depthcue off
 rotate y by -90
 
 # Scale the view.
-scale by 0.1
+scale by 0.3
