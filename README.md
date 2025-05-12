@@ -58,14 +58,12 @@ python sd.py --ligand 1
 ````
 
 The ligand index specifes which ligand will used in the complex. The script
-will output a PDB file for the final SD and ligand strucures, e.g.
-`sd_1.pdb` and `ligand_1.pdb`, along with a PDB file for any waters within
-the GCMC sampling region, e.g. `water_1.pdb`. (Here the suffix `_1` indicates
-the ligand index that was specified.) To visualise with `VMD`:
+will output a PDB file for the average protein and ligand structures along
+the trajectory, `sd_1_reference.pdb` and `ligand_1_reference.pdb`, respectively.
+A PDB file containing the oxygen positions from the GCMC water clusters that
+were sampled will also be written, e.g. `clusters_1.pdb`. (Here the suffix `_1`
+indicates the ligand index that was specified.) To visualise with `VMD`:
 
 ```
-vmd -m sd_1.pdb ligand_1.pdb water_1.pdb -startup vmd.tcl
+vmd -m sd_1_reference.pdb ligand_1_reference.pdb clusters_1.pdb -startup vmd.tcl
 ```
-
-While running, the script will output the current number of waters in the GCMC
-region after each cycle, with the average occupancy reported at the end.

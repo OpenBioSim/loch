@@ -15,9 +15,13 @@ display projection orthographic
 mol modstyle 0 0 {NewCartoon}
 mol modstyle 0 1 {CPK 1.0 0.4 32 16}
 mol modstyle 0 2 {CPK 1.0 0.4 32 16}
+mol modcolor 0 2 {Occupancy}
 
 # Turn off depth cue.
 display depthcue off
+
+# Set the view.
+rotate y by -90
 
 # Scale the view.
 scale by 0.1

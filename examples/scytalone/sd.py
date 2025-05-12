@@ -1,5 +1,5 @@
 import argparse
-import math
+import grand
 
 from loch import GCMCSampler
 
@@ -43,13 +43,6 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "--cycle-time",
-    help="The duration of the dynamics cycle",
-    type=str,
-    default="1 ps",
-    required=False,
-)
-parser.add_argument(
     "--batch-size",
     help="The number of GCMC trials per batch",
     type=int,
@@ -64,13 +57,6 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "--num-cycles",
-    help="The number of dynamics cycles",
-    type=int,
-    default=100,
-    required=False,
-)
-parser.add_argument(
     "--log-level",
     help="The logging level",
     type=str,
@@ -80,8 +66,11 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+# Store the ligand index.
+lig = args.ligand
+
 # Load the scytalone dehydratase system.
-mols = sr.load_test_files(f"sd{args.ligand}.prm7", f"sd{args.ligand}.rst7")
+mols = sr.load_test_files(f"sd{lig}.prm7", f"sd{lig}.rst7")
 
 # Store the reference selection.
 reference = "(residx 22 or residx 42) and (atomname OH)"
@@ -98,6 +87,8 @@ sampler = GCMCSampler(
     temperature=args.temperature,
     max_gcmc_waters=100,
     bulk_sampling_probability=0,
+    ghost_file=f"ghosts_{lig}.txt",
+    log_file=f"gcmc_{lig}.txt",
     log_level=args.log_level,
     overwrite=True,
 )
@@ -119,26 +110,32 @@ d.randomise_velocities()
 # Delete any existing waters from the GCMC region.
 sampler.delete_waters(d.context())
 
+# Store the frame frequency.
+frame_frequency = 5
+
+# Store the radius.
+radius = sampler._radius.value()
+
 # Perform initial GCMC equilibration on the initial structure.
 print("Equilibrating the system with GCMC moves...")
 for i in range(100):
     sampler.move(d.context())
 
-# Run dynamics cycles with a GCMC move after each.
-print("Runing dynamics with GCMC moves...")
-total = 0
-for i in range(args.num_cycles):
-    # Run a dynamics block.
-    d.run(args.cycle_time, save_frequency=0, energy_frequency=0, frame_frequency=0)
+# Run 1ns dynamics with GCMC moves every 1ps.
+print("Running 1ns of dynamics with GCMC moves...")
+for i in range(1000):
+    # Run 1ps of dynamics.
+    d.run("1ps", energy_frequency="5ps", frame_frequency="5ps")
 
     # Perform a GCMC move.
     moves = sampler.move(d.context())
 
-    # Report.
-    N = sampler.num_waters()
-    total += N
+    # If we hit the frame frequency, then save the current ghost residue indices.
+    if i > 0 and (i + 1) % frame_frequency == 0:
+        sampler.write_ghost_residues()
+
     print(
-        f"Cycle {i+1}, N = {N}, "
+        f"Cycle {i}, N = {sampler.num_waters()}, "
         f"insertions = {sampler.num_insertions()}, "
         f"deletions = {sampler.num_deletions()}"
     )
@@ -146,40 +143,97 @@ for i in range(args.num_cycles):
         f"Current potential energy: {d.current_potential_energy().value():.3f} kcal/mol"
     )
 
+# Save the trajectory.
+mols = d.commit()
+sr.save(mols, f"sd_{lig}_final.pdb")
+sr.save(mols, f"sd_{lig}_final.prm7")
+sr.save(mols.trajectory(), f"sd_{lig}.dcd")
+
+# Define reference atoms for the GCMC sphere (grand format).
+ref_atoms = [
+    {"name": "OH", "resname": "TYR", "resid": "24"},
+    {"name": "OH", "resname": "TYR", "resid": "44"},
+]
+
+# Remove ghost waters from GCMC region.
+trj = grand.utils.shift_ghost_waters(
+    ghost_file=f"ghosts_{lig}.txt",
+    topology=f"sd_{lig}_final.pdb",
+    trajectory=f"sd_{lig}.dcd",
+)
+
+# Centre the trajectory on a particular residue
+trj = grand.utils.recentre_traj(t=trj, resname="TYR", name="CA", resid=10)
+
+# Align the trajectory to the protein.
+grand.utils.align_traj(t=trj, output=f"sd_{lig}_aligned.dcd")
+
+# Write out a PDB trajectory of the GCMC sphere
+grand.utils.write_sphere_traj(
+    radius=radius,
+    ref_atoms=ref_atoms,
+    topology=f"sd_{lig}_final.pdb",
+    trajectory=f"sd_{lig}_aligned.dcd",
+    output=f"sd_{lig}_gcmc_sphere.pdb",
+    initial_frame=True,
+)
+
+# Cluster water sites.
+grand.utils.cluster_waters(
+    topology=f"sd_{lig}_final.pdb",
+    trajectory=f"sd_{lig}_aligned.dcd",
+    sphere_radius=radius,
+    ref_atoms=ref_atoms,
+    cutoff=2.4,
+    output=f"clusters_{lig}.pdb",
+)
+
+# Read and write the clustered waters with Sire to recover the element records.
+mols = sr.load(f"clusters_{lig}.pdb")
+sr.save(mols, f"clusters_{lig}.pdb")
+
+# Average the position of the protein and ligand over the aligned trajectory.
+mols = sr.load(f"sd_{lig}_final.pdb", f"sd_{lig}_aligned.dcd")
+protein_num = mols[reference].molecules()[0].number()
+ligand_num = mols["resname MOL"].molecules()[0].number()
+for frame in mols.trajectory():
+    # Get the molecule containing the reference atoms.
+    protein = frame[protein_num]
+    ligand = frame[ligand_num]
+
+    # Get the coordinates array.
+    protein_coords = sr.io.get_coords_array(protein)
+    ligand_coords = sr.io.get_coords_array(ligand)
+
+    # Udpate the average position of the first molecule.
+    try:
+        average_protein_position += protein_coords
+        average_ligand_position += ligand_coords
+    except:
+        average_protein_position = protein_coords
+        average_ligand_position = ligand_coords
+
+# Write the average protein position to file.
+average_protein_position /= mols.num_frames()
+mol = mols[protein_num]
+cursor = mol.cursor()
+for i, atom in enumerate(cursor.atoms()):
+    coords = sr.maths.Vector(*average_protein_position[i])
+    atom["coordinates"] = coords
+protein = cursor.commit()
+sr.save(protein, f"sd_{lig}_reference.pdb")
+
+# Write the average ligand position to file.
+average_ligand_position /= mols.num_frames()
+mol = mols[ligand_num]
+cursor = mol.cursor()
+for i, atom in enumerate(cursor.atoms()):
+    coords = sr.maths.Vector(*average_ligand_position[i])
+    atom["coordinates"] = coords
+ligand = cursor.commit()
+sr.save(ligand, f"ligand_{lig}_reference.pdb")
+
 print(f"Insertions: {sampler.num_insertions()}")
 print(f"Deletions: {sampler.num_deletions()}")
-print(f"Average number of waters: {total / args.num_cycles:.2f}")
 print(f"Move acceptance probability: {sampler.move_acceptance_probability():.4f}")
 print(f"Attempt acceptance probability: {sampler.attempt_acceptance_probability():.4f}")
-
-# Save the final configuration.
-mols = d.commit()
-
-# Store the periodic space.
-space = mols.space()
-
-# Save the final positions for SD and the ligand.
-sr.save(mols["molidx 1"], f"sd_{args.ligand}.pdb")
-sr.save(mols["molidx 0"], f"ligand_{args.ligand}.pdb")
-
-# Get the reference coordinates.
-centre = mols[reference].coordinates()
-
-# Find the water oxygens within the GCMC sphere.
-nums = []
-radius = sampler._radius.value()
-for i, atom in enumerate(mols.atoms()):
-    # This is a water oxygen.
-    if atom.element() == sr.mol.Element("O") and atom.residue().name().value() == "WAT":
-        # Get the charge for this atom from the OpenMM nonbonded force.
-        charge, _, _ = sampler._nonbonded_force.getParticleParameters(i)
-        # This is a physical water.
-        if not math.isclose(charge._value, 0.0):
-            dist = space.calc_dist(centre, atom.coordinates())
-            # The oxygen is within the GCMC sphere.
-            if dist < radius:
-                nums.append(str(atom.molecule().number().value()))
-
-# Save the waters.
-if len(nums) > 0:
-    sr.save(mols[f"molnum {','.join(nums)}"], f"water_{args.ligand}.pdb")
