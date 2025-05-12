@@ -70,3 +70,10 @@ vmd -m sd_1_reference.pdb ligand_1_reference.pdb clusters_1.pdb -startup vmd.tcl
 
 (Note that the cluster file might be empty if no waters were sampled in the
 binding site for a particular ligand index.)
+
+To view the GCMC sphere over the course of the trajectory, use the `PyMOL`
+visualisation script from [grand](https://github.com/essex-lab/grand/blob/v1.0.0/grand/scripts/gcmc_pymol.py):
+
+```
+python gcmc_pymol.py --topology sd_1_final.pdb --trajectory sd_1_aligned.dcd --sphere sd_1_gcmc_sphere.pdb
+```
