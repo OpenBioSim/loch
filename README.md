@@ -47,8 +47,6 @@ visualisation script from [grand](https://github.com/essex-lab/grand/blob/v1.0.0
 python gcmc_pymol.py --topology bpti_final.pdb --trajectory bpti_aligned.dcd --sphere bpti_gcmc_sphere.pdb
 ```
 
-(You will likely need to reset the view in `PyMOL` once loaded.)
-
 ### Scytalone dehydratase (SD)
 
 Perform 100 ps of GCMC sampling of water in the binding site of scytalone dehydratase (SD):
