@@ -54,7 +54,7 @@ code = """
     __device__ float epsilon[num_atoms];
     __device__ float charge[num_atoms];
     __device__ float position[num_atoms * 3];
-    __device__ int is_ghost[num_atoms];
+    __device__ int is_ghost_water[num_atoms];
 
     // Water properties.
     __device__ float sigma_water[num_points];
@@ -115,7 +115,7 @@ code = """
             float* charges,
             float* sigmas,
             float* epsilons,
-            int* is_ghost_atom)
+            int* ghost_water)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -124,7 +124,7 @@ code = """
                 charge[tidx] = charges[tidx];
                 sigma[tidx] = sigmas[tidx];
                 epsilon[tidx] = epsilons[tidx];
-                is_ghost[tidx] = is_ghost_atom[tidx];
+                is_ghost_water[tidx] = ghost_water[tidx];
             }
         }
 
@@ -179,13 +179,13 @@ code = """
                 {
                     charge[idx_context + i] = 0.0f;
                     epsilon[idx_context + i] = 0.0f;
-                    is_ghost[idx_context + i] = 1;
+                    is_ghost_water[idx_context + i] = 1;
                 }
                 else
                 {
                     charge[idx_context + i] = charge_water[i];
                     epsilon[idx_context + i] = epsilon_water[i];
-                    is_ghost[idx_context + i] = 0;
+                    is_ghost_water[idx_context + i] = 0;
                 }
             }
         }
@@ -602,7 +602,7 @@ code = """
                 }
 
                 // Don't interact with ghost waters.
-                if (is_ghost[idx_atom] == 1)
+                if (is_ghost_water[idx_atom] == 1)
                 {
                     return;
                 }
