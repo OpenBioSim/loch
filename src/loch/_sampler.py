@@ -61,6 +61,8 @@ class GCMCSampler:
         water_template=None,
         device=None,
         tolerance=0.0,
+        lambda_schedule=None,
+        lambda_value=0.0,
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
@@ -143,6 +145,12 @@ class GCMCSampler:
             low probability candidates that can cause instabilities or crashes
             for the MD engine.
 
+        lambda_schedule: sire.cas.LambdaSchedule
+            The lambda schedule if the passed system is an alchemical system.
+
+        lambda_value: float
+            The lambda value if the passed system is an alchemical system.
+
         overwrite: bool
             Overwrite existing log files.
 
@@ -164,6 +172,16 @@ class GCMCSampler:
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be of type 'sire.system.System'")
         self._system = system
+
+        # Check whether this is an alchemical system.
+        try:
+            if len(self._system["property is_perturbable"].molecules()) > 0:
+                self._is_fep = True
+                self._system = _sr.morph.link_to_reference(self._system)
+            else:
+                self._is_fep = False
+        except:
+            self._is_fep = False
 
         if reference is not None:
             if not isinstance(reference, str):
@@ -329,6 +347,28 @@ class GCMCSampler:
             self._tolerance = float(tolerance)
         except Exception as e:
             raise ValueError(f"Could not convert 'tolerance' to float: {e}")
+
+        # Check for alchemical properties.
+        if lambda_schedule is not None:
+            if not isinstance(lambda_schedule, _sr.cas.LambdaSchedule):
+                raise ValueError(
+                    "'lambda_schedule' must be of type 'sire.cas.LambdaSchedule'"
+                )
+            self._lambda_schedule = lambda_schedule
+        else:
+            if self._is_fep:
+                raise ValueError(
+                    "'lambda_schedule' must be provided for alchemical systems"
+                )
+            self._lambda_schedule = None
+
+        try:
+            lambda_value = float(lambda_value)
+        except:
+            raise ValueError("'lambda_value' must be of type 'float'")
+        if not 0.0 <= lambda_value <= 1.0:
+            raise ValueError("'lambda_value' must be between 0 and 1")
+        self._lambda_value = float(lambda_value)
 
         # Check for waters and validate the template.
         try:
@@ -505,6 +545,8 @@ class GCMCSampler:
             f"water_template={self._water_template}, "
             f"device={self._device}, "
             f"tolerance={self._tolerance}, "
+            f"lambda_schedule={self._lambda_schedule}, "
+            f"lambda_value={self._lambda_value}, "
             f"overwrite={self._overwrite}, "
             f"ghost_file={self._ghost_file}, "
             f"log_file={self._log_file}, "
@@ -1018,6 +1060,7 @@ class GCMCSampler:
                 self._energy_lj,
                 candidates_gpu,
                 is_deletion_gpu,
+                _np.int32(0),
                 block=(self._num_threads, 1, 1),
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
@@ -1514,34 +1557,139 @@ class GCMCSampler:
 
         # First get the atomic properties.
 
-        # Get the charges on all the atoms.
-        try:
+        # If this is a regular system, then we can just get the properties directly.
+        if not self._is_fep:
+            # Get the charges on all the atoms.
+            try:
+                charges = []
+                for mol in self._system:
+                    charges_mol = [charge.value() for charge in mol.property("charge")]
+                    charges.extend(charges_mol)
+
+                # Convert to a GPU array.
+                charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
+
+            except Exception as e:
+                raise ValueError(f"Could not get the charges on the atoms: {e}")
+
+            # Try to get the sigma and epsilon for the atoms.
+            try:
+                sigmas = []
+                epsilons = []
+                for mol in self._system:
+                    for lj in mol.property("LJ"):
+                        sigmas.append(lj.sigma().value())
+                        epsilons.append(lj.epsilon().value())
+
+                # Convert to GPU arrays.
+                sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
+                epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
+
+            except Exception as e:
+                raise ValueError(f"Could not get the LJ parameters: {e}")
+
+            # Set the alphas to zero.
+            alphas = _gpuarray.to_gpu(_np.zeros(self._num_atoms, dtype=_np.float32))
+
+            # Set the is_ghost_fep array to zero.
+            is_ghost_fep = _gpuarray.to_gpu(_np.zeros(self._num_atoms, dtype=_np.int32))
+
+        # Otherwise, we need to create an OpenMM context using the specified lambda
+        # schedule and value, then extract the required properties from the forces
+        # within the context. (The system just contains the end-state properties.)
+        else:
+            # Create a dynamics object.
+            d = self._system.dynamics(
+                cutoff_type=self._cutoff,
+                cutoff=self._cutoff,
+                timestep="2fs",
+                constraint="h_bonds",
+                perturbable_constraint="h_bonds_not_heavy_perturbed",
+                platform="cpu",
+            )
+
+            # Flags for the required forces.
+            has_nb = False
+            has_gng = False
+
+            # Find the required forces.
+            for force in d.context().getSystem().getForces():
+                if force.getName() == "NonbondedForce":
+                    nb_force = force
+                    has_nb = True
+                elif force.getName() == "GhostNonGhostNonbondedForce":
+                    gng_force = force
+                    has_gng = True
+
+            # Make sure the forces were found.
+            if not has_nb:
+                raise ValueError("Could not find the NonbondedForce in the system")
+            if not has_gng:
+                raise ValueError(
+                    "Could not find the GhostNonGhostNonbondedForce in the system"
+                )
+
+            # Get the charges and sigma from the regular NonbondedForce.
             charges = []
-            for mol in self._system:
-                charges_mol = [charge.value() for charge in mol.property("charge")]
-                charges.extend(charges_mol)
-
-            # Convert to a GPU array.
-            charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
-
-        except Exception as e:
-            raise ValueError(f"Could not get the charges on the atoms: {e}")
-
-        # Try to get the sigma and epsilon for the atoms.
-        try:
             sigmas = []
+            for i in range(nb_force.getNumParticles()):
+                charge, sigma, epsilon = nb_force.getParticleParameters(i)
+                charges.append(charge.value_in_unit(_openmm.unit.elementary_charge))
+                sigmas.append(sigma.value_in_unit(_openmm.unit.angstrom))
+
+            # Get epsilon from the GhostNonGhostNonbondedForce.
             epsilons = []
-            for mol in self._system:
-                for lj in mol.property("LJ"):
-                    sigmas.append(lj.sigma().value())
-                    epsilons.append(lj.epsilon().value())
+            alphas = []
+            for i in range(gng_force.getNumParticles()):
+                # These are returned as floats.
+                _, _, two_sqrt_epsilon, alpha, _ = gng_force.getParticleParameters(i)
+                epsilons.append(
+                    _sr.u(f"{_np.sqrt(0.5 * two_sqrt_epsilon)} kJ/mol").to("kcal/mol")
+                )
+                alphas.append(alpha)
 
             # Convert to GPU arrays.
+            charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
             sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
             epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
+            alphas = _gpuarray.to_gpu(_np.array(alphas).astype(_np.float32))
 
-        except Exception as e:
-            raise ValueError(f"Could not get the LJ parameters: {e}")
+            # Create the ghost atom array.
+            is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
+
+            # Convert the system to a BioSimSpace object so we can get absolute indices.
+            bss_system = _BSS._SireWrappers.System(self._system._system)
+
+            # Loop over all perturbale molecules.
+            for mol in self._system["property is_perturbable"].molecules():
+                # Loop over all atoms.
+                for atom in mol.atoms():
+                    # Get the end-state charge.
+                    charge0 = atom.property("charge0").value()
+                    charge1 = atom.property("charge1").value()
+
+                    # The charge at the reference state is zero.
+                    if _np.isclose(charge0, 0.0):
+                        # Get the end-state LJ parameters.
+                        lj = atom.property("LJ0")
+
+                        # This is a null LJ parameter.
+                        if lj == _sr.mm.LJParameter():
+                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            is_ghost_fep[idx] = 1
+
+                    # The charge at the perturbed state is zero.
+                    elif _np.isclose(charge1, 0.0):
+                        # Get the end-state LJ parameters.
+                        lj = atom.property("LJ1")
+
+                        # This is a null LJ parameter.
+                        if lj == _sr.mm.LJParameter():
+                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            is_ghost_fep[idx] = 1
+
+            # Convert to GPU array.
+            is_ghost_fep = _gpuarray.to_gpu(is_ghost_fep.astype(_np.int32))
 
         # Get the water properties.
         try:
@@ -1603,7 +1751,9 @@ class GCMCSampler:
             charges,
             sigmas,
             epsilons,
+            alphas,
             _gpuarray.to_gpu(is_ghost_water.astype(_np.int32)),
+            is_ghost_fep,
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
         )

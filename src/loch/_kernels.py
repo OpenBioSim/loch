@@ -53,8 +53,10 @@ code = """
     __device__ float sigma[num_atoms];
     __device__ float epsilon[num_atoms];
     __device__ float charge[num_atoms];
+    __device__ float alpha[num_atoms];
     __device__ float position[num_atoms * 3];
     __device__ int is_ghost_water[num_atoms];
+    __device__ int is_ghost_fep[num_atoms];
 
     // Water properties.
     __device__ float sigma_water[num_points];
@@ -115,7 +117,9 @@ code = """
             float* charges,
             float* sigmas,
             float* epsilons,
-            int* ghost_water)
+            float* alphas,
+            int* ghost_water,
+            int* ghost_fep)
         {
             const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -124,7 +128,9 @@ code = """
                 charge[tidx] = charges[tidx];
                 sigma[tidx] = sigmas[tidx];
                 epsilon[tidx] = epsilons[tidx];
+                alpha[tidx] = alphas[tidx];
                 is_ghost_water[tidx] = ghost_water[tidx];
+                is_ghost_fep[tidx] = ghost_fep[tidx];
             }
         }
 
@@ -549,7 +555,8 @@ code = """
             float* energy_coul,
             float* energy_lj,
             int* deletion_candidates,
-            int* is_deletion)
+            int* is_deletion,
+            int is_fep)
         {
             // Work out the atom index.
             const int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
