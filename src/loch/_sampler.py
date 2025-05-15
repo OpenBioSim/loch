@@ -1674,15 +1674,17 @@ class GCMCSampler:
                 charges.append(charge.value_in_unit(_openmm.unit.elementary_charge))
                 sigmas.append(sigma.value_in_unit(_openmm.unit.angstrom))
 
-            # Get epsilon from the GhostNonGhostNonbondedForce.
+            # Get epsilon and alpha from the GhostNonGhostNonbondedForce.
             epsilons = []
             alphas = []
             for i in range(gng_force.getNumParticles()):
-                # These are returned as floats.
+                # Custom force parameters are returned as floats.
                 _, _, two_sqrt_epsilon, alpha, _ = gng_force.getParticleParameters(i)
+                # Rescale and convert units.
                 epsilons.append(
                     _sr.u(f"{(0.5 * two_sqrt_epsilon)**2} kJ/mol").to("kcal/mol")
                 )
+                # Store the softening parameter.
                 alphas.append(alpha)
 
             # Convert to GPU arrays.
