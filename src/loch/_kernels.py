@@ -44,6 +44,11 @@ code = """
     __device__ float rf_cutoff;
     __device__ float rf_correction;
 
+    // Soft-core parameters.
+    __device__ float coulomb_power;
+    __device__ float shift_coulomb;
+    __device__ float shift_delta;
+
     // Triclinic box cell information.
     __device__ float cell_matrix[3][3];
     __device__ float cell_matrix_inverse[3][3];
@@ -110,6 +115,14 @@ code = """
             const auto rf_cutoff3_inv = 1.0f / (rf_cutoff * rf_cutoff2);
             rf_kappa = rf_cutoff3_inv * (dielectric - 1.0f) / (2.0f * dielectric + 1.0f);
             rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
+        }
+
+        // Set the soft-core parameters.
+        __global__ void setSoftCore(float power, float coulomb, float delta)
+        {
+            coulomb_power = power;
+            shift_coulomb = coulomb;
+            shift_delta = delta;
         }
 
         // Set the properties of each atom.
@@ -583,14 +596,14 @@ code = """
                     for (int i = 0; i < num_points; i++)
                     {
                         // Self interaction.
-                        const auto c1 = charge_water[i];
-                        energy_coul[idx] -= 0.5f * (c1 * c1) * rf_correction;
+                        const auto q1 = charge_water[i];
+                        energy_coul[idx] -= 0.5f * (q1 * q1) * rf_correction;
 
                         // Pair interaction.
                         for (int j = i+1; j < num_points; j++)
                         {
                             const auto c2 = charge_water[j];
-                            energy_coul[idx] -= (c1 * c2) * rf_correction;
+                            energy_coul[idx] -= (q1 * c2) * rf_correction;
                         }
                     }
                 }
@@ -614,6 +627,17 @@ code = """
                     return;
                 }
 
+                // If this an alchemical system, then we need to check whether the
+                // atom is a ghost atom.
+                bool is_ghost_atom = false;
+                if (is_fep == 1)
+                {
+                    if (is_ghost_fep[idx_atom] == 1)
+                    {
+                        is_ghost_atom = true;
+                    }
+                }
+
                 // Get the atom position.
                 float v0[3];
                 v0[0] = position[3 * idx_atom];
@@ -621,7 +645,7 @@ code = """
                 v0[2] = position[3 * idx_atom + 2];
 
                 // Store the charge on the atom.
-                auto c0 = charge[idx_atom];
+                auto q0 = charge[idx_atom];
 
                 // Store the epsilon and sigma for the atom.
                 float s0 = sigma[idx_atom];
@@ -654,7 +678,7 @@ code = """
                     if (r2 < cutoff2)
                     {
                         // Don't divide by zero.
-                        if (r2 < 1e-6)
+                        if (not is_fep and r2 < 1e-6)
                         {
                             energy_coul[idx] = 1e6;
                             energy_lj[idx] = 1e6;
@@ -662,25 +686,68 @@ code = """
                         }
                         else
                         {
-                            // Compute the LJ interaction.
-                            auto s1 = sigma_water[i];
-                            const auto e1 = epsilon_water[i];
-                            const auto s = 0.5 * (s0 + s1);
-                            const auto e = sqrtf(e0 * e1);
-                            const auto s2 = s * s;
-                            const auto sr2 = s2 / r2;
-                            const auto sr6 = sr2 * sr2 * sr2;
-                            const auto sr12 = sr6 * sr6;
-                            energy_lj[idx] += 4 * e * (sr12 - sr6);
+                            // Regular non-bonded forces.
+                            if (not is_ghost_atom)
+                            {
+                                // Compute the LJ interaction.
+                                auto s1 = sigma_water[i];
+                                const auto e1 = epsilon_water[i];
+                                const auto s = 0.5f * (s0 + s1);
+                                const auto e = sqrtf(e0 * e1);
+                                const auto s2 = s * s;
+                                const auto sr2 = s2 / r2;
+                                const auto sr6 = sr2 * sr2 * sr2;
+                                energy_lj[idx] += 4.0f * e * sr6 * (sr6 - 1.0f);
 
-                            // Compute the distance between the atoms.
-                            const auto r = sqrtf(r2);
+                                // Compute the distance between the atoms.
+                                const auto r = sqrtf(r2);
 
-                            // Store the charge on the water atom.
-                            const auto c1 = charge_water[i];
+                                // Store the charge on the water atom.
+                                const auto q1 = charge_water[i];
 
-                            // Add the reaction field pair energy.
-                            energy_coul[idx] += (c0 * c1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                                // Add the reaction field pair energy.
+                                energy_coul[idx] += (q0 * q1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                            }
+
+                            // Zacharias soft-core potential.
+                            else
+                            {
+                                // Store required parameters.
+                                const auto q1 = charge_water[i];
+                                const auto s1 = sigma_water[i];
+                                const auto e1 = epsilon_water[i];
+                                const auto a = alpha[idx_atom];
+                                const auto delta = shift_delta * a;
+                                const auto s = 0.5f * (s0 + s1);
+                                const auto e = sqrtf(e0 * e1);
+
+                                // Compute the distance between the atoms.
+                                float r = sqrtf(r2);
+
+                                // Truncate the distance.
+                                if (r < 0.001f)
+                                {
+                                    r = 0.001f;
+                                }
+
+                                // Compute the Lennard-Jones interaction.
+                                const auto s6 = powf(s, 6) / powf((s * delta) + (r * r), 3);
+                                energy_lj[idx] += 4.0f * e * s6 * (s6 - 1.0f);
+
+                                // Compute the Coulomb power expression.
+                                float cpe;
+                                if (coulomb_power == 0.0f)
+                                {
+                                    cpe = 1.0f;
+                                }
+                                else
+                                {
+                                    cpe = powf((1.0f - a), coulomb_power);
+                                }
+
+                                // Compute the Coulomb interaction.
+                                energy_coul[idx] += (q0 * q1) * (cpe / sqrtf((shift_coulomb * a * a) + (r * r)));
+                            }
                         }
                     }
                 }

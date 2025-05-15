@@ -63,6 +63,9 @@ class GCMCSampler:
         tolerance=0.0,
         lambda_schedule=None,
         lambda_value=0.0,
+        coulomb_power=0.0,
+        shift_coulomb="1 A",
+        shift_delta="2.25 A",
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
@@ -150,6 +153,18 @@ class GCMCSampler:
 
         lambda_value: float
             The lambda value if the passed system is an alchemical system.
+
+        couloumb_power : float
+            Power to use for the soft-core Coulomb interaction. This is used
+            to soften the electrostatic interaction.
+
+        shift_coulomb : str
+            The soft-core shift-coulomb parameter. This is used to soften the
+            Coulomb interaction.
+
+        shift_delta : str
+            The soft-core shift-delta parameter. This is used to soften the
+            Lennard-Jones interaction.
 
         overwrite: bool
             Overwrite existing log files.
@@ -370,6 +385,26 @@ class GCMCSampler:
             raise ValueError("'lambda_value' must be between 0 and 1")
         self._lambda_value = float(lambda_value)
 
+        try:
+            coulomb_power = float(coulomb_power)
+        except:
+            raise ValueError("'coulomb_power' must be of type 'float'")
+        self._coulomb_power = float(coulomb_power)
+
+        try:
+            self._shift_coulomb = self._validate_sire_unit(
+                "shift_coulomb", shift_coulomb, _sr.u("A")
+            )
+        except Exception as e:
+            raise ValueError(f"Could not validate the 'shift_coulomb': {e}")
+
+        try:
+            self._shift_delta = self._validate_sire_unit(
+                "shift_delta", shift_delta, _sr.u("A")
+            )
+        except Exception as e:
+            raise ValueError(f"Could not validate the 'shift_delta': {e}")
+
         # Check for waters and validate the template.
         try:
             self._water_template = system["water"][0]
@@ -418,6 +453,7 @@ class GCMCSampler:
         self._kernels["cell"] = mod.get_function("setCellMatrix")
         self._kernels["rng"] = mod.get_function("initialiseRNG")
         self._kernels["rf"] = mod.get_function("setReactionField")
+        self._kernels["softcore"] = mod.get_function("setSoftCore")
         self._kernels["atom_properties"] = mod.get_function("setAtomProperties")
         self._kernels["atom_positions"] = mod.get_function("setAtomPositions")
         self._kernels["water_properties"] = mod.get_function("setWaterProperties")
@@ -1745,6 +1781,16 @@ class GCMCSampler:
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
+
+        # Initialise the soft-core parameters.
+        if self._is_fep:
+            self._kernels["softcore"](
+                _np.float32(self._coulomb_power),
+                _np.float32(self._shift_coulomb.value()),
+                _np.float32(self._shift_delta.value()),
+                block=(1, 1, 1),
+                grid=(1, 1, 1),
+            )
 
         # Set the atomic properties.
         self._kernels["atom_properties"](
