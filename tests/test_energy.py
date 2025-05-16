@@ -24,6 +24,9 @@ def test_energy(fixture, request):
     # Standard lambda schedule.
     schedule = sr.cas.LambdaSchedule.standard_morph()
 
+    # Set the lambda value.
+    lambda_value = 0.5
+
     # Create a GCMC sampler.
     sampler = GCMCSampler(
         mols,
@@ -31,7 +34,7 @@ def test_energy(fixture, request):
         cutoff="10 A",
         reference=reference,
         lambda_schedule=schedule,
-        lambda_value=0.5,
+        lambda_value=lambda_value,
         log_level="debug",
         ghost_file=None,
         log_file=None,
@@ -47,7 +50,10 @@ def test_energy(fixture, request):
         constraint="h_bonds",
         timestep="2 fs",
         schedule=schedule,
-        lambda_value=0.5,
+        lambda_value=lambda_value,
+        coulomb_power=sampler._coulomb_power,
+        shift_coulomb=str(sampler._shift_coulomb),
+        shift_delta=str(sampler._shift_delta),
     )
 
     # Get the context.
