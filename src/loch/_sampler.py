@@ -1715,7 +1715,7 @@ class GCMCSampler:
                         lj = atom.property("LJ0")
 
                         # This is a null LJ parameter.
-                        if lj == _sr.mm.LJParameter():
+                        if _np.isclose(lj.epsilon().value(), 0.0):
                             idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
                             is_ghost_fep[idx] = 1
 
@@ -1725,7 +1725,7 @@ class GCMCSampler:
                         lj = atom.property("LJ1")
 
                         # This is a null LJ parameter.
-                        if lj == _sr.mm.LJParameter():
+                        if _np.isclose(lj.epsilon().value(), 0.0):
                             idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
                             is_ghost_fep[idx] = 1
 
