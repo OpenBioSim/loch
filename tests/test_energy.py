@@ -3,6 +3,8 @@ import openmm
 import pytest
 import socket
 
+import sire as sr
+
 from loch import GCMCSampler
 
 
@@ -10,21 +12,26 @@ from loch import GCMCSampler
     socket.gethostname() != "porridge",
     reason="Local test requiring CUDA enabled GPU.",
 )
-@pytest.mark.parametrize("fixture", ["water_box", "bpti"])
+@pytest.mark.parametrize("fixture", ["water_box", "bpti", "sd12"])
 def test_energy(fixture, request):
     """
     Test that the RF energy difference agrees with OpenMM.
     """
 
     # Get the fixture.
-    mols = request.getfixturevalue(fixture)
+    mols, reference = request.getfixturevalue(fixture)
+
+    # Standard lambda schedule.
+    schedule = sr.cas.LambdaSchedule.standard_morph()
 
     # Create a GCMC sampler.
     sampler = GCMCSampler(
         mols,
         cutoff_type="rf",
         cutoff="10 A",
-        reference=None,
+        reference=reference,
+        lambda_schedule=schedule,
+        lambda_value=0.5,
         log_level="debug",
         ghost_file=None,
         log_file=None,
@@ -39,6 +46,8 @@ def test_energy(fixture, request):
         pressure=None,
         constraint="h_bonds",
         timestep="2 fs",
+        schedule=schedule,
+        lambda_value=0.5,
     )
 
     # Get the context.
