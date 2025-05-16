@@ -602,8 +602,8 @@ code = """
                         // Pair interaction.
                         for (int j = i+1; j < num_points; j++)
                         {
-                            const auto c2 = charge_water[j];
-                            energy_coul[idx] -= (q1 * c2) * rf_correction;
+                            const auto q2 = charge_water[j];
+                            energy_coul[idx] -= (q1 * q2) * rf_correction;
                         }
                     }
                 }
