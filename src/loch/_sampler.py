@@ -1647,42 +1647,36 @@ class GCMCSampler:
                 platform="cpu",
             )
 
-            # Flags for the required forces.
-            has_nb = False
+            # Flags for the required force.
             has_gng = False
 
             # Find the required forces.
             for force in d.context().getSystem().getForces():
-                if force.getName() == "NonbondedForce":
-                    nb_force = force
-                    has_nb = True
-                elif force.getName() == "GhostNonGhostNonbondedForce":
+                if force.getName() == "GhostNonGhostNonbondedForce":
                     gng_force = force
                     has_gng = True
+                    break
 
-            # Make sure the forces were found.
-            if not has_nb:
-                raise ValueError("Could not find the NonbondedForce in the system")
+            # Make sure the force was found.
             if not has_gng:
                 raise ValueError(
                     "Could not find the GhostNonGhostNonbondedForce in the system"
                 )
 
-            # Get the charges and sigma from the regular NonbondedForce.
+            # Get the parameters for the GhostNonGhostNonbondedForce.
             charges = []
             sigmas = []
-            for i in range(nb_force.getNumParticles()):
-                charge, sigma, epsilon = nb_force.getParticleParameters(i)
-                charges.append(charge.value_in_unit(_openmm.unit.elementary_charge))
-                sigmas.append(sigma.value_in_unit(_openmm.unit.angstrom))
-
-            # Get epsilon and alpha from the GhostNonGhostNonbondedForce.
             epsilons = []
             alphas = []
             for i in range(gng_force.getNumParticles()):
                 # Custom force parameters are returned as floats.
-                _, _, two_sqrt_epsilon, alpha, _ = gng_force.getParticleParameters(i)
+                q, half_sigma, two_sqrt_epsilon, alpha, _ = (
+                    gng_force.getParticleParameters(i)
+                )
+                # Charge in |e|, sigma in nm, epsilon in kJ/mol.
+                charges.append(q)
                 # Rescale and convert units.
+                sigmas.append(_sr.u(f"{2.0 * half_sigma} nm").to("angstrom"))
                 epsilons.append(
                     _sr.u(f"{(0.5 * two_sqrt_epsilon)**2} kJ/mol").to("kcal/mol")
                 )
