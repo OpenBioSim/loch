@@ -1639,6 +1639,8 @@ class GCMCSampler:
             d = self._system.dynamics(
                 cutoff_type=self._cutoff,
                 cutoff=self._cutoff,
+                lambda_value=self._lambda_value,
+                schedule=self._lambda_schedule,
                 timestep="2fs",
                 constraint="h_bonds",
                 perturbable_constraint="h_bonds_not_heavy_perturbed",
