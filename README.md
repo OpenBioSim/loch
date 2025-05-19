@@ -33,7 +33,7 @@ the water clusters that were sampled within the GCMC sphere radius over the cour
 of the trajectory. Aligned positions of the crystal waters are also written to the
 `bpti_crystal_waters.pdb` file. The script will also write a reference structure for
 BPTI, `bpti_reference.pdb`. The clusters can be visualised using
-[VMD](https://www.ks.uiuc.edu/Research/vmd/) or [PyMOL](https://pymol.org/)`,
+[VMD](https://www.ks.uiuc.edu/Research/vmd/) or [PyMOL](https://pymol.org/),
 e.g. for `VMD`:
 
 ```
