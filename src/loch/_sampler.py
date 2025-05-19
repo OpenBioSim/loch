@@ -1898,10 +1898,6 @@ class GCMCSampler:
         if self._is_fep:
             self._custom_nonbonded_force.updateParametersInContext(context)
 
-        # Update the CustomNonbondedForce parameters in the context.
-        if self._is_fep:
-            self._custom_nonbonded_force.updateParametersInContext(context)
-
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
             _np.int32(idx_water),
@@ -1961,6 +1957,10 @@ class GCMCSampler:
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)
+
+        # Update the CustomNonbondedForce parameters in the context.
+        if self._is_fep:
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
