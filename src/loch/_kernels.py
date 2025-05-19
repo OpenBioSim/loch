@@ -717,7 +717,6 @@ code = """
                                 const auto s1 = sigma_water[i];
                                 const auto e1 = epsilon_water[i];
                                 const auto a = alpha[idx_atom];
-                                const auto delta = shift_delta * a;
                                 const auto s = 0.5f * (s0 + s1);
                                 const auto e = sqrtf(e0 * e1);
 
@@ -731,7 +730,8 @@ code = """
                                 }
 
                                 // Compute the Lennard-Jones interaction.
-                                const auto s6 = powf(s, 6) / powf((s * delta) + (r * r), 3);
+                                const auto delta_lj = shift_delta * a;
+                                const auto s6 = powf(s, 6.0) / powf((s * delta_lj) + (r * r), 3.0);
                                 energy_lj[idx] += 4.0f * e * s6 * (s6 - 1.0f);
 
                                 // Compute the Coulomb power expression.
@@ -746,7 +746,9 @@ code = """
                                 }
 
                                 // Compute the Coulomb interaction.
-                                energy_coul[idx] += (q0 * q1) * (cpe / sqrtf((shift_coulomb * a * a) + (r * r)));
+                                auto delta_coulomb = shift_coulomb * a;
+                                energy_coul[idx] += (q0 * q1) *
+                                    ((cpe / sqrtf((delta_coulomb * delta_coulomb) + (r * r))) + (rf_kappa * r2) - rf_correction);
                             }
                         }
                     }
