@@ -536,6 +536,8 @@ class GCMCSampler:
         import sys
 
         # Create a logger that writes to stderr and the log file.
+        # The 'no_logger' keyword argument can be used to disable logging if
+        # the sampler is being driven by an external package, e.g. SOMD2.
         if not "no_logger" in kwargs:
             _logger.remove()
             _logger.add(sys.stderr, level=self._log_level.upper())
