@@ -1,5 +1,7 @@
 # Loch
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
+
 Prototype CUDA accelerated GCMC water sampling code.
 
 ## Installation
