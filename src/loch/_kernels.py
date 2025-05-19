@@ -716,9 +716,9 @@ code = """
                                 const auto q1 = charge_water[i];
                                 const auto s1 = sigma_water[i];
                                 const auto e1 = epsilon_water[i];
-                                const auto a = alpha[idx_atom];
                                 const auto s = 0.5f * (s0 + s1);
                                 const auto e = sqrtf(e0 * e1);
+                                const auto a = alpha[idx_atom];
 
                                 // Compute the distance between the atoms.
                                 float r = sqrtf(r2);
@@ -749,6 +749,9 @@ code = """
                                 auto delta_coulomb = shift_coulomb * a;
                                 energy_coul[idx] += (q0 * q1) *
                                     ((cpe / sqrtf((delta_coulomb * delta_coulomb) + (r * r))) + (rf_kappa * r2) - rf_correction);
+
+                                //printf("Ghost interaction: %%d %%d %%d %%f %%f %%f %%f %%f %%f %%f\\n", is_deletion[idx_water],
+                                //    idx_water, idx_atom, a, q0, q1, r, delta_lj, delta_coulomb, cpe);
                             }
                         }
                     }

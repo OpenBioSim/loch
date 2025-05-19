@@ -1742,6 +1742,11 @@ class GCMCSampler:
             self._water_sigma = _np.array(sigma_water)
             self._water_epsilon = _np.array(epsilon_water)
 
+            # Convert sigma and epsilon for use in custom forces.
+            # These are half-sigma in nanometers and 2 * sqrt(epsilon) in kJ/mol.
+            self._water_sigma_custom = 0.05 * self._water_sigma
+            self._water_epsilon_custom = 2.0 * _np.sqrt(4.184 * self._water_epsilon)
+
             # Convert to GPU arrays.
             charge_water = _gpuarray.to_gpu(self._water_charge.astype(_np.float32))
             sigma_water = _gpuarray.to_gpu(self._water_sigma.astype(_np.float32))
@@ -1881,8 +1886,8 @@ class GCMCSampler:
                     start_idx + i,
                     (
                         self._water_charge[i],
-                        0.5 * self._water_sigma[i],
-                        2.0 * _np.sqrt(self._water_epsilon[i]),
+                        self._water_sigma_custom[i],
+                        self._water_epsilon_custom[i],
                         0.0,
                         0.0,
                     ),
@@ -1948,9 +1953,9 @@ class GCMCSampler:
                     start_idx + i,
                     (
                         0.0,
-                        0.5 * self._water_sigma[i],
+                        self._water_sigma_custom[i],
                         0.0,
-                        1.0,
+                        0.0,
                         0.0,
                     ),
                 )
@@ -2011,8 +2016,8 @@ class GCMCSampler:
                     start_idx + i,
                     (
                         self._water_charge[i],
-                        0.5 * self._water_sigma[i],
-                        2.0 * _np.sqrt(self._water_epsilon[i]),
+                        self._water_sigma_custom[i],
+                        self._water_epsilon_custom[i],
                         0.0,
                         0.0,
                     ),
