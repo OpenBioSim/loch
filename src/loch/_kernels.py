@@ -748,10 +748,9 @@ code = """
                                 // Compute the Coulomb interaction.
                                 auto delta_coulomb = shift_coulomb * a;
                                 energy_coul[idx] += (q0 * q1) *
-                                    ((cpe / sqrtf((delta_coulomb * delta_coulomb) + (r * r))) + (rf_kappa * r2) - rf_correction);
+                                    ((cpe / sqrtf((delta_coulomb * delta_coulomb)
+                                    + (r * r))) + (rf_kappa * r2) - rf_correction);
 
-                                //printf("Ghost interaction: %%d %%d %%d %%f %%f %%f %%f %%f %%f %%f\\n", is_deletion[idx_water],
-                                //    idx_water, idx_atom, a, q0, q1, r, delta_lj, delta_coulomb, cpe);
                             }
                         }
                     }
