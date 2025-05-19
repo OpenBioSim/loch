@@ -1950,7 +1950,7 @@ class GCMCSampler:
                         0.0,
                         0.5 * self._water_sigma[i],
                         0.0,
-                        0.0,
+                        1.0,
                         0.0,
                     ),
                 )
