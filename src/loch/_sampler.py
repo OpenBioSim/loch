@@ -349,12 +349,17 @@ class GCMCSampler:
         from pycuda.tools import make_default_context
 
         # Set the CUDA device.
+        cuda.init()
         if device is not None:
             if not isinstance(device, int):
                 raise ValueError("'device' must be of type 'int'")
-            _os.environ["CUDA_DEVICE"] = str(device)
-        cuda.init()
-        self._pycuda_context = make_default_context()
+            if device < 0 or device >= cuda.Device.count():
+                raise ValueError(
+                    f"'device' must be between 0 and {cuda.Device.count() - 1}"
+                )
+            self._pycuda_context = cuda.Device(device).make_context()
+        else:
+            self._pycuda_context = make_default_context()
         self._device = self._pycuda_context.get_device()
 
         # Set the tolerance.
