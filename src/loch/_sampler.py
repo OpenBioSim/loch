@@ -345,19 +345,18 @@ class GCMCSampler:
         # Create a random number generator.
         self._rng = _np.random.default_rng(self._seed)
 
-        import pycuda.driver as cuda
         from pycuda.tools import make_default_context
 
         # Set the CUDA device.
-        cuda.init()
+        _cuda.init()
         if device is not None:
             if not isinstance(device, int):
                 raise ValueError("'device' must be of type 'int'")
-            if device < 0 or device >= cuda.Device.count():
+            if device < 0 or device >= _cuda.Device.count():
                 raise ValueError(
                     f"'device' must be between 0 and {cuda.Device.count() - 1}"
                 )
-            self._pycuda_context = cuda.Device(device).make_context()
+            self._pycuda_context = _cuda.Device(device).make_context()
         else:
             self._pycuda_context = make_default_context()
         self._device = self._pycuda_context.get_device()
