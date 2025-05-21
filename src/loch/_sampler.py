@@ -611,8 +611,24 @@ class GCMCSampler:
         """
         Detach the PyCUDA context.
         """
+        try:
+            self.pop()
+        except:
+            pass
         self._pycuda_context.detach()
         self._pycuda_context = None
+
+    def push(self):
+        """
+        Push the PyCUDA context on top of the stack.
+        """
+        self._pycuda_context.push()
+
+    def pop(self):
+        """
+        Pop the PyCUDA context from the stack.
+        """
+        self._pycuda_context.pop()
 
     def system(self):
         """
@@ -942,10 +958,6 @@ class GCMCSampler:
         moves: [int]
             A list of the accepted moves. (0 = insertion, 1 = deletion)
         """
-
-        # Push the PyCUDA context on top of the stack.
-        self._pycuda_context.push()
-
         # Increment the number of moves.
         self._num_moves += 1
 
@@ -1362,9 +1374,6 @@ class GCMCSampler:
         # calls self.num_waters() after the move.
         if self._reference is not None and self._is_bulk:
             self._openmm_context = context
-
-        # Remove the PyCUDA context from the stack.
-        self._pycuda_context.pop()
 
         return moves
 
