@@ -847,6 +847,12 @@ class GCMCSampler:
         """
         return self._num_accepted_attempts
 
+    def water_state(self):
+        """
+        Return the current water state.
+        """
+        return self._water_state
+
     def move_acceptance_probability(self):
         """
         Return the acceptance probability.
