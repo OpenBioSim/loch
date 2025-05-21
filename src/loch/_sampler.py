@@ -2077,7 +2077,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N += 1
 
-    def _update_water_state(idx, state, context):
+    def _set_water_state(idx, state, context):
         """
         Update the state of a water molecule. This can be used by external
         packages when swapping OpenMM state between different replicas when
