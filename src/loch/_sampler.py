@@ -1501,11 +1501,11 @@ class GCMCSampler:
             raise ValueError(f"Could not get the reference atoms: {e}")
 
         # Get the absolute indices of the atoms.
-        indices = []
-        for atom in atoms:
-            indices.append(bss_system.getIndex(atom))
+        indices = _np.zeros(len(atoms), dtype=_np.int32)
+        for i, atom in enumerate(atoms):
+            indices[i] = bss_system.getIndex(atom)
 
-        return _np.array(indices)
+        return indices
 
     @staticmethod
     def _prepare_system(system, water_template, rng, max_gcmc_waters):
@@ -1619,29 +1619,33 @@ class GCMCSampler:
         if not self._is_fep:
             # Get the charges on all the atoms.
             try:
-                charges = []
+                charges = _np.zeros(self._num_atoms, dtype=_np.float32)
+                i = 0
                 for mol in self._system:
-                    charges_mol = [charge.value() for charge in mol.property("charge")]
-                    charges.extend(charges_mol)
+                    for q in mol.property("charge"):
+                        charges[i] = q.value()
+                        i += 1
 
                 # Convert to a GPU array.
-                charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
+                charges = _gpuarray.to_gpu(charges.astype(_np.float32))
 
             except Exception as e:
                 raise ValueError(f"Could not get the charges on the atoms: {e}")
 
             # Try to get the sigma and epsilon for the atoms.
             try:
-                sigmas = []
-                epsilons = []
+                sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
+                epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
+                i = 0
                 for mol in self._system:
                     for lj in mol.property("LJ"):
-                        sigmas.append(lj.sigma().value())
-                        epsilons.append(lj.epsilon().value())
+                        sigmas[i] = lj.sigma().value()
+                        epsilons[i] = lj.epsilon().value()
+                        i += 1
 
                 # Convert to GPU arrays.
-                sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
-                epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
+                sigmas = _gpuarray.to_gpu(sigmas.astype(_np.float32))
+                epsilons = _gpuarray.to_gpu(epsilons.astype(_np.float32))
 
             except Exception as e:
                 raise ValueError(f"Could not get the LJ parameters: {e}")
@@ -1685,30 +1689,30 @@ class GCMCSampler:
                 )
 
             # Get the parameters for the GhostNonGhostNonbondedForce.
-            charges = []
-            sigmas = []
-            epsilons = []
-            alphas = []
+            charges = _np.zeros(self._num_atoms, dtype=_np.float32)
+            sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
+            epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
+            alphas = _np.zeros(self._num_atoms, dtype=_np.float32)
             for i in range(gng_force.getNumParticles()):
                 # Custom force parameters are returned as floats.
                 q, half_sigma, two_sqrt_epsilon, alpha, _ = (
                     gng_force.getParticleParameters(i)
                 )
                 # Charge in |e|, sigma in nm, epsilon in kJ/mol.
-                charges.append(q)
+                charges[i] = q
                 # Rescale and convert units.
-                sigmas.append(_sr.u(f"{2.0 * half_sigma} nm").to("angstrom"))
-                epsilons.append(
-                    _sr.u(f"{(0.5 * two_sqrt_epsilon)**2} kJ/mol").to("kcal/mol")
+                sigmas[i] = _sr.u(f"{2.0 * half_sigma} nm").to("angstrom")
+                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon)**2} kJ/mol").to(
+                    "kcal/mol"
                 )
                 # Store the softening parameter.
-                alphas.append(alpha)
+                alphas[i] = alpha
 
             # Convert to GPU arrays.
-            charges = _gpuarray.to_gpu(_np.array(charges).astype(_np.float32))
-            sigmas = _gpuarray.to_gpu(_np.array(sigmas).astype(_np.float32))
-            epsilons = _gpuarray.to_gpu(_np.array(epsilons).astype(_np.float32))
-            alphas = _gpuarray.to_gpu(_np.array(alphas).astype(_np.float32))
+            charges = _gpuarray.to_gpu(charges.astype(_np.float32))
+            sigmas = _gpuarray.to_gpu(sigmas.astype(_np.float32))
+            epsilons = _gpuarray.to_gpu(epsilons.astype(_np.float32))
+            alphas = _gpuarray.to_gpu(alphas.astype(_np.float32))
 
             # Create the ghost atom array.
             is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
