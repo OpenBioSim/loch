@@ -2111,7 +2111,10 @@ class GCMCSampler:
             for i in range(self._num_points):
                 # Update the NonbondedForce parameters.
                 self._nonbonded_force.setParticleParameters(
-                    start_idx + i, 0.0, self._water_sigma[i] * _openmm.unit.angstrom, 0.0
+                    start_idx + i,
+                    0.0,
+                    self._water_sigma[i] * _openmm.unit.angstrom,
+                    0.0,
                 )
                 # Update the CustomNonbondedForce parameters.
                 if self._is_fep:
@@ -2140,6 +2143,9 @@ class GCMCSampler:
                 block=(1, 1, 1),
                 grid=(1, 1, 1),
             )
+
+            # Set the new water state.
+            self._water_state[idx] = 0
 
         # GCMC or real water. (Set all as a real water, state = 2.)
         else:
@@ -2178,6 +2184,9 @@ class GCMCSampler:
                 block=(1, 1, 1),
                 grid=(1, 1, 1),
             )
+
+            # Set the new water state.
+            self._water_state[idx] = 2
 
     def _set_nonbonded_forces(self, context):
         """
