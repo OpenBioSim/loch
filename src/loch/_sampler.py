@@ -609,13 +609,10 @@ class GCMCSampler:
 
     def _cleanup(self):
         """
-        Clean up the CUDA context.
+        Detach the PyCUDA context.
         """
-        from pycuda.tools import clear_context_caches
-
-        self._pycuda_context.pop()
+        self._pycuda_context.detach()
         self._pycuda_context = None
-        clear_context_caches()
 
     def system(self):
         """
@@ -945,6 +942,9 @@ class GCMCSampler:
         moves: [int]
             A list of the accepted moves. (0 = insertion, 1 = deletion)
         """
+
+        # Push the PyCUDA context on top of the stack.
+        self._pycuda_context.push()
 
         # Increment the number of moves.
         self._num_moves += 1
@@ -1362,6 +1362,9 @@ class GCMCSampler:
         # calls self.num_waters() after the move.
         if self._reference is not None and self._is_bulk:
             self._openmm_context = context
+
+        # Remove the PyCUDA context from the stack.
+        self._pycuda_context.pop()
 
         return moves
 
