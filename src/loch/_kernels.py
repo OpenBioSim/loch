@@ -183,7 +183,7 @@ code = """
         }
 
         // Update a single water.
-        __global__ void updateWater(int idx, int state)
+        __global__ void updateWater(int idx, int state, int is_insertion, float* new_position)
         {
             // Set the new state.
             water_state[idx] = state;
@@ -205,6 +205,14 @@ code = """
                     charge[idx_context + i] = charge_water[i];
                     epsilon[idx_context + i] = epsilon_water[i];
                     is_ghost_water[idx_context + i] = 0;
+                }
+
+                // Update the position of the water.
+                if (is_insertion == 1)
+                {
+                    position[3 * idx_context + i * 3] = new_position[i * 3];
+                    position[3 * idx_context + i * 3 + 1] = new_position[i * 3 + 1];
+                    position[3 * idx_context + i * 3 + 2] = new_position[i * 3 + 2];
                 }
             }
         }

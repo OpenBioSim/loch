@@ -996,29 +996,37 @@ class GCMCSampler:
 
             # Prepare the GPU state for the next batch.
             if num_batches == 1 or is_accepted:
-                # Get the OpenMM state.
-                state = context.getState(getPositions=True, getEnergy=self._is_pme)
+                # We only need to get the positions and initial energy for the first
+                # batch. These will be updated dynamically as moves are accepted.
+                if num_batches == 1:
+                    # Get the OpenMM state.
+                    state = context.getState(getPositions=True, getEnergy=self._is_pme)
 
-                # Get the current positions in Angstrom.
-                positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+                    # Get the current positions in OpenMM format and in Angstrom.
+                    positions_openmm = state.getPositions(asNumpy=True)
+                    positions_angstrom = positions_openmm / _openmm.unit.angstrom
 
-                # If we're using PME, then compute the initial energy.
-                if self._is_pme:
-                    initial_energy = state.getPotentialEnergy()
-                else:
-                    initial_energy = None
+                    # If we're using PME, then compute the initial energy.
+                    if self._is_pme:
+                        initial_energy = state.getPotentialEnergy()
+                    else:
+                        initial_energy = None
 
-                # Sample within the GCMC sphere.
-                if self._reference is not None and not self._is_bulk:
-                    target = self._get_target_position(positions).astype(_np.float32)
+                    # Sample within the GCMC sphere.
+                    if self._reference is not None and not self._is_bulk:
+                        target = self._get_target_position(positions_angstrom).astype(
+                            _np.float32
+                        )
 
-                # Set the positions on the GPU.
-                self._kernels["atom_positions"](
-                    _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
-                    _np.float32(1.0),
-                    block=(self._num_threads, 1, 1),
-                    grid=(self._atom_blocks, 1, 1),
-                )
+                    # Set the positions on the GPU.
+                    self._kernels["atom_positions"](
+                        _gpuarray.to_gpu(
+                            positions_angstrom.astype(_np.float32).flatten()
+                        ),
+                        _np.float32(1.0),
+                        block=(self._num_threads, 1, 1),
+                        grid=(self._atom_blocks, 1, 1),
+                    )
 
                 # Work out the number of waters in the sampling volume.
                 if not self._is_bulk:
@@ -1057,7 +1065,7 @@ class GCMCSampler:
                 # Get the template positions for the water insertion.
                 start_idx = self._water_indices[idx_water]
                 template_positions = _gpuarray.to_gpu(
-                    positions[start_idx : start_idx + self._num_points]
+                    positions_angstrom[start_idx : start_idx + self._num_points]
                     .astype(_np.float32)
                     .flatten()
                 )
@@ -1190,7 +1198,9 @@ class GCMCSampler:
                 # Insertion move.
                 if is_deletion[idx] == 0:
                     # Accept the move.
-                    self._accept_insertion(idx, idx_water, context)
+                    self._accept_insertion(
+                        idx, idx_water, positions_openmm, positions_angstrom, context
+                    )
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -1352,7 +1362,7 @@ class GCMCSampler:
                             self._log_deletion(
                                 idx,
                                 candidates,
-                                positions,
+                                positions_angstrom,
                                 pme_energy=pme_energy,
                                 pme_probability=pme_probability,
                             )
@@ -1361,6 +1371,10 @@ class GCMCSampler:
             # Update the move acceptance flag and append the move.
             if is_accepted:
                 moves.append(move)
+
+                # Update the initial energy.
+                if self._is_pme:
+                    initial_energy = final_energy
 
                 # Return immediately if we're in test mode.
                 if self._is_test:
@@ -1871,7 +1885,9 @@ class GCMCSampler:
         # Initialise memory to store the deletion candidates.
         self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
 
-    def _accept_insertion(self, idx, idx_water, context):
+    def _accept_insertion(
+        self, idx, idx_water, positions_openmm, positions_angstrom, context
+    ):
         """
         Accept a insertion move.
 
@@ -1883,6 +1899,12 @@ class GCMCSampler:
 
         idx_water: int
             The index of the ghost water to use for the insertion.
+
+        positions_openmm: numpy.ndarray
+            The positions of the atoms in the system in OpenMM units.
+
+        positions_angstrom: numpy.ndarray
+            The positions of the atoms in the system in Angstroms.
 
         context: openmm.Context
             The OpenMM context to update.
@@ -1900,11 +1922,13 @@ class GCMCSampler:
         start_idx = self._water_indices[idx_water]
 
         # Update the water positions and NonBondedForce.
-        positions = context.getState(getPositions=True).getPositions(asNumpy=True)
         for i in range(self._num_points):
             # Update the water positions.
-            positions[start_idx + i] = _openmm.unit.Quantity(
+            positions_openmm[start_idx + i] = _openmm.unit.Quantity(
                 water_positions[i], _openmm.unit.angstrom
+            )
+            positions_angstrom[start_idx + 3 * i : start_idx + 3 * (i + 1)] = (
+                water_positions[i]
             )
             # Update the NonBondedForce parameters.
             self._nonbonded_force.setParticleParameters(
@@ -1927,7 +1951,7 @@ class GCMCSampler:
                 )
 
         # Set the new positions.
-        context.setPositions(positions)
+        context.setPositions(positions_openmm)
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)
@@ -1940,6 +1964,8 @@ class GCMCSampler:
         self._kernels["update_water"](
             _np.int32(idx_water),
             _np.int32(1),
+            _np.int32(1),
+            _gpuarray.to_gpu(water_positions.flatten().astype(_np.float32)),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2005,6 +2031,10 @@ class GCMCSampler:
         self._kernels["update_water"](
             _np.int32(idx),
             _np.int32(0),
+            _np.int32(0),
+            _gpuarray.to_gpu(
+                _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+            ),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2069,6 +2099,10 @@ class GCMCSampler:
         self._kernels["update_water"](
             _np.int32(idx),
             _np.int32(state),
+            _np.int32(0),
+            _gpuarray.to_gpu(
+                _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+            ),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2139,6 +2173,10 @@ class GCMCSampler:
             self._kernels["update_water"](
                 _np.int32(idx),
                 _np.int32(0),
+                _np.int32(0),
+                _gpuarray.to_gpu(
+                    _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+                ),
                 block=(1, 1, 1),
                 grid=(1, 1, 1),
             )
@@ -2180,6 +2218,10 @@ class GCMCSampler:
             self._kernels["update_water"](
                 _np.int32(idx),
                 _np.int32(2),
+                _np.int32(0),
+                _gpuarray.to_gpu(
+                    _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+                ),
                 block=(1, 1, 1),
                 grid=(1, 1, 1),
             )
