@@ -720,7 +720,7 @@ class GCMCSampler:
             The OpenMM context to use.
         """
 
-        # Set the NonBondedForce.
+        # Set the NonBondedForce(s).
         self._set_nonbonded_forces(context)
 
         # Get the OpenMM state.
@@ -967,7 +967,7 @@ class GCMCSampler:
         # Increment the number of moves.
         self._num_moves += 1
 
-        # Set the NonBondedForce.
+        # Set the NonBondedForce(s).
         self._set_nonbonded_forces(context)
 
         # Zero the number of attempts and batch index.
@@ -2128,6 +2128,9 @@ class GCMCSampler:
         context: openmm.Context
             The OpenMM context to update.
         """
+
+        # Set the NonBondedForce(s).
+        self._set_nonbonded_forces(context)
 
         # Get the current water state.
         current_state = self._water_state[idx]
