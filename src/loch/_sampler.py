@@ -851,7 +851,7 @@ class GCMCSampler:
         """
         Return the current water state array: 0 = ghost water, 1 = real water.
         """
-        return self._water_state
+        return self._water_state.copy()
 
     def move_acceptance_probability(self):
         """
