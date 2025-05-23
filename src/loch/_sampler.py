@@ -849,7 +849,7 @@ class GCMCSampler:
 
     def water_state(self):
         """
-        Return the current water state.
+        Return the current water state array: 0 = ghost water, 1 = real water.
         """
         return self._water_state
 
@@ -1284,7 +1284,7 @@ class GCMCSampler:
                 # Deletion move.
                 else:
                     # Accept the move.
-                    previous_state = self._accept_deletion(candidates[idx], context)
+                    self._accept_deletion(candidates[idx], context)
 
                     # Update the acceptance statistics.
                     self._num_accepted += 1
@@ -1323,9 +1323,7 @@ class GCMCSampler:
                         # The move was rejected.
                         if acc_prob < self._rng.random():
                             # Revert the move.
-                            self._reject_deletion(
-                                candidates[idx], previous_state, context
-                            )
+                            self._reject_deletion(candidates[idx], context)
 
                             # Update the acceptance statistics.
                             self._num_accepted -= 1
@@ -1804,7 +1802,7 @@ class GCMCSampler:
         is_ghost_water = _np.zeros(self._num_atoms, dtype=_np.int32)
         for i in range(self._num_waters):
             if i < self._num_waters - self._max_gcmc_waters:
-                water_state.append(2)
+                water_state.append(1)
             else:
                 water_state.append(0)
                 for j in range(self._num_points):
@@ -1985,16 +1983,7 @@ class GCMCSampler:
 
         context: openmm.Context
             The OpenMM context to update.
-
-        Returns
-        -------
-
-        previous_state: int
-            The previous state of the water.
         """
-
-        # Store the curent water state.
-        previous_state = self._water_state[idx]
 
         # Update the water state.
         self._water_state[idx] = 0
@@ -2042,9 +2031,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N -= 1
 
-        return previous_state
-
-    def _reject_deletion(self, idx, state, context):
+    def _reject_deletion(self, idx, context):
         """
         Reject a deletion move.
 
@@ -2054,15 +2041,12 @@ class GCMCSampler:
         idx: int
             The index of the water.
 
-        state: int
-            The previous state of the water.
-
         context: openmm.Context
             The OpenMM context to update.
         """
 
         # Reset the water state.
-        self._water_state[idx] = state
+        self._water_state[idx] = 1
 
         # Get the starting atom index.
         start_idx = self._water_indices[idx]
@@ -2098,7 +2082,7 @@ class GCMCSampler:
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
             _np.int32(idx),
-            _np.int32(state),
+            _np.int32(1),
             _np.int32(0),
             _gpuarray.to_gpu(
                 _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
@@ -2187,7 +2171,7 @@ class GCMCSampler:
             # Set the new water state.
             self._water_state[idx] = 0
 
-        # GCMC or real water. (Set all as a real water, state = 2.)
+        # Real water.
         else:
             for i in range(self._num_points):
                 # Update the NonbondedForce parameters.
@@ -2220,7 +2204,7 @@ class GCMCSampler:
             # Update the state of the water on the GPU.
             self._kernels["update_water"](
                 _np.int32(idx),
-                _np.int32(2),
+                _np.int32(1),
                 _np.int32(0),
                 _gpuarray.to_gpu(
                     _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
@@ -2230,7 +2214,7 @@ class GCMCSampler:
             )
 
             # Set the new water state.
-            self._water_state[idx] = 2
+            self._water_state[idx] = 1
 
     def _set_nonbonded_forces(self, context):
         """
