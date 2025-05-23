@@ -1797,7 +1797,7 @@ class GCMCSampler:
         except Exception as e:
             raise ValueError(f"Could not get the atomic properties of the water: {e}")
 
-        # Initialise the water state: 0 = ghost, 1 = GCMC, 2 = normal.
+        # Initialise the water state: 0 = ghost, 1 = real.
         water_state = []
         is_ghost_water = _np.zeros(self._num_atoms, dtype=_np.int32)
         for i in range(self._num_waters):
