@@ -2252,7 +2252,7 @@ class GCMCSampler:
             The centre of the GCMC sphere.
         """
 
-        # Work out centre of geometry of the reference atoms.
+        # Work out the centre of geometry of the reference atoms.
         centre = _sr.maths.Vector(*positions[self._reference_indices[0]])
         target = centre
         for index in self._reference_indices[1:]:
