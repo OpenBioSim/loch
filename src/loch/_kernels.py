@@ -207,7 +207,10 @@ code = """
                     is_ghost_water[idx_context + i] = 0;
                 }
 
-                // Update the position of the water.
+                // Update the position of the water. We don't use the state to determine
+                // whether an insertion is performed, since we don't need to update the
+                // positions when a deletion move is rejected, which would also set the
+                // state to 1.
                 if (is_insertion == 1)
                 {
                     position[3 * idx_context + i * 3] = new_position[i * 3];
