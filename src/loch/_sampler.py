@@ -53,7 +53,7 @@ class GCMCSampler:
         standard_volume="30.543 A^3",
         temperature="298 K",
         adams_shift=0.0,
-        max_gcmc_waters=10,
+        max_gcmc_waters=20,
         batch_size=1000,
         num_attempts=10000,
         num_threads=1024,
