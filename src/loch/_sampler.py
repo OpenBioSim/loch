@@ -2396,3 +2396,37 @@ class GCMCSampler:
                 f"Total PME energy difference: {self._debug['pme_energy']:.6f} kcal/mol"
             )
             _logger.debug(f"PME deletion probability: {pme_probability:.6f}")
+
+    def _flag_ghost_waters(self, system):
+        """
+        Flag the ghost waters in the system.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+
+        Returns
+
+        system: sire.system.System
+            The system with the ghost waters flagged.
+        """
+
+        if not isinstance(system, _sr.system.System):
+            raise ValueError("'system' must be a Sire system")
+
+        # First get the indices of the ghost waters.
+        ghost_waters = _np.where(self._water_state == 0)[0]
+
+        # Now extract the oxygen indices.
+        ghost_oxygens = self._water_indices[ghost_waters]
+
+        # Loop over the ghost waters and set the is_ghost property.
+        for i in ghost_oxygens:
+            cursor = system[system.atoms()[int(i)].molecule()].cursor()
+            cursor["is_ghost_water"] = True
+            system.update(cursor.commit())
+
+        # Return the system.
+        return system
