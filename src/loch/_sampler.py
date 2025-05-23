@@ -1925,9 +1925,7 @@ class GCMCSampler:
             positions_openmm[start_idx + i] = _openmm.unit.Quantity(
                 water_positions[i], _openmm.unit.angstrom
             )
-            positions_angstrom[start_idx + 3 * i : start_idx + 3 * (i + 1)] = (
-                water_positions[i]
-            )
+            positions_angstrom[start_idx + i] = water_positions[i]
             # Update the NonBondedForce parameters.
             self._nonbonded_force.setParticleParameters(
                 start_idx + i,
