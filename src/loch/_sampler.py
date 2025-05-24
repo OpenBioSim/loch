@@ -2120,6 +2120,8 @@ class GCMCSampler:
             if self._water_state[idx] == state:
                 continue
 
+            _logger.debug(f"Updating water {idx} to state {state}")
+
             # Get the water starting index.
             start_idx = self._water_indices[idx]
 
