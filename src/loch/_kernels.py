@@ -213,9 +213,9 @@ code = """
                 // state to 1.
                 if (is_insertion == 1)
                 {
-                    position[3 * idx_context + i * 3] = new_position[i * 3];
-                    position[3 * idx_context + i * 3 + 1] = new_position[i * 3 + 1];
-                    position[3 * idx_context + i * 3 + 2] = new_position[i * 3 + 2];
+                    position[3 * idx_context + 3 * i] = new_position[3 * i];
+                    position[3 * idx_context + 3 * i + 1] = new_position[3 * i + 1];
+                    position[3 * idx_context + 3 * i + 2] = new_position[3 * i + 2];
                 }
             }
         }
