@@ -2092,20 +2092,19 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N += 1
 
-    def _set_water_state(self, idx, state, context):
+    def _set_water_state(self, indices, states, context):
         """
-        Update the state of a water molecule. This can be used by external
-        packages when swapping OpenMM state between different replicas when
-        GCMC sampling.
+        Update the state for a list of waters. This can by external packages
+        when swapping OpenMM state between different replicas when GCMC sampling.
 
         Parameters
         ----------
 
-        idx: int
-            The index of the water.
+        indices: np.array
+            The indices of the waters to update.
 
-        state: int
-            The new state of the water.
+        states: np.array
+            The new states of the water.
 
         context: openmm.Context
             The OpenMM context to update.
@@ -2114,105 +2113,98 @@ class GCMCSampler:
         # Set the NonBondedForce(s).
         self._set_nonbonded_forces(context)
 
-        # Get the current water state.
-        current_state = self._water_state[idx]
+        # Loop over the indices and states.
+        for idx, state in zip(indices, states):
 
-        # Nothing to do.
-        if current_state == state:
-            return
+            # Skip if the state is the same.
+            if self._water_state[idx] == state:
+                continue
 
-        # Get the water starting index.
-        start_idx = self._water_indices[idx]
+            # Get the water starting index.
+            start_idx = self._water_indices[idx]
 
-        # Ghost water.
-        if state == 0:
-            for i in range(self._num_points):
-                # Update the NonbondedForce parameters.
-                self._nonbonded_force.setParticleParameters(
-                    start_idx + i,
-                    0.0,
-                    self._water_sigma[i] * _openmm.unit.angstrom,
-                    0.0,
-                )
-                # Update the CustomNonbondedForce parameters.
-                if self._is_fep:
-                    self._custom_nonbonded_force.setParticleParameters(
+            # Ghost water.
+            if state == 0:
+                for i in range(self._num_points):
+                    # Update the NonbondedForce parameters.
+                    self._nonbonded_force.setParticleParameters(
                         start_idx + i,
-                        (
-                            0.0,
-                            self._water_sigma_custom[i],
-                            0.0,
-                            0.0,
-                            0.0,
-                        ),
+                        0.0,
+                        self._water_sigma[i] * _openmm.unit.angstrom,
+                        0.0,
                     )
+                    # Update the CustomNonbondedForce parameters.
+                    if self._is_fep:
+                        self._custom_nonbonded_force.setParticleParameters(
+                            start_idx + i,
+                            (
+                                0.0,
+                                self._water_sigma_custom[i],
+                                0.0,
+                                0.0,
+                                0.0,
+                            ),
+                        )
 
-            # Update the NonbondedForce parameters in the context.
-            self._nonbonded_force.updateParametersInContext(context)
-
-            # Update the CustomNonbondedForce parameters in the context.
-            if self._is_fep:
-                self._custom_nonbonded_force.updateParametersInContext(context)
-
-            # Update the state of the water on the GPU.
-            self._kernels["update_water"](
-                _np.int32(idx),
-                _np.int32(0),
-                _np.int32(0),
-                _gpuarray.to_gpu(
-                    _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
-                ),
-                block=(1, 1, 1),
-                grid=(1, 1, 1),
-            )
-
-            # Set the new water state.
-            self._water_state[idx] = 0
-
-        # Real water.
-        else:
-            for i in range(self._num_points):
-                # Update the NonbondedForce parameters.
-                self._nonbonded_force.setParticleParameters(
-                    start_idx + i,
-                    self._water_charge[i] * _openmm.unit.elementary_charge,
-                    self._water_sigma[i] * _openmm.unit.angstrom,
-                    self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
+                # Update the state of the water on the GPU.
+                self._kernels["update_water"](
+                    _np.int32(idx),
+                    _np.int32(0),
+                    _np.int32(0),
+                    _gpuarray.to_gpu(
+                        _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+                    ),
+                    block=(1, 1, 1),
+                    grid=(1, 1, 1),
                 )
-                # Update the CustomNonBondedForce parameters.
-                if self._is_fep:
-                    self._custom_nonbonded_force.setParticleParameters(
+
+                # Set the new water state.
+                self._water_state[idx] = 0
+
+            # Real water.
+            else:
+                for i in range(self._num_points):
+                    # Update the NonbondedForce parameters.
+                    self._nonbonded_force.setParticleParameters(
                         start_idx + i,
-                        (
-                            self._water_charge[i],
-                            self._water_sigma_custom[i],
-                            self._water_epsilon_custom[i],
-                            0.0,
-                            0.0,
-                        ),
+                        self._water_charge[i] * _openmm.unit.elementary_charge,
+                        self._water_sigma[i] * _openmm.unit.angstrom,
+                        self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
                     )
+                    # Update the CustomNonBondedForce parameters.
+                    if self._is_fep:
+                        self._custom_nonbonded_force.setParticleParameters(
+                            start_idx + i,
+                            (
+                                self._water_charge[i],
+                                self._water_sigma_custom[i],
+                                self._water_epsilon_custom[i],
+                                0.0,
+                                0.0,
+                            ),
+                        )
 
-            # Update the NonbondedForce parameters in the context.
-            self._nonbonded_force.updateParametersInContext(context)
+                # Update the state of the water on the GPU.
+                self._kernels["update_water"](
+                    _np.int32(idx),
+                    _np.int32(1),
+                    _np.int32(0),
+                    _gpuarray.to_gpu(
+                        _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
+                    ),
+                    block=(1, 1, 1),
+                    grid=(1, 1, 1),
+                )
 
-            # Update the CustomNonbondedForce parameters in the context.
-            if self._is_fep:
-                self._custom_nonbonded_force.updateParametersInContext(context)
+                # Set the new water state.
+                self._water_state[idx] = 1
 
-            # Update the state of the water on the GPU.
-            self._kernels["update_water"](
-                _np.int32(idx),
-                _np.int32(1),
-                _np.int32(0),
-                _gpuarray.to_gpu(
-                    _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
-                ),
-                block=(1, 1, 1),
-                grid=(1, 1, 1),
-            )
+        # Update the NonbondedForce parameters in the context.
+        self._nonbonded_force.updateParametersInContext(context)
 
-            # Set the new water state.
-            self._water_state[idx] = 1
+        # Update the CustomNonbondedForce parameters in the context.
+        if self._is_fep:
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
     def _set_nonbonded_forces(self, context):
         """
