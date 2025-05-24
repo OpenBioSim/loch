@@ -2116,7 +2116,7 @@ class GCMCSampler:
         # Loop over the indices and states.
         for idx, state in zip(indices, states):
 
-            # Skip if the state is the same.
+            # Skip if the state is unchanged.
             if self._water_state[idx] == state:
                 continue
 
