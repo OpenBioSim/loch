@@ -2094,8 +2094,9 @@ class GCMCSampler:
 
     def _set_water_state(self, indices, states, context):
         """
-        Update the state for a list of waters. This can by external packages
-        when swapping OpenMM state between different replicas when GCMC sampling.
+        Update the state for a list of waters. This can be used by external
+        packages when swapping OpenMM state between different replicas when
+        GCMC sampling.
 
         Parameters
         ----------
