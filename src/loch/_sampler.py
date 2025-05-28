@@ -1685,6 +1685,7 @@ class GCMCSampler:
                 cutoff=self._cutoff,
                 lambda_value=self._lambda_value,
                 schedule=self._lambda_schedule,
+                pressure=None,
                 timestep="2fs",
                 constraint="h_bonds",
                 perturbable_constraint="h_bonds_not_heavy_perturbed",
@@ -2229,6 +2230,13 @@ class GCMCSampler:
                     self._nonbonded_force = force
                 elif self._is_fep and force.getName() == "GhostNonGhostNonbondedForce":
                     self._custom_nonbonded_force = force
+                elif "Barostat" in force.getName():
+                    msg = (
+                        f"GCMC must be used at constant volume: "
+                        f"'{force.getName()}' is not supported."
+                    )
+                    _logger.error(msg)
+                    raise TypeError(msg)
 
     def _get_target_position(self, positions):
         """
