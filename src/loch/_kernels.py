@@ -49,7 +49,7 @@ code = """
     __device__ float shift_coulomb;
     __device__ float shift_delta;
 
-    // Triclinic box cell information.
+    // Triclinic cell information.
     __device__ float cell_matrix[3][3];
     __device__ float cell_matrix_inverse[3][3];
     __device__ float M[3][3];
