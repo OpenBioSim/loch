@@ -411,7 +411,7 @@ class GCMCSampler:
 
         # Check for waters and validate the template.
         try:
-            self._water_template = system["water"][0]
+            self._water_template = system["water and not property is_perturbable"][0]
         except:
             if water_template is None:
                 raise ValueError(
@@ -1611,7 +1611,9 @@ class GCMCSampler:
         # Search for the water oxygen atoms and their residues.
         water_indices = []
         water_residues = []
-        for atom in bss_system.search("water and element O").atoms():
+        for atom in bss_system.search(
+            "(water and not property is_perturbable) and element O"
+        ).atoms():
             water_indices.append(bss_system.getIndex(atom))
             water_residues.append(
                 bss_system.getIndex(
