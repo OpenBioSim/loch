@@ -132,7 +132,7 @@ for i in range(1000):
 
 # Save the trajectory.
 mols = d.commit()
-sr.save(mols.trajectory(), "gcmc_trajectory.dcd")
+sr.save(mols.trajectory(), "gcmc_traj.dcd")
 ```
 
 > [!Note]
@@ -151,6 +151,6 @@ Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
 
 ## Notes
 
-* Make sure that `nvcc` is in your `$PATH`.
+* Make sure that `nvcc` is in your `PATH`.
 
 * A future version supporting AMD GPUs via PyOpenCL is planned.
