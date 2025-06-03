@@ -2,8 +2,10 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
-CUDA accelerated GCMC water sampling code. Built on top of [Sire](https://github.com/OpenBioSim/sire)
-, [BioSimSpace](https://github.com/OpenBioSim/biosimspace) and [OpenMM](https://github.com/openmm/openmm).
+CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code. Built
+on top of [Sire](https://github.com/OpenBioSim/sire),
+[BioSimSpace](https://github.com/OpenBioSim/biosimspace) and
+[OpenMM](https://github.com/openmm/openmm).
 
 ## Installation
 
@@ -28,8 +30,8 @@ Loch is based on [grand](https://github.com/essex-lab/grand). Instead of
 computing the energy change for a trial insertion/deletion with OpenMM, the
 calculation is performed at the reaction field (RF) level using a custom CUDA
 kernel, which gives _exact_ agreement with OpenMM. Particle mesh Ewald (PME)
-is handled using the method for sampling from an approximate potential (in this
-case the RF potential) described [here](https://doi.org/10.1063/1.1563597).
+is handled via the method for sampling from an approximate potential (in this
+case the RF potential) introduced [here](https://doi.org/10.1063/1.1563597).
 Parallelisation of the insertion and deletion trials is achieved using the
 strategy described in [this](https://doi.org/10.1021/acs.jctc.0c00660) paper.
 
