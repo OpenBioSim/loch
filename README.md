@@ -35,3 +35,8 @@ strategy described in [this](https://doi.org/10.1021/acs.jctc.0c00660) paper.
 ## Examples
 
 A full set of examples can be found in the [examples](examples) directory.
+
+## GCMC Free Energy Perturbation
+
+Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
+[SOMD2](https://github.com/OpenBioSim/somd2) package.
