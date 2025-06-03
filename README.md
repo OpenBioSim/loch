@@ -41,3 +41,7 @@ A full set of examples can be found in the [examples](examples) directory.
 
 Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
 [SOMD2](https://github.com/OpenBioSim/somd2) package.
+
+## Notes
+
+Make sure that `nvcc` is in your `$PATH`.
