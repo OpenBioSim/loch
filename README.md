@@ -2,7 +2,8 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
-CUDA accelerated GCMC water sampling code.
+CUDA accelerated GCMC water sampling code. Built on top of [Sire](https://github.com/OpenBioSim/sire)
+, [BioSimSpace](https://github.com/OpenBioSim/biosimspace) and [OpenMM](https://github.com/openmm/openmm).
 
 ## Installation
 
@@ -12,7 +13,7 @@ First, create a conda environment with the required dependencies:
 conda create -f environment.yml
 conda activate loch
 ```
-
+ 
 Next, clone the repository and install the package:
 
 ```
