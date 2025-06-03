@@ -144,8 +144,8 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 
 > [!Note]
 > `Loch` is designed to be compatible with `grand`, so you can make use of
-> `grand` to perform post-simulation analysis, such as trajectory processing
-> and water cluster analysis.
+> `grand.utils` to perform post-simulation analysis, such as trajectory
+> processing and water cluster analysis.
 
 ## Examples
 
