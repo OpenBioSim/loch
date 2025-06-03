@@ -10,6 +10,7 @@ First, create a conda environment with the required dependencies:
 
 ```
 conda create -f environment.yml
+conda activate loch
 ```
 
 Next, clone the repository and install the package:
