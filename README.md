@@ -6,8 +6,18 @@ Prototype CUDA accelerated GCMC water sampling code.
 
 ## Installation
 
+First, create a conda environment with the required dependencies:
+
 ```
 conda create -f environment.yml
+```
+
+Next, clone the repository and install the package:
+
+```
+git clone https://github.com/openbiosim/loch
+cd loch
+pip install -e .
 ```
 
 ## Examples
