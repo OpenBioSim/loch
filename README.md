@@ -44,4 +44,6 @@ Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
 
 ## Notes
 
-Make sure that `nvcc` is in your `$PATH`.
+* Make sure that `nvcc` is in your `$PATH`.
+
+* A future version supporting AMD GPUs via PyOpenCL is planned.
