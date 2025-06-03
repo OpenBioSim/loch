@@ -102,6 +102,11 @@ d = gcmc_system.dynamics(
 > While we have used Sire to create the OpenMM context, you can also write
 > the GCMC system to file and create the OpenMM context manually.
 
+> [!Note]
+> GCMC sampling must be performed in the NVT ensemble, hence the pressure
+> is set to `None` in the above example. However, bulk sampling moves can
+> be used as an effective barostat.
+
 5) Run dynamics with GCMC sampling:
 
 ```python
