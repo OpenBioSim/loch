@@ -26,14 +26,14 @@ pip install -e .
 
 ## How does it work?
 
-Loch is based on [grand](https://github.com/essex-lab/grand). Instead of
-computing the energy change for a trial insertion/deletion with OpenMM, the
-calculation is performed at the reaction field (RF) level using a custom CUDA
-kernel, which gives _exact_ agreement with OpenMM. Particle mesh Ewald (PME)
-is handled via the method for sampling from an approximate potential (in this
-case the RF potential) introduced [here](https://doi.org/10.1063/1.1563597).
-Parallelisation of the insertion and deletion trials is achieved using the
-strategy described in [this](https://doi.org/10.1021/acs.jctc.0c00660) paper.
+Instead of computing the energy change for each trial insertion/deletion with
+OpenMM, the calculation is performed at the reaction field (RF) level using
+a custom CUDA kernel, allowing multiple candidates to be evaluated
+simultaneously. Particle mesh Ewald (PME) is handled via the method for
+sampling from an approximate potential (in this case the RF potential)
+introduced [here](https://doi.org/10.1063/1.1563597). Parallelisation of the
+insertion and deletion trials is achieved using the strategy described in
+[this](https://doi.org/10.1021/acs.jctc.0c00660) paper.
 
 ## Usage
 
@@ -143,9 +143,9 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 ```
 
 > [!Note]
-> `Loch` is designed to be compatible with `grand`, so you can make use of
-> `grand.utils` to perform post-simulation analysis, such as trajectory
-> processing and water cluster analysis.
+> `Loch` is designed to be compatible with [grand](https://github.com/essex-lab/grand),
+> so you can make use of the `grand.utils` module to perform post-simulation analysis,
+> such as trajectory processing and water cluster analysis.
 
 ## Examples
 
@@ -161,3 +161,10 @@ Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
 * Make sure that `nvcc` is in your `PATH`.
 
 * A future version supporting AMD GPUs via PyOpenCL is planned.
+
+## Acknowledgements
+
+* We thank the [Essex Lab](https://essexgroup.soton.ac.uk/) and
+  [grand](https://github.com/essex-lab/grand) for the inspiration.
+* Many thanks to [Gregory Ross](https://github.com/GregRRoss) for clarifying
+  the parallelisation scheme described [here](https://doi.org/10.1021/acs.jctc.0c00660).
