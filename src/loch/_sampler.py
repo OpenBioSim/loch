@@ -915,6 +915,10 @@ class GCMCSampler:
         self._num_accepted_insertions = 0
         self._num_accepted_deletions = 0
 
+        # Clear the forces.
+        self._nonbonded_force = None
+        self._custom_nonbonded_force = None
+
     def ghost_residues(self):
         """
         Return the current indices of the ghost water residues in the OpenMM
