@@ -782,6 +782,11 @@ class GCMCSampler:
         # The last move was a bulk sampling move, so we need to recalculate
         # the number of waters in the GCMC sphere.
         if self._reference is not None and self._is_bulk:
+            if not self._openmm_context:
+                msg = "OpenMM context is not set!"
+                _logger.error(msg)
+                raise RuntimeError(msg)
+
             # Get the OpenMM state.
             state = self._openmm_context.getState(getPositions=True)
 
@@ -920,6 +925,9 @@ class GCMCSampler:
         # Clear the forces.
         self._nonbonded_force = None
         self._custom_nonbonded_force = None
+
+        # Clear the OpenMM context.
+        self._openmm_context = None
 
     def ghost_residues(self):
         """
