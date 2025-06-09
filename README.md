@@ -59,7 +59,7 @@ sampler = GCMCSampler(
     cutoff="10 A",
     radius="4 A",
     temperature="298 K",
-    max_gcmc_waters=50,
+    num_ghost_waters=50,
     bulk_sampling_probability=0.1,
     log_level="info",
 )
@@ -76,7 +76,7 @@ rather than just within the GCMC sphere.
 3) Get the GCMC system:
 
 In order to perform a simulation we need to get back the GCMC system, which
-contains an additional `max_gcmc_waters` number of ghost water molecules
+contains an additional `num_ghost_waters` number of ghost water molecules
 that are used for insertion moves.
 
 ```python

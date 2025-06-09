@@ -53,7 +53,7 @@ class GCMCSampler:
         standard_volume="30.543 A^3",
         temperature="298 K",
         adams_shift=0.0,
-        max_gcmc_waters=20,
+        num_ghost_waters=20,
         batch_size=1000,
         num_attempts=10000,
         num_threads=1024,
@@ -107,8 +107,10 @@ class GCMCSampler:
         adams_shift: float
             The Adams shift.
 
-        max_gcmc_waters: int
-            The maximum number of GCMC waters to insert.
+        num_ghost_waters: int
+            The initial number of ghost waters to add to the system. These are
+            used for GCMC insertion moves, so no more insertions can be made
+            once they are exhausted.
 
         batch_size: int
             The number of random insertions and deletion trials per batch.
@@ -248,9 +250,9 @@ class GCMCSampler:
         except Exception as e:
             raise ValueError(f"Could not validate the 'temperature': {e}")
 
-        if not isinstance(max_gcmc_waters, int):
-            raise ValueError("'max_gcmc_waters' must be of type 'int'")
-        self._max_gcmc_waters = max_gcmc_waters
+        if not isinstance(num_ghost_waters, int):
+            raise ValueError("'num_ghost_waters' must be of type 'int'")
+        self._num_ghost_waters = num_ghost_waters
 
         if not isinstance(adams_shift, (int, float)):
             raise ValueError("'adams_shift' must be of type 'int' or 'float'")
@@ -434,7 +436,7 @@ class GCMCSampler:
         try:
             self._system, self._water_indices, self._water_residues = (
                 self._prepare_system(
-                    system, self._water_template, self._rng, self._max_gcmc_waters
+                    system, self._water_template, self._rng, self._num_ghost_waters
                 )
             )
             self._num_atoms = self._system.num_atoms()
@@ -582,7 +584,7 @@ class GCMCSampler:
             f"excess_chemical_potential={self._excess_chemical_potential}, "
             f"standard_volume={self._standard_volume}, "
             f"temperature={self._temperature}, "
-            f"max_gcmc_waters={self._max_gcmc_waters}, "
+            f"num_ghost_waters={self._num_ghost_waters}, "
             f"adams_shift={self._adams_shift}, "
             f"batch_size={self._batch_size}, "
             f"num_attempts={self._num_attempts}, "
@@ -1059,7 +1061,7 @@ class GCMCSampler:
 
                 # If there are no ghost waters, then we can't perform any insertions.
                 if len(ghost_waters) == 0:
-                    msg = f"Cannot insert any more waters. Please increase 'max_gcmc_waters'."
+                    msg = f"Cannot insert any more waters. Please increase 'num_ghost_waters'."
                     _logger.error(msg)
                     raise RuntimeError(msg)
 
@@ -1529,7 +1531,7 @@ class GCMCSampler:
         return indices
 
     @staticmethod
-    def _prepare_system(system, water_template, rng, max_gcmc_waters):
+    def _prepare_system(system, water_template, rng, num_ghost_waters):
         """
         Prepare the system for GCMC sampling.
 
@@ -1545,7 +1547,7 @@ class GCMCSampler:
         rng: numpy.random.Generator
             The random number generator.
 
-        max_gcmc_waters: int
+        num_ghost_waters: int
             The maximum number of GCMC waters to insert.
 
         Returns
@@ -1588,7 +1590,7 @@ class GCMCSampler:
 
         # Create the GCMC waters.
         waters = []
-        for i in range(max_gcmc_waters):
+        for i in range(num_ghost_waters):
             # Create a copy of the water template with a new molecule number.
             water = water_template.copy()
 
@@ -1808,7 +1810,7 @@ class GCMCSampler:
         water_state = []
         is_ghost_water = _np.zeros(self._num_atoms, dtype=_np.int32)
         for i in range(self._num_waters):
-            if i < self._num_waters - self._max_gcmc_waters:
+            if i < self._num_waters - self._num_ghost_waters:
                 water_state.append(1)
             else:
                 water_state.append(0)
