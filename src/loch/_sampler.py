@@ -2252,6 +2252,16 @@ class GCMCSampler:
                     _logger.error(msg)
                     raise TypeError(msg)
 
+        if self._nonbonded_force is None:
+            msg = "Could not find a NonbondedForce in the system"
+            _logger.error(msg)
+            raise ValueError(msg)
+
+        if self._is_fep and self._custom_nonbonded_force is None:
+            msg = "Could not find a CustomNonbondedForce in the system"
+            _logger.error(msg)
+            raise ValueError(msg)
+
     def _get_target_position(self, positions):
         """
         Get the current centre of the GCMC sphere.
