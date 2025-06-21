@@ -2109,7 +2109,7 @@ class GCMCSampler:
         # Update the number of waters in the sampling volume.
         self._N += 1
 
-    def _set_water_state(self, indices, states, context):
+    def _set_water_state(self, indices, states, context, force=False):
         """
         Update the state for a list of waters. This can be used by external
         packages when swapping OpenMM state between different replicas when
@@ -2126,6 +2126,10 @@ class GCMCSampler:
 
         context: openmm.Context
             The OpenMM context to update.
+
+        force: bool
+            If True, then update the state even if it is unchanged.
+            Default: False.
         """
 
         # Set the NonBondedForce(s).
@@ -2135,7 +2139,7 @@ class GCMCSampler:
         for idx, state in zip(indices, states):
 
             # Skip if the state is unchanged.
-            if self._water_state[idx] == state:
+            if not force and self._water_state[idx] == state:
                 continue
 
             _logger.debug(f"Updating water {idx} to state {state}")
