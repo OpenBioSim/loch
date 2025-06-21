@@ -63,6 +63,8 @@ class GCMCSampler:
         tolerance=0.0,
         lambda_schedule=None,
         lambda_value=0.0,
+        rest2_scale=1.0,
+        rest2_selection=None,
         coulomb_power=0.0,
         shift_coulomb="1 A",
         shift_delta="2.25 A",
@@ -155,6 +157,21 @@ class GCMCSampler:
 
         lambda_value: float
             The lambda value if the passed system is an alchemical system.
+
+        rest2_scale: float
+            The scaling factor if using Replica Exchange with Solute Tempering
+            (REST2) for alchemical systems. This should specify the temperature
+            of the REST2 system relative to the rest of the system.
+
+        rest2_selection: str
+            A selection string for atoms to include in the REST2 region in
+            addition to any perturbable molecules. For example, "molidx 0 and
+            residx 0,1,2" would select atoms from the first three residues of the
+            first molecule. If None, then all atoms within perturbable molecules
+            will be included in the REST2 region. When atoms within a perturbable
+            molecule are included in the selection, then only those atoms will be
+            considered as part of the REST2 region. This allows REST2 to be applied
+            to protein mutations.
 
         couloumb_power : float
             Power to use for the soft-core Coulomb interaction. This is used
@@ -390,6 +407,34 @@ class GCMCSampler:
         if not 0.0 <= lambda_value <= 1.0:
             raise ValueError("'lambda_value' must be between 0 and 1")
         self._lambda_value = float(lambda_value)
+
+        try:
+            rest2_scale = float(rest2_scale)
+        except:
+            raise ValueError("'rest2_scale' must be of type 'float'")
+        if rest2_scale < 1.0:
+            raise ValueError("'rest2_scale' must be greater than or equal to 1.0")
+        self._rest2_scale = rest2_scale
+
+        if rest2_selection is not None:
+            if not isinstance(rest2_selection, str):
+                raise ValueError("'rest2_selection' must be of type 'str'")
+
+            from sire.mol import selection_to_atoms
+
+            try:
+                atoms = selection_to_atoms(self._system, rest2_selection)
+            except:
+                msg = "Invalid 'rest2_selection' value."
+                _logger.error(msg)
+                raise ValueError(msg)
+
+            # Make sure the user hasn't selected all atoms.
+            if len(atoms) == self._system.num_atoms():
+                raise ValueError(
+                    "'rest2_selection' cannot contain all atoms in the system."
+                )
+        self._rest2_selection = rest2_selection
 
         try:
             coulomb_power = float(coulomb_power)
@@ -1703,6 +1748,8 @@ class GCMCSampler:
                 timestep="2fs",
                 constraint="h_bonds",
                 perturbable_constraint="h_bonds_not_heavy_perturbed",
+                rest2_scale=self._rest2_scale,
+                rest2_selection=self._rest2_selection,
                 platform="cpu",
             )
 
