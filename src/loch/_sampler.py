@@ -1568,18 +1568,14 @@ class GCMCSampler:
             The indices of the reference atoms.
         """
 
-        # Convert the system to a BioSimSpace object.
-        bss_system = _BSS._SireWrappers.System(system._system)
-
+        # Get the atoms in the selection.
         try:
-            atoms = bss_system.search(reference).atoms()
+            atoms = system[reference].atoms()
         except Exception as e:
             raise ValueError(f"Could not get the reference atoms: {e}")
 
-        # Get the absolute indices of the atoms.
-        indices = _np.zeros(len(atoms), dtype=_np.int32)
-        for i, atom in enumerate(atoms):
-            indices[i] = bss_system.getIndex(atom)
+        # Get the indices of the atoms.
+        indices = _np.array(system.atoms().find(atoms))
 
         return indices
 
@@ -1667,24 +1663,21 @@ class GCMCSampler:
         # Add the waters to the system.
         bss_system += waters
 
-        # Search for the water oxygen atoms and their residues.
-        water_indices = []
-        water_residues = []
-        for atom in bss_system.search(
-            "(water and not property is_perturbable) and element O"
-        ).atoms():
-            water_indices.append(bss_system.getIndex(atom))
-            water_residues.append(
-                bss_system.getIndex(
-                    _BSS._SireWrappers.Residue(atom._sire_object.residue())
-                )
-            )
+        # Convert back to a Sire system.
+        system = _sr.system.System(bss_system._sire_object)
 
-        return (
-            _sr.system.System(bss_system._sire_object),
-            _np.array(water_indices),
-            _np.array(water_residues),
-        )
+        # Search for non-perturbable water oxygen atoms and their residues.
+        selection = system["(water and not property is_perturbable) and element O"]
+
+        # Get the atoms and residues from the selection.
+        water_atoms = selection.atoms()
+        water_residues = selection.residues()
+
+        # Get the indices of the water oxygen atoms and their residues.
+        water_atoms = _np.array(system.atoms().find(water_atoms))
+        water_residues = _np.array(system.residues().find(water_residues))
+
+        return system, water_atoms, water_residues
 
     def _initialise_gpu_memory(self):
         """
@@ -1798,12 +1791,12 @@ class GCMCSampler:
             # Create the ghost atom array.
             is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
 
-            # Convert the system to a BioSimSpace object so we can get absolute indices.
-            bss_system = _BSS._SireWrappers.System(self._system._system)
+            # Get the atoms in the system.
+            atoms = self._system.atoms()
 
-            # Loop over all perturbale molecules.
+            # Loop over all perturbable molecules.
             for mol in self._system["property is_perturbable"].molecules():
-                # Loop over all atoms.
+                # Loop over all atoms in the molecule.
                 for atom in mol.atoms():
                     # Get the end-state charge.
                     charge0 = atom.property("charge0").value()
@@ -1816,7 +1809,7 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            idx = atoms.find(atom)
                             is_ghost_fep[idx] = 1
 
                     # The charge at the perturbed state is zero.
@@ -1826,7 +1819,7 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            idx = atoms.find(atom)
                             is_ghost_fep[idx] = 1
 
             # Convert to GPU array.
