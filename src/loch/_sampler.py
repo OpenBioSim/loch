@@ -31,7 +31,6 @@ import pycuda.driver as _cuda
 import pycuda.gpuarray as _gpuarray
 from pycuda.compiler import SourceModule as _SourceModule
 
-import BioSimSpace as _BSS
 import sire as _sr
 
 from ._kernels import code as _code
@@ -1629,22 +1628,21 @@ class GCMCSampler:
             atom["LJ"] = _sr.legacy.MM.LJParameter(
                 atom["LJ"].sigma(), 0.0 * _sr.units.kcal_per_mol
             )
-        water_template = _BSS._SireWrappers.Molecule(cursor.commit())
-
-        # Create a BioSimSpace system.
-        bss_system = _BSS._SireWrappers.System(system._system)
+        water_template = cursor.commit()
 
         # Get the initial positions of the atoms.
-        positions = _sr.io.get_coords_array(water_template._sire_object)
+        positions = _sr.io.get_coords_array(water_template)
 
         # Create the GCMC waters.
-        waters = []
         for i in range(num_ghost_waters):
             # Create a copy of the water template with a new molecule number.
-            water = water_template.copy()
+            water = water_template.clone()
 
             # Make the water editable.
-            cursor = water._sire_object.cursor()
+            cursor = water.cursor()
+
+            # Give the molecule a unique number.
+            cursor.number = _sr.mol.MolNum.get_unique_number()
 
             # Work out the new position for the oxygen atom.
             oxygen = rng.random(3) * box
@@ -1655,16 +1653,10 @@ class GCMCSampler:
                 atom["coordinates"] = _sr.maths.Vector(*new_position)
 
             # Commit the changes to the water.
-            water._sire_object = cursor.commit()
+            water = cursor.commit()
 
-            # Append the water to the list.
-            waters.append(water)
-
-        # Add the waters to the system.
-        bss_system += waters
-
-        # Convert back to a Sire system.
-        system = _sr.system.System(bss_system._sire_object)
+            # Add the molecule to the system.
+            system.add(water)
 
         # Search for non-perturbable water oxygen atoms and their residues.
         selection = system["(water and not property is_perturbable) and element O"]
