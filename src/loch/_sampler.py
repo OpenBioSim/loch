@@ -1635,7 +1635,7 @@ class GCMCSampler:
 
         # Create the GCMC waters.
         for i in range(num_ghost_waters):
-            # Create a copy of the water template with a new molecule number.
+            # Create a copy of the water template.
             water = water_template.clone()
 
             # Make the water editable.
