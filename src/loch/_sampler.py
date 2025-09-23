@@ -2353,7 +2353,7 @@ class GCMCSampler:
 
         # Work out the centre of geometry of the reference atoms.
         centre = _sr.maths.Vector(*positions[self._reference_indices[0]])
-        target = centre
+        target = centre.__deepcopy__()
         for index in self._reference_indices[1:]:
             delta = self._space.calc_dist_vector(
                 target, _sr.maths.Vector(*positions[index])
