@@ -1568,18 +1568,14 @@ class GCMCSampler:
             The indices of the reference atoms.
         """
 
-        # Convert the system to a BioSimSpace object.
-        bss_system = _BSS._SireWrappers.System(system._system)
-
+        # Validate input.
         try:
-            atoms = bss_system.search(reference).atoms()
+            atoms = system[reference].atoms()
         except Exception as e:
             raise ValueError(f"Could not get the reference atoms: {e}")
 
-        # Get the absolute indices of the atoms.
-        indices = _np.zeros(len(atoms), dtype=_np.int32)
-        for i, atom in enumerate(atoms):
-            indices[i] = bss_system.getIndex(atom)
+        # Get the indices of the reference atoms.
+        indices = _np.array(system.atoms().find(atoms))
 
         return indices
 
