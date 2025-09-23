@@ -1797,12 +1797,12 @@ class GCMCSampler:
             # Create the ghost atom array.
             is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
 
-            # Convert the system to a BioSimSpace object so we can get absolute indices.
-            bss_system = _BSS._SireWrappers.System(self._system._system)
+            # Get the atoms in the system.
+            atoms = self._system.atoms()
 
-            # Loop over all perturbale molecules.
+            # Loop over all perturbable molecules.
             for mol in self._system["property is_perturbable"].molecules():
-                # Loop over all atoms.
+                # Loop over all atoms in the molecule.
                 for atom in mol.atoms():
                     # Get the end-state charge.
                     charge0 = atom.property("charge0").value()
@@ -1815,7 +1815,7 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            idx = atoms.find(atom)
                             is_ghost_fep[idx] = 1
 
                     # The charge at the perturbed state is zero.
@@ -1825,7 +1825,7 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = bss_system.getIndex(_BSS._SireWrappers.Atom(atom))
+                            idx = atoms.find(atom)
                             is_ghost_fep[idx] = 1
 
             # Convert to GPU array.
