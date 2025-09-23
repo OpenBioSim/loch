@@ -1738,8 +1738,11 @@ class GCMCSampler:
         # schedule and value, then extract the required properties from the forces
         # within the context. (The system just contains the end-state properties.)
         else:
+            # Link to the reference state.
+            mols = _sr.morph.link_to_reference(self._system)
+
             # Create a dynamics object.
-            d = self._system.dynamics(
+            d = mols.dynamics(
                 cutoff_type=self._cutoff,
                 cutoff=self._cutoff,
                 lambda_value=self._lambda_value,
