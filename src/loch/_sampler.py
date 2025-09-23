@@ -1568,7 +1568,7 @@ class GCMCSampler:
             The indices of the reference atoms.
         """
 
-        # Validate input.
+        # Get the atoms in the reference selection.
         try:
             atoms = system[reference].atoms()
         except Exception as e:
