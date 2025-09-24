@@ -205,7 +205,7 @@ class GCMCSampler:
 
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be of type 'sire.system.System'")
-        self._system = system
+        self._system = system.clone()
 
         # Check whether this is an alchemical system.
         try:
