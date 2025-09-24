@@ -687,7 +687,7 @@ class GCMCSampler:
         system: sire.system.System
             The GCMC system.
         """
-        return self._system
+        return self._system.clone()
 
     def set_box(self, system):
         """
