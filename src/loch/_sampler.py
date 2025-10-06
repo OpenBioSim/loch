@@ -25,7 +25,10 @@ import numpy as _np
 import openmm as _openmm
 import os as _os
 
-from loguru import logger as _logger
+try:
+    from somd2 import _logger
+except:
+    from loguru import logger as _logger
 
 import pycuda.driver as _cuda
 import pycuda.gpuarray as _gpuarray
