@@ -107,9 +107,6 @@ d = sampler.system().dynamics(
 )
 d.randomise_velocities()
 
-# Get the context.
-context = d.context()
-
 # Store the mass of a water molecule.
 mass = mols[0].mass()
 
