@@ -1456,6 +1456,21 @@ class GCMCSampler:
 
         return moves
 
+    def bind_dynamics(self, dynamics):
+        """
+        Bind the GCMC sampler to a Sire Dynamics object.
+
+        Parameters
+        ----------
+
+        dynamics: sire.mol.Dynamics
+        """
+
+        if not isinstance(dynamics, _sr.mol.Dynamics):
+            raise ValueError("'dynamics' must be of type 'sire.mol.Dynamics'")
+
+        dynamics._d._gcmc_sampler = self
+
     @staticmethod
     def _validate_sire_unit(parameter, value, unit):
         """
