@@ -107,6 +107,10 @@ d = sampler.system().dynamics(
 )
 d.randomise_velocities()
 
+# Bind the GCMC sampler to the dynamics object. This ensures that the GCMC
+# water state can be reset following a crash.
+sampler.bind_dynamics(d)
+
 # Delete any existing waters from the GCMC region.
 sampler.delete_waters(d.context())
 

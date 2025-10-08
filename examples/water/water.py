@@ -107,6 +107,10 @@ d = sampler.system().dynamics(
 )
 d.randomise_velocities()
 
+# Bind the GCMC sampler to the dynamics object. This ensures that the GCMC
+# water state can be reset following a crash.
+sampler.bind_dynamics(d)
+
 # Store the mass of a water molecule.
 mass = mols[0].mass()
 
