@@ -109,6 +109,15 @@ d = gcmc_system.dynamics(
 > is set to `None` in the above example. However, bulk sampling moves can
 > be used as an effective barostat.
 
+In order to enable crash recovery during dynamics, we next need to bind
+the `GCMCSampler` to the Sire dynamics object. This makes sure that the
+water state is correctly reset in the OpenMM context when restarting from
+a crash:
+
+```python
+sampler.bind_dynamics(d)
+```
+
 5) Run dynamics with GCMC sampling:
 
 ```python
