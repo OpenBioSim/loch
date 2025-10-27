@@ -71,6 +71,7 @@ class GCMCSampler:
         coulomb_power=0.0,
         shift_coulomb="1 A",
         shift_delta="2.25 A",
+        swap_end_states=False,
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
@@ -187,6 +188,9 @@ class GCMCSampler:
         shift_delta : str
             The soft-core shift-delta parameter. This is used to soften the
             Lennard-Jones interaction.
+
+        swap_end_states: bool
+            Whether to swap the end states of the alchemical systems.
 
         overwrite: bool
             Overwrite existing log files.
@@ -458,6 +462,10 @@ class GCMCSampler:
             )
         except Exception as e:
             raise ValueError(f"Could not validate the 'shift_delta': {e}")
+
+        if not isinstance(swap_end_states, bool):
+            raise ValueError("'swap_end_states' must be of type 'bool'")
+        self._swap_end_states = swap_end_states
 
         # Check for waters and validate the template.
         try:
@@ -1767,6 +1775,7 @@ class GCMCSampler:
                 perturbable_constraint="h_bonds_not_heavy_perturbed",
                 rest2_scale=self._rest2_scale,
                 rest2_selection=self._rest2_selection,
+                swap_end_states=self._swap_end_states,
                 platform="cpu",
             )
 
