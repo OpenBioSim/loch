@@ -39,7 +39,8 @@ simultaneously. Particle mesh Ewald (PME) is handled via the method for
 sampling from an approximate potential (in this case the RF potential)
 introduced [here](https://doi.org/10.1063/1.1563597). Parallelisation of the
 insertion and deletion trials is achieved using the strategy described in
-[this](https://doi.org/10.1021/acs.jctc.0c00660) paper.
+[this](https://doi.org/10.1021/acs.jctc.0c00660) paper. See our [whitepaper](WHITEPAPER.md)
+for further technical details.
 
 ## Usage
 
