@@ -8,3 +8,5 @@ dependencies:
   - biosimspace
   - loguru
   - pycuda
+  - pip:
+      - git+https://github.com/openbiosim/somd2
