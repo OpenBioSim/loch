@@ -165,8 +165,10 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 
 ## Calibrating the GCMC potential
 
-We provide a [utility module](src/loch/_utils.py) for calibrating the excess
-chemical potential and standard volume for a given water model at a specified
+The default GCMC potential parameters are calibrated for the TIP3P water model
+at 298 K and 1 bar. To use `loch` with other water models we provide a
+[utility module](src/loch/_utils.py) for calibrating the excess chemical
+potential and standard volume for a given water model at a specified
 temperature and pressure. The excess chemical potential is computed via
 an alchemical decoupling simulation of a water molecule in bulk solvent, while
 the standard volume is computed from constant pressure simulations of bulk water.
