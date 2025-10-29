@@ -70,7 +70,7 @@ class GCMCSampler:
         rest2_selection=None,
         coulomb_power=0.0,
         shift_coulomb="1 A",
-        shift_delta="2.25 A",
+        shift_delta="1.5 A",
         swap_end_states=False,
         overwrite=False,
         ghost_file="ghosts.txt",
