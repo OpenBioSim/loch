@@ -354,7 +354,7 @@ def standard_volume(
     # Run the NPT simulation and collect volume samples.
     volumes = []
     for _ in range(num_samples):
-        d.run(sample_interval, frame_frequency=0, energy_frequency=0)
+        d.run(sample_interval, energy_frequency=0, frame_frequency=0, save_frequency=0)
 
         # Get the current OpenMM volume in A^3.
         volume = (
