@@ -18,7 +18,7 @@ on top of [Sire](https://github.com/OpenBioSim/sire),
 First, create a conda environment with the required dependencies:
 
 ```
-conda create -f environment.yml
+conda create -f environment.yaml
 conda activate loch
 ```
 
