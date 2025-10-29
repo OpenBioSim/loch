@@ -1,7 +1,7 @@
 import math
 import openmm
+import os
 import pytest
-import socket
 
 import sire as sr
 
@@ -9,8 +9,8 @@ from loch import GCMCSampler
 
 
 @pytest.mark.skipif(
-    socket.gethostname() != "porridge",
-    reason="Local test requiring CUDA enabled GPU.",
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
 )
 @pytest.mark.parametrize("fixture", ["water_box", "bpti", "sd12"])
 def test_energy(fixture, request):
