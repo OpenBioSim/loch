@@ -159,7 +159,7 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 ```
 
 > [!Note]
-> `Loch` is designed to be compatible with [grand](https://github.com/essex-lab/grand),
+> `loch` is designed to be compatible with [grand](https://github.com/essex-lab/grand),
 > so you can make use of the `grand.utils` module to perform post-simulation analysis,
 > such as trajectory processing and water cluster analysis.
 
@@ -232,7 +232,7 @@ A full set of examples can be found in the [examples](examples) directory.
 
 ## GCMC Free Energy Perturbation
 
-Free Energy Perturbation (FEP) with GCMC using `Loch` is supported via the
+Free Energy Perturbation (FEP) with GCMC using `loch` is supported via the
 [SOMD2](https://github.com/OpenBioSim/somd2) package.
 
 ## Notes
