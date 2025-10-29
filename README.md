@@ -39,8 +39,8 @@ simultaneously. Particle mesh Ewald (PME) is handled via the method for
 sampling from an approximate potential (in this case the RF potential)
 introduced [here](https://doi.org/10.1063/1.1563597). Parallelisation of the
 insertion and deletion trials is achieved using the strategy described in
-[this](https://doi.org/10.1021/acs.jctc.0c00660) paper. See our [whitepaper](WHITEPAPER.md)
-for further technical details.
+[this](https://doi.org/10.1021/acs.jctc.0c00660) paper. See our
+[whitepaper](WHITEPAPER.md) for further technical details.
 
 ## Usage
 
@@ -162,6 +162,56 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 > `Loch` is designed to be compatible with [grand](https://github.com/essex-lab/grand),
 > so you can make use of the `grand.utils` module to perform post-simulation analysis,
 > such as trajectory processing and water cluster analysis.
+
+## Calibrating the GCMC potential
+
+We provide a [utility module](src/loch/utils.py) for calibrating the excess
+chemical potential and standard volume for a given water model at a specified
+temperature and pressure. The excess chemical potential is computed via
+an alchemical decoupling simulation of a water molecule in bulk solvent, while
+the standard volume is computed from constant pressure simulations of bulk water.
+
+The excess chemical potential can be computed as follows:
+
+```python
+from loch import excess_chemical_potential
+
+mu_ex = excess_chemical_potential(
+    "water.prm7",,
+    "water.rst7",
+    temperature="298 K",
+    pressure="1 bar",
+    cutoff="10 A",
+    runtime="5 ns",
+    num_lambda=24,
+    replica_exchange=True,
+)
+```
+
+Once finished, `mu_ex` will contain the computed excess chemical potential in units
+kcal/mol.
+
+Note that the simulation requires a system with CUDA support. Please set the
+`CUDA_VISIBLE_DEVICES` environment variable accordingly.
+
+The standard volume can be computed as follows:
+
+```python
+from loch import standard_volume
+
+v_std = standard_volume(
+    "water.prm7",
+    "water.rst7",
+    temperature="298 K",
+    pressure="1 bar",
+    cutoff="10 A",
+    num_samples=1000,
+    sample_interval="1 ps",
+)
+```
+
+Once finished, `v_std` will contain the computed standard volume in units
+of Å³.
 
 ## Examples
 
