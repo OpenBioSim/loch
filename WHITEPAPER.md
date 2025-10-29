@@ -86,14 +86,16 @@ overheads that could negate the performance benefits.
 
 Other than the cost of evaluating GCMC trials using PME, performance is aslo
 impacted by the cost of updating nonbonded parameters and atomic positions
-in the OpenMM context after each accepted insertion or deletion.
-[Recent updates](https://github.com/openmm/openmm/pull/4610) to OpenMM have
-helped mitigate the cost of modifying force field parameters, allowing updates
-for only the subset of parameters that have changed within a particular force.
-However, updating atomic positions still requires re-uploading all atomic
-coordinates to the GPU after each accepted move, rather than only the coordinates
-of the inserted or deleted water molecule. This could provide a further avenue
-for performance improvement in future versions of OpenMM.
+in the OpenMM context after each accepted insertion or deletion. (No updates
+are required for trial moves, since these are all evaluated via the custom
+CUDA kernel.) [Recent updates](https://github.com/openmm/openmm/pull/4610)
+to OpenMM have helped mitigate the cost of modifying force field parameters,
+allowing updates for only the subset of parameters that have changed within
+a particular force. However, updating atomic positions still requires
+re-uploading all atomic coordinates to the GPU after each accepted move,
+rather than only the coordinates of the inserted water molecule. This could
+provide a further avenue for performance improvement in future versions of
+OpenMM.
 
 ## Examples
 
