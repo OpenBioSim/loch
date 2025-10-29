@@ -165,7 +165,7 @@ sr.save(mols.trajectory(), "gcmc_traj.dcd")
 
 ## Calibrating the GCMC potential
 
-We provide a [utility module](src/loch/utils.py) for calibrating the excess
+We provide a [utility module](src/loch/_utils.py) for calibrating the excess
 chemical potential and standard volume for a given water model at a specified
 temperature and pressure. The excess chemical potential is computed via
 an alchemical decoupling simulation of a water molecule in bulk solvent, while
@@ -174,11 +174,13 @@ the standard volume is computed from constant pressure simulations of bulk water
 The excess chemical potential can be computed as follows:
 
 ```python
+import sire as sr
 from loch import excess_chemical_potential
 
+mols = sr.load("water.prm7", "water.rst7")
+
 mu_ex = excess_chemical_potential(
-    "water.prm7",,
-    "water.rst7",
+    mols,
     temperature="298 K",
     pressure="1 bar",
     cutoff="10 A",
@@ -187,6 +189,13 @@ mu_ex = excess_chemical_potential(
     replica_exchange=True,
 )
 ```
+
+Here `water.prm7` and `water.rst7` are the topology and co-ordinates files
+for an equilibrated bulk water system. Any file format supported by Sire
+can be used. The `num_lambda` parameter controls the number of alchemical
+intermediate states used in the decoupling simulation, while the
+`replica_exchange` flag enables replica exchange between the alchemical states
+to enhance sampling.
 
 Once finished, `mu_ex` will contain the computed excess chemical potential in units
 kcal/mol.
@@ -197,11 +206,13 @@ Note that the simulation requires a system with CUDA support. Please set the
 The standard volume can be computed as follows:
 
 ```python
+import sire as sr
 from loch import standard_volume
 
+mols = sr.load("water.prm7", "water.rst7")
+
 v_std = standard_volume(
-    "water.prm7",
-    "water.rst7",
+    mols,
     temperature="298 K",
     pressure="1 bar",
     cutoff="10 A",

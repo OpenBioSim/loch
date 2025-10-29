@@ -27,8 +27,7 @@ __all__ = ["excess_chemical_potential", "standard_volume"]
 
 
 def excess_chemical_potential(
-    topology_file,
-    coordinate_file,
+    system,
     temperature="298 K",
     pressure="1 bar",
     cutoff="10 A",
@@ -44,31 +43,28 @@ def excess_chemical_potential(
     Parameters
     ----------
 
-    topology_file : str
-        Path to the topology file.
+    system: sire.system.System
+        The bulk water system.
 
-    coordinate_file : str
-        Path to the coordinate file.
-
-    temperature : str, optional
+    temperature: str, optional
         Temperature of the system (default is "298 K").
 
-    pressure : str, optional
+    pressure: str, optional
         Pressure of the system (default is "1 bar").
 
-    cutoff : str, optional
+    cutoff: str, optional
         Non-bonded interaction cutoff distance (default is "10 A").
 
-    runtime : str, optional
+    runtime: str, optional
         Simulation runtime (default is "5 ns").
 
-    num_lambda : int, optional
+    num_lambda: int, optional
         Number of lambda windows to use in the calculation (default is 24).
 
-    replica_exchange : bool, optional
+    replica_exchange: bool, optional
         Whether to use replica exchange during the calculation (default is False).
 
-    work_dir : str, optional
+    work_dir: str, optional
         Working directory for the decoupling simulation (default is None,
         which uses a temporary directory).
 
@@ -84,15 +80,8 @@ def excess_chemical_potential(
 
     from BioSimSpace.FreeEnergy import Relative
 
-    if not isinstance(topology_file, str):
-        raise TypeError("'topology_file' must be a of type 'str'.")
-    if not os.path.isfile(topology_file):
-        raise FileNotFoundError(f"'topology_file' not found: {topology_file}")
-
-    if not isinstance(coordinate_file, str):
-        raise TypeError("'coordinate_file' must be a of type 'str'.")
-    if not os.path.isfile(coordinate_file):
-        raise FileNotFoundError(f"'coordinate_file' not found: {coordinate_file}")
+    if not isinstance(system, sr.system.System):
+        raise TypeError("'system' must be a of type 'sire.system.System'.")
 
     if not isinstance(temperature, str):
         raise TypeError("'temperature' must be a of type 'str'.")
@@ -118,10 +107,10 @@ def excess_chemical_potential(
         raise ValueError("'cutoff' has incorrect units.")
 
     try:
-        runtime = sr.u(runtime)
+        u = sr.u(runtime)
     except Exception as e:
         raise ValueError(f"Unable to parse 'runtime': {e}")
-    if not runtime.has_same_units(sr.units.nanosecond):
+    if not u.has_same_units(sr.units.nanosecond):
         raise ValueError("'runtime' has incorrect units.")
 
     if not isinstance(num_lambda, int):
@@ -164,15 +153,9 @@ def excess_chemical_potential(
     except Exception as e:
         raise ValueError(f"Unable to create SOMD2 configuration: {e}")
 
-    # Try to read the topology and coordinate files.
-    try:
-        mols = sr.load(topology_file, coordinate_file)
-    except Exception as e:
-        raise ValueError(f"Unable to read topology/coordinate files: {e}")
-
     # Make sure there are only water molecules.
-    waters = mols["water"]
-    if not len(waters) == len(mols):
+    waters = system["water"]
+    if not len(waters) == len(system):
         raise ValueError(
             "The provided topology/coordinate files must contain only water molecules."
         )
@@ -180,8 +163,8 @@ def excess_chemical_potential(
     # Decouple a single water molecule.
     mol = waters[0]
     mol = sr.morph.decouple(mol, as_new_molecule=False)
-    mols.update(mol)
-    mols = sr.morph.link_to_reference(mols)
+    system.update(mol)
+    system = sr.morph.link_to_reference(system)
 
     # Get the lambda schedule from the molecule.
     l = mol.property("schedule")
@@ -212,7 +195,7 @@ def excess_chemical_potential(
 
     # Set up the runner.
     try:
-        runner = Runner(mols, config)
+        runner = Runner(system, config)
     except Exception as e:
         raise ValueError(f"Unable to set up the decoupling simulation: {e}")
 
@@ -233,8 +216,7 @@ def excess_chemical_potential(
 
 
 def standard_volume(
-    topology_file,
-    coordinate_file,
+    system,
     temperature="298 K",
     pressure="1 bar",
     cutoff="10 A",
@@ -247,11 +229,8 @@ def standard_volume(
     Parameters
     ----------
 
-    topology_file : str
-        Path to the topology file.
-
-    coordinate_file : str
-        Path to the coordinate file.
+    system: sire.system.System
+        The bulk water system.
 
     temperature : str, optional
         Temperature of the system (default is "298 K").
@@ -279,15 +258,8 @@ def standard_volume(
 
     from openmm.unit import angstrom
 
-    if not isinstance(topology_file, str):
-        raise TypeError("'topology_file' must be a of type 'str'.")
-    if not os.path.isfile(topology_file):
-        raise FileNotFoundError(f"'topology_file' not found: {topology_file}")
-
-    if not isinstance(coordinate_file, str):
-        raise TypeError("'coordinate_file' must be a of type 'str'.")
-    if not os.path.isfile(coordinate_file):
-        raise FileNotFoundError(f"'coordinate_file' not found: {coordinate_file}")
+    if not isinstance(system, sr.system.System):
+        raise TypeError("'system' must be a of type 'sire.system.System'.")
 
     if not isinstance(temperature, str):
         raise TypeError("'temperature' must be a of type 'str'.")
@@ -329,15 +301,9 @@ def standard_volume(
     # Disable the dynamics progress bar.
     sr.base.ProgressBar.set_silent()
 
-    # Try to read the topology and coordinate files.
-    try:
-        mols = sr.load(topology_file, coordinate_file)
-    except Exception as e:
-        raise ValueError(f"Unable to read topology/coordinate files: {e}")
-
     # Make sure there are only water molecules.
-    waters = mols["water"]
-    if not len(waters) == len(mols):
+    waters = system["water"]
+    if not len(waters) == len(system):
         raise ValueError(
             "The provided topology/coordinate files must contain only water molecules."
         )
@@ -347,7 +313,7 @@ def standard_volume(
 
     # Set up the NPT simulation.
     try:
-        d = mols.dynamics(temperature=temperature, pressure=pressure, timestep="2 fs")
+        d = system.dynamics(temperature=temperature, pressure=pressure, timestep="2 fs")
     except Exception as e:
         raise ValueError(f"Unable to set up NPT dynamics: {e}")
 
