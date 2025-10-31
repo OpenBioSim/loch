@@ -1,6 +1,6 @@
 # Bulk water
 
-Run 10ns of bulk water sampling, with GCMC moves every 1ps:
+Run 100ns of bulk water sampling, with GCMC moves every 1ps:
 
 ```
 cd examples/water
