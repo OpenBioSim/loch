@@ -13,7 +13,7 @@ API. Additionally, electrostatics for GCMC attempts are computed using the
 reaction field (RF) method, with accepted candidates being re-evaluated with a
 correction step based on the difference between reaction field and Particle Mesh
 Ewald (PME) potential energies. The use of an approximate potential for trial
-moves leads to a substantial speed-up in GCMC move evaluation. `loch` has
+moves leads to a substantial speed-up in GCMC move evaluation. `loch` has been
 designed to be modular, allowing standalone GCMC sampling, or integration with
 OpenMM-based molecular dynamics simulation code, e.g. as has been done in the
 [SOMD2](https://github.com/openbiosim/somd2) free-energy perturbation engine.

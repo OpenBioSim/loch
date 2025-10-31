@@ -39,8 +39,11 @@ simultaneously. Particle mesh Ewald (PME) is handled via the method for
 sampling from an approximate potential (in this case the RF potential)
 introduced [here](https://doi.org/10.1063/1.1563597). Parallelisation of the
 insertion and deletion trials is achieved using the strategy described in
-[this](https://doi.org/10.1021/acs.jctc.0c00660) paper. See our
-[whitepaper](WHITEPAPER.md) for further technical details.
+[this](https://doi.org/10.1021/acs.jctc.0c00660) paper. `loch` has been
+designed to be modular, allowing standalone GCMC sampling, or integration with
+OpenMM-based molecular dynamics simulation code, e.g. as has been done in the
+[SOMD2](https://github.com/openbiosim/somd2) free-energy perturbation engine.
+See our [whitepaper](WHITEPAPER.md) for further technical details.
 
 ## Usage
 
