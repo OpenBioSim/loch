@@ -128,13 +128,19 @@ def excess_chemical_potential(
         tmp_dir = tempfile.TemporaryDirectory()
         work_dir = tmp_dir.name
 
-    # Import the required runner.
-    if replica_exchange:
-        from somd2.runner import RepexRunner as Runner
-    else:
-        from somd2.runner import Runner
+    try:
+        # Import the required runner.
+        if replica_exchange:
+            from somd2.runner import RepexRunner as Runner
+        else:
+            from somd2.runner import Runner
 
-    from somd2.config import Config
+        from somd2.config import Config
+    except Exception:
+        raise ImportError(
+            "Please install SOMD2 to use the excess_chemical_potential function: "
+            "https://github.com/OpenBioSim/somd2"
+        )
 
     # Set up the configuration.
     try:
