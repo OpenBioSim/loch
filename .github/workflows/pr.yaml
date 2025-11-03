@@ -1,0 +1,53 @@
+name: Pull-Request
+
+on:
+  pull_request:
+    branches: [devel, main]
+
+jobs:
+  build:
+    name: build (${{ matrix.python-version }}, ${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      max-parallel: 9
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        platform:
+          - { name: "linux", os: "ubuntu-latest", shell: "bash -l {0}" }
+    environment:
+      name: loch-build
+    defaults:
+      run:
+        shell: ${{ matrix.platform.shell }}
+    env:
+      SIRE_DONT_PHONEHOME: 1
+      SIRE_SILENT_PHONEHOME: 1
+      REPO: "${{ github.event.pull_request.head.repo.full_name || github.repository }}"
+    steps:
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+          activate-environment: loch_build
+          miniforge-version: latest
+#
+      - name: Clone the feature branch
+        run: git clone -b ${{ github.head_ref }} --single-branch https://github.com/${{ env.REPO }} loch
+#
+      - name: Setup Conda
+        run: conda install -y -c conda-forge boa anaconda-client packaging
+#
+      - name: Update Conda recipe
+        run: python ${{ github.workspace }}/loch/actions/update_recipe.py
+#
+      - name: Prepare build location
+        run: mkdir ${{ github.workspace }}/build
+#
+      - name: Build Conda package using conda build using main channel
+        if: ${{ github.base_ref == 'main' }}
+        run: conda build -c conda-forge -c openbiosim/label/main ${{ github.workspace }}/loch/recipes/loch
+#
+      - name: Build Conda package using conda build using dev channel
+        if: ${{ github.base_ref != 'main' }}
+        run: conda build -c conda-forge -c openbiosim/label/dev ${{ github.workspace }}/loch/recipes/loch

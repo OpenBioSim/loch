@@ -1,0 +1,55 @@
+name: Release Devel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ devel ]
+
+jobs:
+  build:
+    name: build (${{ matrix.python-version }}, ${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      max-parallel: 9
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        platform:
+          - { name: "linux", os: "ubuntu-latest", shell: "bash -l {0}" }
+    environment:
+      name: loch-build
+    defaults:
+      run:
+        shell: ${{ matrix.platform.shell }}
+    env:
+      SIRE_DONT_PHONEHOME: 1
+      SIRE_SILENT_PHONEHOME: 1
+    steps:
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+          activate-environment: loch_build
+          miniforge-version: latest
+#
+      - name: Clone the devel branch
+        run: git clone -b devel https://github.com/openbiosim/loch
+#
+      - name: Setup Conda
+        run: conda install -y -c conda-forge boa anaconda-client packaging
+#
+      - name: Update Conda recipe
+        run: python ${{ github.workspace }}/loch/actions/update_recipe.py
+#
+      - name: Prepare build location
+        run: mkdir ${{ github.workspace }}/build
+#
+      - name: Build Conda package using conda build
+        run: conda build -c conda-forge -c openbiosim/label/dev ${{ github.workspace }}/loch/recipes/loch
+#
+      - name: Upload Conda package
+        run: python ${{ github.workspace }}/loch/actions/upload_package.py
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+          ANACONDA_LABEL: dev
+        if: ${{ matrix.platform.name == 'linux' && matrix.python-version == '3.12' }}

@@ -6,6 +6,8 @@
 
 # Loch
 
+[![GitHub Actions](https://github.com/openbiosim/loch/actions/workflows/devel.yaml/badge.svg)](https://github.com/openbiosim/loch/actions/workflows/devel.yaml)
+[![Conda Version](https://anaconda.org/openbiosim/loch/badges/downloads.svg)](https://anaconda.org/openbiosim/loch)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
 CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code. Built
@@ -28,6 +30,18 @@ Next, clone the repository and install the package:
 git clone https://github.com/openbiosim/loch
 cd loch
 pip install -e .
+```
+
+Alternatively, to install `loch` into an existing conda environment:
+
+```
+conda install -c conda-forge openbiosim loch
+```
+
+Or, for the development version:
+
+```
+conda install -c conda-forge -c openbiosim/label/dev loch
 ```
 
 ## How does it work?
@@ -175,6 +189,13 @@ potential and standard volume for a given water model at a specified
 temperature and pressure. The excess chemical potential is computed via
 an alchemical decoupling simulation of a water molecule in bulk solvent, while
 the standard volume is computed from constant pressure simulations of bulk water.
+
+To compute the excess chemical potential, you will first need to install the
+[SOMD2](https://github.com/openbiosim/somd2) package into your conda environment:
+
+```
+conda install -c openbiosim somd2
+```
 
 The excess chemical potential can be computed as follows:
 
