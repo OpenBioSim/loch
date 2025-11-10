@@ -52,4 +52,3 @@ jobs:
         env:
           ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
           ANACONDA_LABEL: dev
-        if: ${{ matrix.platform.name == 'linux' && matrix.python-version == '3.12' }}

@@ -55,4 +55,3 @@ jobs:
         env:
           ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
           ANACONDA_LABEL: main
-        if: github.event.inputs.upload_packages == 'true' && matrix.platform.name == 'linux' && matrix.python-version == '3.12'
