@@ -28,4 +28,4 @@ dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
 distance-dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
 
 [tool.versioningit.write]
-file = "src/ghostly/_version.py"
+file = "src/loch/_version.py"
