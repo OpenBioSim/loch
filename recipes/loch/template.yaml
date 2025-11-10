@@ -20,12 +20,14 @@ requirements:
     - pycuda # [not macos]
     - python
     - setuptools
+    - sire
     - versioningit
   run:
     - biosimspace
     - loguru
     - pycuda # [not macos]
     - python
+    - sire
 
 test:
   script_env:
