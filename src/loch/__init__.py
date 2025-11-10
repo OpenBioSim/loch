@@ -21,3 +21,4 @@
 
 from ._sampler import *
 from ._utils import *
+from ._version import __version__
