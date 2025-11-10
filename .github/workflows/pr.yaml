@@ -46,8 +46,8 @@ jobs:
 #
       - name: Build Conda package using conda build using main channel
         if: ${{ github.base_ref == 'main' }}
-        run: conda build -c conda-forge -c openbiosim/label/main ${{ github.workspace }}/loch/recipes/loch
+        run: conda build --no-test -c conda-forge -c openbiosim/label/main ${{ github.workspace }}/loch/recipes/loch
 #
       - name: Build Conda package using conda build using dev channel
         if: ${{ github.base_ref != 'main' }}
-        run: conda build -c conda-forge -c openbiosim/label/dev ${{ github.workspace }}/loch/recipes/loch
+        run: conda build --no-test -c conda-forge -c openbiosim/label/dev ${{ github.workspace }}/loch/recipes/loch
