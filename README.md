@@ -261,7 +261,9 @@ Free Energy Perturbation (FEP) with GCMC using `loch` is supported via the
 
 ## Notes
 
-* Make sure that `nvcc` is in your `PATH`.
+* Make sure that `nvcc` is in your `PATH`. If you require a different `nvcc` to that
+  provided by conda, you can set the `PYCUDA_NVCC` environment variable to point
+  to the desired `nvcc` binary, or use the `nvcc` kwarg in the `GCMCSampler` constructor.
 
 * A future version supporting AMD GPUs via PyOpenCL is planned.
 

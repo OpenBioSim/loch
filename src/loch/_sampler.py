@@ -77,6 +77,7 @@ class GCMCSampler:
         log_file="gcmc.txt",
         log_level="error",
         seed=None,
+        nvcc=None,
         **kwargs,
     ):
         """
@@ -206,6 +207,10 @@ class GCMCSampler:
 
         seed: int
             The seed for the random number generator.
+
+        nvcc: str
+            The path to the nvcc compiler. If None, the default nvcc
+            in the PATH will be used.
         """
 
         # Validate the input.
@@ -371,6 +376,16 @@ class GCMCSampler:
         # Create a random number generator.
         self._rng = _np.random.default_rng(self._seed)
 
+        if nvcc is not None:
+            if not isinstance(nvcc, str):
+                raise ValueError("'nvcc' must be of type 'str'")
+            if not _os.path.exists(nvcc):
+                raise ValueError(f"'nvcc' does not exist: {nvcc}")
+        else:
+            from shutil import which
+
+            nvcc = _os.environ.get("PYCUDA_NVCC", which("nvcc"))
+
         from pycuda.tools import make_default_context
 
         # Set the CUDA device.
@@ -511,6 +526,7 @@ class GCMCSampler:
                 "NUM_ATOMS": self._num_atoms,
             },
             no_extern_c=True,
+            nvcc=nvcc,
         )
         self._kernels["cell"] = mod.get_function("setCellMatrix")
         self._kernels["rng"] = mod.get_function("initialiseRNG")
