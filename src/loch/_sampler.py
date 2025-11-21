@@ -72,6 +72,7 @@ class GCMCSampler:
         shift_coulomb="1 A",
         shift_delta="1.5 A",
         swap_end_states=False,
+        restart=False,
         overwrite=False,
         ghost_file="ghosts.txt",
         log_file="gcmc.txt",
@@ -192,6 +193,10 @@ class GCMCSampler:
 
         swap_end_states: bool
             Whether to swap the end states of the alchemical systems.
+
+        restart: bool
+            Whether this is a restart simulation. If True, then data will
+            be appended to existing log files.
 
         overwrite: bool
             Overwrite existing log files.
@@ -315,6 +320,10 @@ class GCMCSampler:
             raise ValueError("'overwrite' must be of type 'bool'")
         self._overwrite = overwrite
 
+        if not isinstance(restart, bool):
+            raise ValueError("'restart' must be of type 'bool'")
+        self._restart = restart
+
         if ghost_file is not None:
             if not isinstance(ghost_file, str):
                 raise ValueError("'ghost_file' must be of type 'str'")
@@ -324,7 +333,7 @@ class GCMCSampler:
             self._ghost_file = ghost_file
 
             if _os.path.exists(self._ghost_file):
-                if not self._overwrite:
+                if not self._restart and not self._overwrite:
                     raise ValueError(
                         "'ghost_file' already exists. Use 'overwrite=True' to overwrite it."
                     )
