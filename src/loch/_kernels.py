@@ -498,7 +498,7 @@ code = """
                 water[2] = 0.0f;
 
                 // Shift the other atoms by the appropriate amount.
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < num_points; i++)
                 {
                     water[i*3 + 0] = water_template[i*3 + 0] - water_template[0];
                     water[i*3 + 1] = water_template[i*3 + 1] - water_template[1];

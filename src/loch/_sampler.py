@@ -2025,7 +2025,7 @@ class GCMCSampler:
 
         # Get the new water positions.
         water_positions = self._water_positions.get().reshape(
-            (self._batch_size, 3, self._num_points)
+            (self._batch_size, self._num_points, 3)
         )[idx]
 
         # Update the water state.
