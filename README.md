@@ -104,7 +104,7 @@ contains an additional `num_ghost_waters` number of ghost water molecules
 that are used for insertion moves.
 
 ```python
-gcmc_system = sampler.get_system()
+gcmc_system = sampler.system()
 ```
 
 4) Create an OpenMM context:
@@ -306,7 +306,7 @@ sampler = GCMCSampler(
 )
 
 # Get the GCMC system.
-gcmc_system = sampler.get_system()
+gcmc_system = sampler.system()
 
 # Save the GCMC system to AMBER format files.
 sr.save(gcmc_system, ["gcmc_system.prmtop", "gcmc_system.inpcrd"])
