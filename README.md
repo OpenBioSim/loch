@@ -126,7 +126,8 @@ d = gcmc_system.dynamics(
 
 > [!Note]
 > While we have used Sire to create the OpenMM context, you can also write
-> the GCMC system to file and create the OpenMM context manually.
+> the GCMC system to file and create the OpenMM context manually. See [here](#notes)
+> for an example of how to perform an OpenMM-to-Sire roundtrip.
 
 > [!Note]
 > GCMC sampling must be performed in the NVT ensemble, hence the pressure
@@ -266,6 +267,54 @@ Free Energy Perturbation (FEP) with GCMC using `loch` is supported via the
   to the desired `nvcc` binary, or use the `nvcc` kwarg in the `GCMCSampler` constructor.
 
 * A future version supporting AMD GPUs via PyOpenCL is planned.
+
+* OpenMM-to-Sire roundtrip example:
+
+```python
+from openmm.app import AmberPrmtopFile, AmberInpcrdFile, PDBFile
+from loch import GCMCSampler
+
+import parmed as pmd
+import sire as sr
+
+# Here we have an existing OpenMM system in omm_system.
+
+# Load a PDB representation of the topology.
+pdb = PDBFile("system.pdb")
+
+# Create a ParmEd structure.
+structure = pmd.openmm.load(
+    pdb.topology,
+    omm_system,
+    xyz=pdb.positions,
+)
+
+# Save the structure to AMBER format files.
+struct.save("system.prmtop")
+struct.save("system.inpcrd")
+
+# Load the system into Sire.
+mols = sr.load("system.prmtop", "system.inpcrd")
+
+# Define the GCMC reference selection. (This should be adjusted as needed.)
+gcmc_reference = "(resnum 10 and atomname CA) or (resnum 43 and atomname CA)"
+
+# Create the GCMCSampler.
+sampler = GCMCSampler(
+    mols,
+    reference = gcmc_reference,
+)
+
+# Get the GCMC system.
+gcmc_system = sampler.get_system()
+
+# Save the GCMC system to AMBER format files.
+sr.save(gcmc_system, ["gcmc_system.prmtop", "gcmc_system.inpcrd"])
+
+# Load the GCMC system back into OpenMM.
+prmtop = AmberPrmtopFile("gcmc_system.prmtop")
+inpcrd = AmberInpcrdFile("gcmc_system.inpcrd")
+```
 
 ## Acknowledgements
 
