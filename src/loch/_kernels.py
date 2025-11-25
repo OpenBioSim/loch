@@ -757,9 +757,8 @@ code = """
                                 }
 
                                 // Compute the Coulomb interaction.
-                                auto delta_coulomb = shift_coulomb * a;
                                 energy_coul[idx] += (q0 * q1) *
-                                    ((cpe / sqrtf((delta_coulomb * delta_coulomb)
+                                    ((cpe / sqrtf((shift_coulomb * shift_coulomb * a)
                                     + (r * r))) + (rf_kappa * r2) - rf_correction);
 
                             }
