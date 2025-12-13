@@ -285,7 +285,7 @@ import sire as sr
 pdb = PDBFile("system.pdb")
 
 # Create a ParmEd structure.
-structure = pmd.openmm.load(
+struct = pmd.openmm.load(
     pdb.topology,
     omm_system,
     xyz=pdb.positions,
