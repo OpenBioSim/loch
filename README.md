@@ -12,8 +12,9 @@
 
 CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code. Built
 on top of [Sire](https://github.com/OpenBioSim/sire),
-[BioSimSpace](https://github.com/OpenBioSim/biosimspace) and
-[OpenMM](https://github.com/openmm/openmm).
+[BioSimSpace](https://github.com/OpenBioSim/biosimspace),
+[OpenMM](https://github.com/openmm/openmm), and
+[PyCUDA](https://documen.tician.de/pycuda/index.html#).
 
 ## Installation
 
