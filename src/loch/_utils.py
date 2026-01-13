@@ -1,7 +1,7 @@
 ######################################################################
 # Loch: GPU accelerated GCMC water sampling engine.
 #
-# Copyright: 2025
+# Copyright: 2025-2026
 #
 # Authors: The OpenBioSim Team <team@openbiosim.org>
 #
@@ -23,19 +23,21 @@
 Utility functions for calibrating the GCMC potential.
 """
 
+from typing import Optional as _Optional
+
 __all__ = ["excess_chemical_potential", "standard_volume"]
 
 
 def excess_chemical_potential(
     system,
-    temperature="298 K",
-    pressure="1 bar",
-    cutoff="10 A",
-    runtime="5 ns",
-    num_lambda=24,
-    replica_exchange=False,
-    work_dir=None,
-):
+    temperature: str = "298 K",
+    pressure: str = "1 bar",
+    cutoff: str = "10 A",
+    runtime: str = "5 ns",
+    num_lambda: int = 24,
+    replica_exchange: bool = False,
+    work_dir: _Optional[str] = None,
+) -> float:
     """
     Calculate the excess chemical potential of a water molecule at the given
     temperature and pressure via alchemical decoupling.
@@ -223,12 +225,12 @@ def excess_chemical_potential(
 
 def standard_volume(
     system,
-    temperature="298 K",
-    pressure="1 bar",
-    cutoff="10 A",
-    num_samples=5000,
-    sample_interval="1 ps",
-):
+    temperature: str = "298 K",
+    pressure: str = "1 bar",
+    cutoff: str = "10 A",
+    num_samples: int = 5000,
+    sample_interval: str = "1 ps",
+) -> float:
     """
     Calculate the standard volume of water at the given temperature and pressure.
 

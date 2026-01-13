@@ -1,7 +1,7 @@
 ######################################################################
 # Loch: GPU accelerated GCMC water sampling engine.
 #
-# Copyright: 2025
+# Copyright: 2025-2026
 #
 # Authors: The OpenBioSim Team <team@openbiosim.org>
 #
@@ -21,6 +21,8 @@
 
 __all__ = ["GCMCSampler"]
 
+from typing import Any as _Any, Optional as _Optional, Union as _Union
+
 import numpy as _np
 import openmm as _openmm
 import os as _os
@@ -30,57 +32,55 @@ try:
 except:
     from loguru import logger as _logger
 
-import pycuda.driver as _cuda
-import pycuda.gpuarray as _gpuarray
-from pycuda.compiler import SourceModule as _SourceModule
-
 import BioSimSpace as _BSS
 import sire as _sr
 
-from ._kernels import code as _code
+from ._platforms import create_backend as _create_backend
+from ._platforms._rng import RNGManager as _RNGManager
 
 
 class GCMCSampler:
     """
-    A class to perform GCMC water sampling on the GPU via PyCUDA.
+    A class to perform GCMC water sampling on the GPU.
     """
 
     def __init__(
         self,
-        system,
-        reference=None,
-        radius="4.0 A",
-        cutoff_type="pme",
-        cutoff="10.0 A",
-        excess_chemical_potential="-6.09 kcal/mol",
-        standard_volume="30.543 A^3",
-        temperature="298 K",
-        adams_shift=0.0,
-        num_ghost_waters=20,
-        batch_size=1000,
-        num_attempts=10000,
-        num_threads=1024,
-        bulk_sampling_probability=0.1,
-        water_template=None,
-        device=None,
-        tolerance=0.0,
-        lambda_schedule=None,
-        lambda_value=0.0,
-        rest2_scale=1.0,
-        rest2_selection=None,
-        coulomb_power=0.0,
-        shift_coulomb="1 A",
-        shift_delta="1.5 A",
-        swap_end_states=False,
-        restart=False,
-        overwrite=False,
-        ghost_file="ghosts.txt",
-        log_file="gcmc.txt",
-        log_level="error",
-        seed=None,
-        nvcc=None,
-        **kwargs,
-    ):
+        system: _Any,
+        reference: _Optional[str] = None,
+        radius: str = "4.0 A",
+        cutoff_type: str = "pme",
+        cutoff: str = "10.0 A",
+        excess_chemical_potential: str = "-6.09 kcal/mol",
+        standard_volume: str = "30.543 A^3",
+        temperature: str = "298 K",
+        adams_shift: _Union[int, float] = 0.0,
+        num_ghost_waters: int = 20,
+        batch_size: int = 1000,
+        num_attempts: int = 10000,
+        num_threads: int = 1024,
+        bulk_sampling_probability: float = 0.1,
+        water_template: _Optional[_Any] = None,
+        device: _Optional[int] = None,
+        platform: str = "auto",
+        tolerance: float = 0.0,
+        lambda_schedule: _Optional[_Any] = None,
+        lambda_value: float = 0.0,
+        rest2_scale: float = 1.0,
+        rest2_selection: _Optional[str] = None,
+        coulomb_power: float = 0.0,
+        shift_coulomb: str = "1 A",
+        shift_delta: str = "1.5 A",
+        swap_end_states: bool = False,
+        restart: bool = False,
+        overwrite: bool = False,
+        ghost_file: _Optional[str] = "ghosts.txt",
+        log_file: _Optional[str] = "gcmc.txt",
+        log_level: str = "error",
+        seed: _Optional[int] = None,
+        nvcc: _Optional[str] = None,
+        **kwargs: _Any,
+    ) -> None:
         """
         Initialise the GCMC sampler.
 
@@ -149,8 +149,13 @@ class GCMCSampler:
             from the template.
 
         device: int
-            The CUDA device index. (This is the index in the list of visible
+            The GPU device index. (This is the index in the list of visible
             devices.)
+
+        platform: str
+            The GPU platform to use. Options are 'auto' (default), 'cuda',
+            or 'opencl'. When 'auto', CUDA will be preferred if available,
+            falling back to OpenCL.
 
         tolerance: float
             The tolerance for the acceptance probability, i.e. the minimum
@@ -385,6 +390,7 @@ class GCMCSampler:
         # Create a random number generator.
         self._rng = _np.random.default_rng(self._seed)
 
+        # Validate nvcc path if provided
         if nvcc is not None:
             if not isinstance(nvcc, str):
                 raise ValueError("'nvcc' must be of type 'str'")
@@ -394,22 +400,6 @@ class GCMCSampler:
             from shutil import which
 
             nvcc = _os.environ.get("PYCUDA_NVCC", which("nvcc"))
-
-        from pycuda.tools import make_default_context
-
-        # Set the CUDA device.
-        _cuda.init()
-        if device is not None:
-            if not isinstance(device, int):
-                raise ValueError("'device' must be of type 'int'")
-            if device < 0 or device >= _cuda.Device.count():
-                raise ValueError(
-                    f"'device' must be between 0 and {cuda.Device.count() - 1}"
-                )
-            self._pycuda_context = _cuda.Device(device).make_context()
-        else:
-            self._pycuda_context = make_default_context()
-        self._device = self._pycuda_context.get_device()
 
         # Set the tolerance.
         try:
@@ -524,31 +514,23 @@ class GCMCSampler:
         except Exception as e:
             raise ValueError(f"Could not prepare the system for GCMC sampling: {e}")
 
-        # Create the kernels.
-        self._kernels = {}
-        mod = _SourceModule(
-            _code
-            % {
-                "NUM_POINTS": self._num_points,
-                "NUM_BATCH": self._batch_size,
-                "NUM_WATERS": self._num_waters,
-                "NUM_ATOMS": self._num_atoms,
-            },
-            no_extern_c=True,
+        # Create platform backend
+        self._backend = _create_backend(
+            platform=platform,
+            device=device if device is not None else 0,
+            num_points=self._num_points,
+            num_batch=self._batch_size,
+            num_waters=self._num_waters,
+            num_atoms=self._num_atoms,
+            num_threads=self._num_threads,
             nvcc=nvcc,
         )
-        self._kernels["cell"] = mod.get_function("setCellMatrix")
-        self._kernels["rng"] = mod.get_function("initialiseRNG")
-        self._kernels["rf"] = mod.get_function("setReactionField")
-        self._kernels["softcore"] = mod.get_function("setSoftCore")
-        self._kernels["atom_properties"] = mod.get_function("setAtomProperties")
-        self._kernels["atom_positions"] = mod.get_function("setAtomPositions")
-        self._kernels["water_properties"] = mod.get_function("setWaterProperties")
-        self._kernels["update_water"] = mod.get_function("updateWater")
-        self._kernels["deletion"] = mod.get_function("findDeletionCandidates")
-        self._kernels["water"] = mod.get_function("generateWater")
-        self._kernels["energy"] = mod.get_function("computeEnergy")
-        self._kernels["acceptance"] = mod.get_function("checkAcceptance")
+
+        # Compile kernels
+        self._kernels = self._backend.compile_kernels()
+
+        # Create RNG manager for host-side random number generation
+        self._rng_manager = _RNGManager(self._batch_size, seed=self._seed)
 
         # Work out the number of blocks to process the atoms.
         self._atom_blocks = self._num_atoms // self._num_threads + 1
@@ -651,7 +633,7 @@ class GCMCSampler:
         else:
             self._is_test = False
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         Return a string representation of the class.
         """
@@ -683,37 +665,35 @@ class GCMCSampler:
             f"seed={self._seed})"
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         Return a string representation of the class.
         """
 
         return str(self)
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         """
-        Detach the PyCUDA context.
+        Clean up GPU resources and detach context.
         """
         try:
-            self.pop()
+            self._backend.cleanup()
         except:
             pass
-        self._pycuda_context.detach()
-        self._pycuda_context = None
 
-    def push(self):
+    def push(self) -> None:
         """
-        Push the PyCUDA context on top of the stack.
+        Push the GPU context on top of the stack (CUDA only, no-op for OpenCL).
         """
-        self._pycuda_context.push()
+        self._backend.push_context()
 
-    def pop(self):
+    def pop(self) -> None:
         """
-        Pop the PyCUDA context from the stack.
+        Pop the GPU context from the stack (CUDA only, no-op for OpenCL).
         """
-        self._pycuda_context.pop()
+        self._backend.pop_context()
 
-    def system(self):
+    def system(self) -> _Any:
         """
         Return the GCMC system.
 
@@ -725,7 +705,7 @@ class GCMCSampler:
         """
         return self._system.clone()
 
-    def set_box(self, system):
+    def set_box(self, system: _Any) -> None:
         """
         Set the box information.
 
@@ -770,7 +750,7 @@ class GCMCSampler:
             grid=(1, 1, 1),
         )
 
-    def set_bulk_sampling_probability(self, probability):
+    def set_bulk_sampling_probability(self, probability: float) -> None:
         """
         Set the bulk sampling probability.
 
@@ -792,7 +772,7 @@ class GCMCSampler:
 
         self._bulk_sampling_probability = probability
 
-    def delete_waters(self, context):
+    def delete_waters(self, context: _openmm.Context) -> None:
         """
         Delete any waters within the GCMC sphere. (Convert to ghosts.)
 
@@ -813,13 +793,13 @@ class GCMCSampler:
         positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
 
         # Get the position of the GCMC sphere centre.
-        target = _gpuarray.to_gpu(
+        target = self._backend.to_gpu(
             self._get_target_position(positions).astype(_np.float32)
         )
 
         # Set the positions on the GPU.
         self._kernels["atom_positions"](
-            _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
+            self._backend.to_gpu(positions.astype(_np.float32).flatten()),
             _np.float32(1.0),
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
@@ -828,14 +808,14 @@ class GCMCSampler:
         # Find the non-ghost waters within the GCMC region.
         self._kernels["deletion"](
             self._deletion_candidates,
-            _gpuarray.to_gpu(target.astype(_np.float32)),
+            self._backend.to_gpu(target.astype(_np.float32)),
             _np.float32(self._radius.value()),
             block=(self._num_threads, 1, 1),
             grid=(self._water_blocks, 1, 1),
         )
 
         # Get the candidates.
-        candidates = self._deletion_candidates.get().flatten()
+        candidates = self._backend.from_gpu(self._deletion_candidates).flatten()
 
         # Find the waters within the GCMC sphere.
         candidates = _np.where(candidates == 1)[0]
@@ -849,7 +829,7 @@ class GCMCSampler:
         # Set the number of waters in the GCMC sphere to zero.
         self._N = 0
 
-    def num_waters(self):
+    def num_waters(self) -> int:
         """
         Return the number of waters in the GCMC region.
 
@@ -875,13 +855,13 @@ class GCMCSampler:
             positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
 
             # Get the position of the GCMC sphere centre.
-            target = _gpuarray.to_gpu(
+            target = self._backend.to_gpu(
                 self._get_target_position(positions).astype(_np.float32)
             )
 
             # Set the positions on the GPU.
             self._kernels["atom_positions"](
-                _gpuarray.to_gpu(positions.astype(_np.float32).flatten()),
+                self._backend.to_gpu(positions.astype(_np.float32).flatten()),
                 _np.float32(1.0),
                 block=(self._num_threads, 1, 1),
                 grid=(self._atom_blocks, 1, 1),
@@ -890,14 +870,14 @@ class GCMCSampler:
             # Find the non-ghost waters within the GCMC region.
             self._kernels["deletion"](
                 self._deletion_candidates,
-                _gpuarray.to_gpu(target.astype(_np.float32)),
+                self._backend.to_gpu(target.astype(_np.float32)),
                 _np.float32(self._radius.value()),
                 block=(self._num_threads, 1, 1),
                 grid=(self._water_blocks, 1, 1),
             )
 
             # Get the candidates.
-            candidates = self._deletion_candidates.get().flatten()
+            candidates = self._backend.from_gpu(self._deletion_candidates).flatten()
 
             # Find the waters within the GCMC sphere.
             candidates = _np.where(candidates == 1)[0]
@@ -910,7 +890,7 @@ class GCMCSampler:
 
         return self._N
 
-    def num_accepted_moves(self):
+    def num_accepted_moves(self) -> int:
         """
         Return the number of accepted moves.
 
@@ -922,7 +902,7 @@ class GCMCSampler:
         """
         return self._num_accepted
 
-    def num_accepted_attempts(self):
+    def num_accepted_attempts(self) -> int:
         """
         Return the number accepted attempts. (Note that, when using PME, this
         is the number of accepted attempts for the approximate RF potential.)
@@ -935,13 +915,13 @@ class GCMCSampler:
         """
         return self._num_accepted_attempts
 
-    def water_state(self):
+    def water_state(self) -> _np.ndarray:
         """
         Return the current water state array: 0 = ghost water, 1 = real water.
         """
         return self._water_state.copy()
 
-    def move_acceptance_probability(self):
+    def move_acceptance_probability(self) -> float:
         """
         Return the acceptance probability.
 
@@ -953,7 +933,7 @@ class GCMCSampler:
         """
         return self._num_accepted / self._num_moves
 
-    def attempt_acceptance_probability(self):
+    def attempt_acceptance_probability(self) -> float:
         """
         Return the acceptance probability per attempt. (Note that, when using
         PME, this is acceptance probability for the approximate RF potential.)
@@ -966,7 +946,7 @@ class GCMCSampler:
         """
         return self._num_accepted_attempts / (self._num_moves * self._num_attempts)
 
-    def num_insertions(self):
+    def num_insertions(self) -> int:
         """
         Return the number of accepted insertions.
 
@@ -978,7 +958,7 @@ class GCMCSampler:
         """
         return self._num_insertions
 
-    def num_deletions(self):
+    def num_deletions(self) -> int:
         """
         Return the number of accepted deletions.
 
@@ -990,7 +970,7 @@ class GCMCSampler:
         """
         return self._num_deletions
 
-    def reset(self):
+    def reset(self) -> None:
         """
         Reset the sampler.
         """
@@ -1010,7 +990,7 @@ class GCMCSampler:
         # Clear the OpenMM context.
         self._openmm_context = None
 
-    def ghost_residues(self):
+    def ghost_residues(self) -> _np.ndarray:
         """
         Return the current indices of the ghost water residues in the OpenMM
         context.
@@ -1028,7 +1008,7 @@ class GCMCSampler:
         # Now extract and return the residue indices.
         return self._water_residues[ghost_waters]
 
-    def write_ghost_residues(self):
+    def write_ghost_residues(self) -> None:
         """
         Write the current indices of the ghost water residues to a file.
         """
@@ -1043,7 +1023,7 @@ class GCMCSampler:
         with open(self._ghost_file, "a") as f:
             f.write(f"{', '.join([str(x) for x in ghost_residues])}\n")
 
-    def move(self, context):
+    def move(self, context: _openmm.Context) -> list[int]:
         """
         Perform num_attempts trial moves.
 
@@ -1115,7 +1095,7 @@ class GCMCSampler:
 
                     # Set the positions on the GPU.
                     self._kernels["atom_positions"](
-                        _gpuarray.to_gpu(
+                        self._backend.to_gpu(
                             positions_angstrom.astype(_np.float32).flatten()
                         ),
                         _np.float32(1.0),
@@ -1127,14 +1107,16 @@ class GCMCSampler:
                 if not self._is_bulk:
                     self._kernels["deletion"](
                         self._deletion_candidates,
-                        _gpuarray.to_gpu(target.astype(_np.float32)),
+                        self._backend.to_gpu(target.astype(_np.float32)),
                         _np.float32(self._radius.value()),
                         block=(self._num_threads, 1, 1),
                         grid=(self._water_blocks, 1, 1),
                     )
 
                     # Get the candidates.
-                    deletion_candidates = self._deletion_candidates.get().flatten()
+                    deletion_candidates = self._backend.from_gpu(
+                        self._deletion_candidates
+                    ).flatten()
 
                     # Find the waters within the GCMC sphere.
                     deletion_candidates = _np.where(deletion_candidates == 1)[0]
@@ -1159,7 +1141,7 @@ class GCMCSampler:
 
                 # Get the template positions for the water insertion.
                 start_idx = self._water_indices[idx_water]
-                template_positions = _gpuarray.to_gpu(
+                template_positions = self._backend.to_gpu(
                     positions_angstrom[start_idx : start_idx + self._num_points]
                     .astype(_np.float32)
                     .flatten()
@@ -1183,31 +1165,37 @@ class GCMCSampler:
                 candidates = self._rng.choice(
                     deletion_candidates, size=self._batch_size
                 )
-                candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
+                candidates_gpu = self._backend.to_gpu(candidates.astype(_np.int32))
 
                 # Generate the array of moves types. (0 = insertion, 1 = deletion)
                 is_deletion = self._rng.choice(2, size=self._batch_size)
-                is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
+                is_deletion_gpu = self._backend.to_gpu(is_deletion.astype(_np.int32))
             # If there are no deletion candidates, then we can only perform
             # insertion moves.
             else:
                 candidates = _np.zeros(self._batch_size, dtype=_np.int32)
-                candidates_gpu = _gpuarray.to_gpu(candidates.astype(_np.int32))
+                candidates_gpu = self._backend.to_gpu(candidates.astype(_np.int32))
                 is_deletion = _np.zeros(self._batch_size, dtype=_np.int32)
-                is_deletion_gpu = _gpuarray.to_gpu(is_deletion.astype(_np.int32))
+                is_deletion_gpu = self._backend.to_gpu(is_deletion.astype(_np.int32))
 
             _logger.debug("Preparing insertion candidates")
 
             if target is None:
-                target_gpu = _gpuarray.to_gpu(_np.zeros(3, dtype=_np.float32))
+                target_gpu = self._backend.to_gpu(_np.zeros(3, dtype=_np.float32))
                 is_target = _np.int32(0)
                 exp_B = self._exp_B_bulk
                 exp_minus_B = self._exp_minus_B_bulk
             else:
-                target_gpu = _gpuarray.to_gpu(target.astype(_np.float32))
+                target_gpu = self._backend.to_gpu(target.astype(_np.float32))
                 is_target = _np.int32(1)
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
+
+            # Generate random numbers on host for this batch
+            rngs_insert = self._rng_manager.generate_insertion_randoms()
+            randoms_rotation = self._backend.to_gpu(rngs_insert["rotation"])
+            randoms_position = self._backend.to_gpu(rngs_insert["position"])
+            randoms_radius = self._backend.to_gpu(rngs_insert["radius"])
 
             # Generate the random water positions and orientations.
             self._kernels["water"](
@@ -1216,6 +1204,9 @@ class GCMCSampler:
                 _np.float32(self._radius.value()),
                 self._water_positions,
                 is_target,
+                randoms_rotation,
+                randoms_position,
+                randoms_radius,
                 block=(self._num_threads, 1, 1),
                 grid=(self._batch_blocks, 1, 1),
             )
@@ -1232,6 +1223,10 @@ class GCMCSampler:
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
 
+            # Generate acceptance randoms
+            rngs_accept = self._rng_manager.generate_acceptance_randoms()
+            randoms_acceptance = self._backend.to_gpu(rngs_accept)
+
             # Check the acceptance for each trial state.
             self._kernels["acceptance"](
                 _np.int32(self._N),
@@ -1245,12 +1240,15 @@ class GCMCSampler:
                 self._probability,
                 self._accepted,
                 _np.float32(self._tolerance),
+                randoms_acceptance,
                 block=(self._num_threads, 1, 1),
                 grid=(self._batch_blocks, 1, 1),
             )
 
             # Get the acceptance array.
-            accepted = _np.where(self._accepted.get().flatten() == 1)[0]
+            accepted = _np.where(self._backend.from_gpu(self._accepted).flatten() == 1)[
+                0
+            ]
 
             # Store the number of accepted attempts.
             num_accepted_attempts = len(accepted)
@@ -1313,7 +1311,7 @@ class GCMCSampler:
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
                         dE_RF = (
-                            self._energy_change.get().flatten()[idx]
+                            self._backend.from_gpu(self._energy_change).flatten()[idx]
                             * _openmm.unit.kilocalories_per_mole
                         )
 
@@ -1397,7 +1395,7 @@ class GCMCSampler:
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
                         dE_RF = (
-                            self._energy_change.get().flatten()[idx]
+                            self._backend.from_gpu(self._energy_change).flatten()[idx]
                             * _openmm.unit.kilocalories_per_mole
                         )
 
@@ -1489,7 +1487,7 @@ class GCMCSampler:
 
         return moves
 
-    def bind_dynamics(self, dynamics):
+    def bind_dynamics(self, dynamics: _Any) -> None:
         """
         Bind the GCMC sampler to a Sire Dynamics object.
 
@@ -1505,7 +1503,7 @@ class GCMCSampler:
         dynamics._d._gcmc_sampler = self
 
     @staticmethod
-    def _validate_sire_unit(parameter, value, unit):
+    def _validate_sire_unit(parameter: str, value: str, unit: _Any) -> _Any:
         """
         Validate a Sire unit.
 
@@ -1541,8 +1539,7 @@ class GCMCSampler:
 
         return u
 
-    @staticmethod
-    def _get_box_information(space):
+    def _get_box_information(self, space):
         """
         Get the box information from the system.
 
@@ -1590,11 +1587,11 @@ class GCMCSampler:
         M = _np.array([row0, row1, row2])
 
         # Convert to GPU memory.
-        cell_matrix = _gpuarray.to_gpu(cell_matrix.flatten().astype(_np.float32))
-        cell_matrix_inverse = _gpuarray.to_gpu(
+        cell_matrix = self._backend.to_gpu(cell_matrix.flatten().astype(_np.float32))
+        cell_matrix_inverse = self._backend.to_gpu(
             cell_matrix_inverse.flatten().astype(_np.float32)
         )
-        M = _gpuarray.to_gpu(M.flatten().astype(_np.float32))
+        M = self._backend.to_gpu(M.flatten().astype(_np.float32))
 
         return cell_matrix, cell_matrix_inverse, M
 
@@ -1752,7 +1749,7 @@ class GCMCSampler:
                         i += 1
 
                 # Convert to a GPU array.
-                charges = _gpuarray.to_gpu(charges.astype(_np.float32))
+                charges = self._backend.to_gpu(charges.astype(_np.float32))
 
             except Exception as e:
                 raise ValueError(f"Could not get the charges on the atoms: {e}")
@@ -1769,17 +1766,19 @@ class GCMCSampler:
                         i += 1
 
                 # Convert to GPU arrays.
-                sigmas = _gpuarray.to_gpu(sigmas.astype(_np.float32))
-                epsilons = _gpuarray.to_gpu(epsilons.astype(_np.float32))
+                sigmas = self._backend.to_gpu(sigmas.astype(_np.float32))
+                epsilons = self._backend.to_gpu(epsilons.astype(_np.float32))
 
             except Exception as e:
                 raise ValueError(f"Could not get the LJ parameters: {e}")
 
             # Set the alphas to zero.
-            alphas = _gpuarray.to_gpu(_np.zeros(self._num_atoms, dtype=_np.float32))
+            alphas = self._backend.to_gpu(_np.zeros(self._num_atoms, dtype=_np.float32))
 
             # Set the is_ghost_fep array to zero.
-            is_ghost_fep = _gpuarray.to_gpu(_np.zeros(self._num_atoms, dtype=_np.int32))
+            is_ghost_fep = self._backend.to_gpu(
+                _np.zeros(self._num_atoms, dtype=_np.int32)
+            )
 
         # Otherwise, we need to create an OpenMM context using the specified lambda
         # schedule and value, then extract the required properties from the forces
@@ -1841,10 +1840,10 @@ class GCMCSampler:
                 alphas[i] = alpha
 
             # Convert to GPU arrays.
-            charges = _gpuarray.to_gpu(charges.astype(_np.float32))
-            sigmas = _gpuarray.to_gpu(sigmas.astype(_np.float32))
-            epsilons = _gpuarray.to_gpu(epsilons.astype(_np.float32))
-            alphas = _gpuarray.to_gpu(alphas.astype(_np.float32))
+            charges = self._backend.to_gpu(charges.astype(_np.float32))
+            sigmas = self._backend.to_gpu(sigmas.astype(_np.float32))
+            epsilons = self._backend.to_gpu(epsilons.astype(_np.float32))
+            alphas = self._backend.to_gpu(alphas.astype(_np.float32))
 
             # Create the ghost atom array.
             is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
@@ -1881,7 +1880,7 @@ class GCMCSampler:
                             is_ghost_fep[idx] = 1
 
             # Convert to GPU array.
-            is_ghost_fep = _gpuarray.to_gpu(is_ghost_fep.astype(_np.int32))
+            is_ghost_fep = self._backend.to_gpu(is_ghost_fep.astype(_np.int32))
 
         # Get the water properties.
         try:
@@ -1905,9 +1904,11 @@ class GCMCSampler:
             self._water_epsilon_custom = 2.0 * _np.sqrt(4.184 * self._water_epsilon)
 
             # Convert to GPU arrays.
-            charge_water = _gpuarray.to_gpu(self._water_charge.astype(_np.float32))
-            sigma_water = _gpuarray.to_gpu(self._water_sigma.astype(_np.float32))
-            epsilon_water = _gpuarray.to_gpu(self._water_epsilon.astype(_np.float32))
+            charge_water = self._backend.to_gpu(self._water_charge.astype(_np.float32))
+            sigma_water = self._backend.to_gpu(self._water_sigma.astype(_np.float32))
+            epsilon_water = self._backend.to_gpu(
+                self._water_epsilon.astype(_np.float32)
+            )
 
         except Exception as e:
             raise ValueError(f"Could not get the atomic properties of the water: {e}")
@@ -1923,17 +1924,6 @@ class GCMCSampler:
                 for j in range(self._num_points):
                     is_ghost_water[self._water_indices[i] + j] = 1
         self._water_state = _np.array(water_state).astype(_np.int32)
-
-        # Initialise the random number generator.
-        self._kernels["rng"](
-            _gpuarray.to_gpu(
-                _np.random.randint(
-                    _np.iinfo(_np.int32).max, size=(1, self._batch_size)
-                ).astype(_np.int32)
-            ),
-            block=(self._num_threads, 1, 1),
-            grid=(self._batch_blocks, 1, 1),
-        )
 
         # Initialise the reaction field parameters.
         self._kernels["rf"](
@@ -1959,7 +1949,7 @@ class GCMCSampler:
             sigmas,
             epsilons,
             alphas,
-            _gpuarray.to_gpu(is_ghost_water.astype(_np.int32)),
+            self._backend.to_gpu(is_ghost_water.astype(_np.int32)),
             is_ghost_fep,
             block=(self._num_threads, 1, 1),
             grid=(self._atom_blocks, 1, 1),
@@ -1970,33 +1960,35 @@ class GCMCSampler:
             charge_water,
             sigma_water,
             epsilon_water,
-            _gpuarray.to_gpu(self._water_indices.astype(_np.int32)),
-            _gpuarray.to_gpu(self._water_state.astype(_np.int32)),
+            self._backend.to_gpu(self._water_indices.astype(_np.int32)),
+            self._backend.to_gpu(self._water_state.astype(_np.int32)),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
 
         # Initialise the memory to store the water positions.
-        self._water_positions = _gpuarray.empty(
+        self._water_positions = self._backend.empty(
             (1, self._batch_size * 3 * self._num_points), _np.float32
         )
 
         # Initialise memory to store the energy.
-        self._energy_coul = _gpuarray.empty(
+        self._energy_coul = self._backend.empty(
             (1, self._batch_size * self._num_atoms), _np.float32
         )
-        self._energy_lj = _gpuarray.empty(
+        self._energy_lj = self._backend.empty(
             (1, self._batch_size * self._num_atoms), _np.float32
         )
 
         # Initialise memory to store whether each attempt is accepted and
         # the probability of acceptance.
-        self._accepted = _gpuarray.empty((1, self._batch_size), _np.int32)
-        self._energy_change = _gpuarray.empty((1, self._batch_size), _np.float32)
-        self._probability = _gpuarray.empty((1, self._batch_size), _np.float32)
+        self._accepted = self._backend.empty((1, self._batch_size), _np.int32)
+        self._energy_change = self._backend.empty((1, self._batch_size), _np.float32)
+        self._probability = self._backend.empty((1, self._batch_size), _np.float32)
 
         # Initialise memory to store the deletion candidates.
-        self._deletion_candidates = _gpuarray.empty((1, self._num_waters), _np.int32)
+        self._deletion_candidates = self._backend.empty(
+            (1, self._num_waters), _np.int32
+        )
 
     def _accept_insertion(
         self, idx, idx_water, positions_openmm, positions_angstrom, context
@@ -2024,7 +2016,7 @@ class GCMCSampler:
         """
 
         # Get the new water positions.
-        water_positions = self._water_positions.get().reshape(
+        water_positions = self._backend.from_gpu(self._water_positions).reshape(
             (self._batch_size, self._num_points, 3)
         )[idx]
 
@@ -2076,7 +2068,7 @@ class GCMCSampler:
             _np.int32(idx_water),
             _np.int32(1),
             _np.int32(1),
-            _gpuarray.to_gpu(water_positions.flatten().astype(_np.float32)),
+            self._backend.to_gpu(water_positions.flatten().astype(_np.float32)),
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2134,7 +2126,7 @@ class GCMCSampler:
             _np.int32(idx),
             _np.int32(0),
             _np.int32(0),
-            _gpuarray.to_gpu(
+            self._backend.to_gpu(
                 _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
             ),
             block=(1, 1, 1),
@@ -2197,7 +2189,7 @@ class GCMCSampler:
             _np.int32(idx),
             _np.int32(1),
             _np.int32(0),
-            _gpuarray.to_gpu(
+            self._backend.to_gpu(
                 _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
             ),
             block=(1, 1, 1),
@@ -2291,7 +2283,7 @@ class GCMCSampler:
                     _np.int32(idx),
                     _np.int32(0),
                     _np.int32(0),
-                    _gpuarray.to_gpu(
+                    self._backend.to_gpu(
                         _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
                     ),
                     block=(1, 1, 1),
@@ -2329,7 +2321,7 @@ class GCMCSampler:
                     _np.int32(idx),
                     _np.int32(1),
                     _np.int32(0),
-                    _gpuarray.to_gpu(
+                    self._backend.to_gpu(
                         _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
                     ),
                     block=(1, 1, 1),
@@ -2433,18 +2425,20 @@ class GCMCSampler:
             The PME acceptance probability.
         """
         # Get the energies.
-        energy_coul = self._energy_coul.get().reshape(
+        energy_coul = self._backend.from_gpu(self._energy_coul).reshape(
             (self._batch_size, self._num_atoms)
         )
-        energy_lj = self._energy_lj.get().reshape((self._batch_size, self._num_atoms))
+        energy_lj = self._backend.from_gpu(self._energy_lj).reshape(
+            (self._batch_size, self._num_atoms)
+        )
 
         # Get the water positions.
-        water_positions = self._water_positions.get().reshape(
+        water_positions = self._backend.from_gpu(self._water_positions).reshape(
             (self._batch_size, self._num_points, 3)
         )
 
         # Get the RF acceptance probability.
-        probability = self._probability.get().flatten()
+        probability = self._backend.from_gpu(self._probability).flatten()
 
         # Store debugging attributes.
         self._debug = {
@@ -2503,13 +2497,15 @@ class GCMCSampler:
             The PME acceptance probability.
         """
         # Get the coulomb and LJ energies.
-        energy_coul = self._energy_coul.get().reshape(
+        energy_coul = self._backend.from_gpu(self._energy_coul).reshape(
             (self._batch_size, self._num_atoms)
         )
-        energy_lj = self._energy_lj.get().reshape((self._batch_size, self._num_atoms))
+        energy_lj = self._backend.from_gpu(self._energy_lj).reshape(
+            (self._batch_size, self._num_atoms)
+        )
 
         # Get the RF acceptance probability.
-        probability = self._probability.get().flatten()
+        probability = self._backend.from_gpu(self._probability).flatten()
 
         # Get the water index.
         idx_water = self._water_indices[candidates[idx]]

@@ -53,6 +53,14 @@ parser.add_argument(
     choices=["info", "debug", "error"],
     required=False,
 )
+parser.add_argument(
+    "--platform",
+    help="The GPU platform to use",
+    type=str,
+    default="auto",
+    choices=["auto", "cuda", "opencl"],
+    required=False,
+)
 
 args = parser.parse_args()
 
@@ -78,6 +86,7 @@ sampler = GCMCSampler(
     num_ghost_waters=100,
     bulk_sampling_probability=0,
     log_level=args.log_level,
+    platform=args.platform,
     overwrite=True,
 )
 
@@ -92,6 +101,7 @@ d = sampler.system().dynamics(
     pressure=None,
     constraint="h_bonds",
     timestep="2 fs",
+    platform=args.platform,
 )
 d.randomise_velocities()
 

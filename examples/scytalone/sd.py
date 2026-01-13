@@ -64,6 +64,14 @@ parser.add_argument(
     choices=["info", "debug", "error"],
     required=False,
 )
+parser.add_argument(
+    "--platform",
+    help="The GPU platform to use",
+    type=str,
+    default="auto",
+    choices=["auto", "cuda", "opencl"],
+    required=False,
+)
 args = parser.parse_args()
 
 # Store the ligand index.
@@ -90,6 +98,7 @@ sampler = GCMCSampler(
     ghost_file=f"ghosts_{lig}.txt",
     log_file=f"gcmc_{lig}.txt",
     log_level=args.log_level,
+    platform=args.platform,
     overwrite=True,
 )
 
@@ -104,6 +113,7 @@ d = sampler.system().dynamics(
     pressure=None,
     constraint="h_bonds",
     timestep="2 fs",
+    platform=args.platform,
 )
 d.randomise_velocities()
 

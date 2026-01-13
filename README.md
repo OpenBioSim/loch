@@ -10,18 +10,19 @@
 [![Conda Version](https://anaconda.org/openbiosim/loch/badges/downloads.svg)](https://anaconda.org/openbiosim/loch)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
-CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code. Built
+CUDA/OpenCL accelerated Grand Canonical Monte Carlo (GCMC) water sampling code. Built
 on top of [Sire](https://github.com/OpenBioSim/sire),
 [BioSimSpace](https://github.com/OpenBioSim/biosimspace),
-[OpenMM](https://github.com/openmm/openmm), and
-[PyCUDA](https://documen.tician.de/pycuda/index.html#).
+[OpenMM](https://github.com/openmm/openmm),
+[PyCUDA](https://documen.tician.de/pycuda/index.html#),
+and [PyOpenCL](https://documen.tician.de/pyopencl/).
 
 ## Installation
 
 First, create a conda environment with the required dependencies:
 
 ```
-conda create -f environment.yaml
+conda env create -f environment.yaml
 conda activate loch
 ```
 
@@ -49,7 +50,7 @@ conda install -c conda-forge -c openbiosim/label/dev loch
 
 Instead of computing the energy change for each trial insertion/deletion with
 OpenMM, the calculation is performed at the reaction field (RF) level using
-a custom CUDA kernel, allowing multiple candidates to be evaluated
+a custom CUDA/OpenCL kernel, allowing multiple candidates to be evaluated
 simultaneously. Particle mesh Ewald (PME) is handled via the method for
 sampling from an approximate potential (in this case the RF potential)
 introduced [here](https://doi.org/10.1063/1.1563597). Parallelisation of the
@@ -228,8 +229,9 @@ to enhance sampling.
 Once finished, `mu_ex` will contain the computed excess chemical potential in units
 kcal/mol.
 
-Note that the simulation requires a system with CUDA support. Please set the
-`CUDA_VISIBLE_DEVICES` environment variable accordingly.
+Note that the simulation requires a system with CUDA or OpenCL support. Please
+set the `CUDA_VISIBLE_DEVICES` or `OPENCL_VISIBLE_DEVICES` environment variable
+accordingly.
 
 The standard volume can be computed as follows:
 
@@ -263,13 +265,11 @@ Free Energy Perturbation (FEP) with GCMC using `loch` is supported via the
 
 ## Notes
 
-* Make sure that `nvcc` is in your `PATH`. If you require a different `nvcc` to that
-  provided by conda, you can set the `PYCUDA_NVCC` environment variable to point
-  to the desired `nvcc` binary, or use the `nvcc` kwarg in the `GCMCSampler` constructor.
-  Depending on your setup, you may also need to install the `cuda-nvvm` package from
-  `conda-forge`.
-
-* A future version supporting AMD GPUs via PyOpenCL is planned.
+* When using the CUDA platform, make sure that `nvcc` is in your `PATH`. If you require
+  a different `nvcc` to that provided by conda, you can set the `PYCUDA_NVCC` environment
+  variable to point to the desired `nvcc` binary, or use the `nvcc` kwarg in the
+  `GCMCSampler` constructor. Depending on your setup, you may also need to install the
+  `cuda-nvvm` package from `conda-forge`.
 
 * OpenMM-to-Sire roundtrip example:
 
