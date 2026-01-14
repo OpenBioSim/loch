@@ -38,6 +38,11 @@ code = """
         #define expf exp
         #define cosf cos
         #define sinf sin
+        #define rsqrtf rsqrt
+        #define floorf floor
+        #define fmaf fma
+        // OpenCL doesn't have sincosf, so define it
+        #define sincosf(x, sptr, cptr) do { *(sptr) = sinf(x); *(cptr) = cosf(x); } while(0)
         #pragma OPENCL EXTENSION cl_khr_fp64 : enable
     #else
         #define KERNEL extern "C" __global__
@@ -258,40 +263,10 @@ code = """
             float frac_y = delta_box[1] - int_y;
             float frac_z = delta_box[2] - int_z;
 
-            // Shift to the box.
-
-            // x
-
-            if (frac_x > 0.5f)
-            {
-                int_x += 1;
-            }
-            else if (frac_x < -0.5f)
-            {
-                int_x -= 1;
-            }
-
-            // y
-
-            if (frac_y > 0.5f)
-            {
-                int_y += 1;
-            }
-            else if (frac_y < -0.5f)
-            {
-                int_y -= 1;
-            }
-
-            // z
-
-            if (frac_z > 0.5f)
-            {
-                int_z += 1;
-            }
-            else if (frac_z < -0.5f)
-            {
-                int_z -= 1;
-            }
+            // Shift to the box (branchless).
+            int_x += (int)floorf(frac_x + 0.5f);
+            int_y += (int)floorf(frac_y + 0.5f);
+            int_z += (int)floorf(frac_z + 0.5f);
 
             // Calculate the shifts over the box vectors.
             delta_box[0] = 0.0f;
@@ -341,40 +316,10 @@ code = """
             float frac_y = delta_box[1] - int_y;
             float frac_z = delta_box[2] - int_z;
 
-            // Shift to the box.
-
-            // x
-
-            if (frac_x >= 0.5f)
-            {
-                frac_x -= 1.0f;
-            }
-            else if (frac_x <= -0.5f)
-            {
-                frac_x += 1.0f;
-            }
-
-            // y
-
-            if (frac_y >= 0.5f)
-            {
-                frac_y -= 1.0f;
-            }
-            else if (frac_y <= -0.5f)
-            {
-                frac_y += 1.0f;
-            }
-
-            // z
-
-            if (frac_z >= 0.5f)
-            {
-                frac_z -= 1.0f;
-            }
-            else if (frac_z <= -0.5f)
-            {
-                frac_z += 1.0f;
-            }
+            // Shift to the box (branchless).
+            frac_x -= floorf(frac_x + 0.5f);
+            frac_y -= floorf(frac_y + 0.5f);
+            frac_z -= floorf(frac_z + 0.5f);
 
             float frac_dist[3];
             frac_dist[0] = frac_x;
@@ -406,15 +351,20 @@ code = """
             float x2 = 2.0f * pi * r0;
             float x3 = r1;
             float R[3][3];
-            R[0][0] = R[1][1] = cosf(2.0f * pi * r2);
-            R[0][1] = -sinf(2.0f * pi * r2);
-            R[1][0] = sinf(2.0f * pi * r2);
+            float sin_r2, cos_r2;
+            sincosf(2.0f * pi * r2, &sin_r2, &cos_r2);
+            R[0][0] = R[1][1] = cos_r2;
+            R[0][1] = -sin_r2;
+            R[1][0] = sin_r2;
             R[0][2] = R[1][2] = R[2][0] = R[2][1] = 0.0f;
             R[2][2] = 1.0f;
 
             // Now compute the Householder matrix H.
-            float v0 = cosf(x2) * sqrtf(x3);
-            float v1 = sinf(x2) * sqrtf(x3);
+            float sin_x2, cos_x2;
+            sincosf(x2, &sin_x2, &cos_x2);
+            float sqrt_x3 = sqrtf(x3);
+            float v0 = cos_x2 * sqrt_x3;
+            float v1 = sin_x2 * sqrt_x3;
             float v2 = sqrtf(1.0f - x3);
             float H[3][3];
             H[0][0] = 1.0f - 2.0f * v0 * v0;
@@ -445,7 +395,13 @@ code = """
             mean_coord[1] = (v[1] + v[4] + v[7]) / 3.0f;
             mean_coord[2] = (v[2] + v[5] + v[8]) / 3.0f;
 
-            // Now compute ((v - mean_coord) @ M) + mean_coord @ M.
+            // Precompute mean_coord @ M (avoids redundant calculations).
+            float mean_M[3];
+            mean_M[0] = fmaf(mean_coord[0], M[0][0], fmaf(mean_coord[1], M[1][0], mean_coord[2] * M[2][0]));
+            mean_M[1] = fmaf(mean_coord[0], M[0][1], fmaf(mean_coord[1], M[1][1], mean_coord[2] * M[2][1]));
+            mean_M[2] = fmaf(mean_coord[0], M[0][2], fmaf(mean_coord[1], M[1][2], mean_coord[2] * M[2][2]));
+
+            // Now compute ((v - mean_coord) @ M) + mean_M.
             float x[3][3];
             x[0][0] = v[0] - mean_coord[0];
             x[0][1] = v[1] - mean_coord[1];
@@ -457,25 +413,16 @@ code = """
             x[2][1] = v[7] - mean_coord[1];
             x[2][2] = v[8] - mean_coord[2];
 
-            // Compute the rotated coordinates.
-            v[0] = x[0][0] * M[0][0] + x[0][1] * M[1][0] + x[0][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[1] = x[0][0] * M[0][1] + x[0][1] * M[1][1] + x[0][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[2] = x[0][0] * M[0][2] + x[0][1] * M[1][2] + x[0][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
-            v[3] = x[1][0] * M[0][0] + x[1][1] * M[1][0] + x[1][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[4] = x[1][0] * M[0][1] + x[1][1] * M[1][1] + x[1][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[5] = x[1][0] * M[0][2] + x[1][1] * M[1][2] + x[1][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
-            v[6] = x[2][0] * M[0][0] + x[2][1] * M[1][0] + x[2][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[7] = x[2][0] * M[0][1] + x[2][1] * M[1][1] + x[2][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[8] = x[2][0] * M[0][2] + x[2][1] * M[1][2] + x[2][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
+            // Compute the rotated coordinates using fma.
+            v[0] = fmaf(x[0][0], M[0][0], fmaf(x[0][1], M[1][0], fmaf(x[0][2], M[2][0], mean_M[0])));
+            v[1] = fmaf(x[0][0], M[0][1], fmaf(x[0][1], M[1][1], fmaf(x[0][2], M[2][1], mean_M[1])));
+            v[2] = fmaf(x[0][0], M[0][2], fmaf(x[0][1], M[1][2], fmaf(x[0][2], M[2][2], mean_M[2])));
+            v[3] = fmaf(x[1][0], M[0][0], fmaf(x[1][1], M[1][0], fmaf(x[1][2], M[2][0], mean_M[0])));
+            v[4] = fmaf(x[1][0], M[0][1], fmaf(x[1][1], M[1][1], fmaf(x[1][2], M[2][1], mean_M[1])));
+            v[5] = fmaf(x[1][0], M[0][2], fmaf(x[1][1], M[1][2], fmaf(x[1][2], M[2][2], mean_M[2])));
+            v[6] = fmaf(x[2][0], M[0][0], fmaf(x[2][1], M[1][0], fmaf(x[2][2], M[2][0], mean_M[0])));
+            v[7] = fmaf(x[2][0], M[0][1], fmaf(x[2][1], M[1][1], fmaf(x[2][2], M[2][1], mean_M[1])));
+            v[8] = fmaf(x[2][0], M[0][2], fmaf(x[2][1], M[1][2], fmaf(x[2][2], M[2][2], mean_M[2])));
         }
 
         // Generate a random position and orientation within the GCMC sphere
@@ -716,14 +663,14 @@ code = """
                                 const float sr6 = sr2 * sr2 * sr2;
                                 energy_lj[idx] += 4.0f * e * sr6 * (sr6 - 1.0f);
 
-                                // Compute the distance between the atoms.
-                                const float r = sqrtf(r2);
+                                // Compute reciprocal distance (faster than sqrtf).
+                                const float r_inv = rsqrtf(r2);
 
                                 // Store the charge on the water atom.
                                 const float q1 = charge_water[i];
 
                                 // Add the reaction field pair energy.
-                                energy_coul[idx] += (q0 * q1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                                energy_coul[idx] += (q0 * q1) * (r_inv + (rf_kappa * r2) - rf_correction);
                             }
 
                             // Zacharias soft-core potential.
