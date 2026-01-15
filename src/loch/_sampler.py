@@ -39,6 +39,16 @@ from ._platforms import create_backend as _create_backend
 from ._platforms._rng import RNGManager as _RNGManager
 
 
+def _as_float32(arr: _np.ndarray) -> _np.ndarray:
+    """Convert array to float32 only if not already float32."""
+    return arr if arr.dtype == _np.float32 else arr.astype(_np.float32)
+
+
+def _as_int32(arr: _np.ndarray) -> _np.ndarray:
+    """Convert array to int32 only if not already int32."""
+    return arr if arr.dtype == _np.int32 else arr.astype(_np.int32)
+
+
 class GCMCSampler:
     """
     A class to perform GCMC water sampling on the GPU.
@@ -685,6 +695,19 @@ class GCMCSampler:
         except Exception:
             pass
 
+    def _invalidate_water_caches(self) -> None:
+        """Invalidate cached water indices. Call when _water_state changes."""
+        self._ghost_waters_cache = _np.where(self._water_state == 0)[0]
+        self._non_ghost_waters_cache = _np.where(self._water_state != 0)[0]
+
+    def _get_ghost_waters(self) -> _np.ndarray:
+        """Get indices of ghost waters (cached)."""
+        return self._ghost_waters_cache
+
+    def _get_non_ghost_waters(self) -> _np.ndarray:
+        """Get indices of non-ghost waters (cached)."""
+        return self._non_ghost_waters_cache
+
     def push(self) -> None:
         """
         Push the GPU context on top of the stack (CUDA only, no-op for OpenCL).
@@ -1006,11 +1029,8 @@ class GCMCSampler:
             The indices of the ghost water residues.
         """
 
-        # First get the indices of the ghost waters.
-        ghost_waters = _np.where(self._water_state == 0)[0]
-
         # Now extract and return the residue indices.
-        return self._water_residues[ghost_waters]
+        return self._water_residues[self._get_ghost_waters()]
 
     def write_ghost_residues(self) -> None:
         """
@@ -1099,9 +1119,7 @@ class GCMCSampler:
 
                     # Set the positions on the GPU.
                     self._kernels["atom_positions"](
-                        self._backend.to_gpu(
-                            positions_angstrom.astype(_np.float32).flatten()
-                        ),
+                        self._backend.to_gpu(_as_float32(positions_angstrom).flatten()),
                         _np.float32(1.0),
                         block=(self._num_threads, 1, 1),
                         grid=(self._atom_blocks, 1, 1),
@@ -1111,7 +1129,7 @@ class GCMCSampler:
                 if not self._is_bulk:
                     self._kernels["deletion"](
                         self._deletion_candidates,
-                        self._backend.to_gpu(target.astype(_np.float32)),
+                        self._backend.to_gpu(_as_float32(target)),
                         _np.float32(self._radius.value()),
                         block=(self._num_threads, 1, 1),
                         grid=(self._water_blocks, 1, 1),
@@ -1128,11 +1146,11 @@ class GCMCSampler:
                 # Use all non-ghost waters.
                 else:
                     _logger.debug("Sampling within the entire simulation box")
-                    deletion_candidates = _np.where(self._water_state != 0)[0]
+                    deletion_candidates = self._get_non_ghost_waters()
                     target = None
 
                 # Get the current ghost waters.
-                ghost_waters = _np.where(self._water_state == 0)[0]
+                ghost_waters = self._get_ghost_waters()
 
                 # If there are no ghost waters, then we can't perform any insertions.
                 if len(ghost_waters) == 0:
@@ -1146,9 +1164,9 @@ class GCMCSampler:
                 # Get the template positions for the water insertion.
                 start_idx = self._water_indices[idx_water]
                 template_positions = self._backend.to_gpu(
-                    positions_angstrom[start_idx : start_idx + self._num_points]
-                    .astype(_np.float32)
-                    .flatten()
+                    _as_float32(
+                        positions_angstrom[start_idx : start_idx + self._num_points]
+                    ).flatten()
                 )
 
                 # Set the number of waters.
@@ -1169,28 +1187,28 @@ class GCMCSampler:
                 candidates = self._rng.choice(
                     deletion_candidates, size=self._batch_size
                 )
-                candidates_gpu = self._backend.to_gpu(candidates.astype(_np.int32))
+                candidates_gpu = self._backend.to_gpu(_as_int32(candidates))
 
                 # Generate the array of moves types. (0 = insertion, 1 = deletion)
                 is_deletion = self._rng.choice(2, size=self._batch_size)
-                is_deletion_gpu = self._backend.to_gpu(is_deletion.astype(_np.int32))
+                is_deletion_gpu = self._backend.to_gpu(_as_int32(is_deletion))
             # If there are no deletion candidates, then we can only perform
             # insertion moves.
             else:
                 candidates = _np.zeros(self._batch_size, dtype=_np.int32)
-                candidates_gpu = self._backend.to_gpu(candidates.astype(_np.int32))
+                candidates_gpu = self._backend.to_gpu(candidates)
                 is_deletion = _np.zeros(self._batch_size, dtype=_np.int32)
-                is_deletion_gpu = self._backend.to_gpu(is_deletion.astype(_np.int32))
+                is_deletion_gpu = self._backend.to_gpu(is_deletion)
 
             _logger.debug("Preparing insertion candidates")
 
             if target is None:
-                target_gpu = self._backend.to_gpu(_np.zeros(3, dtype=_np.float32))
+                target_gpu = self._zero_target_gpu
                 is_target = _np.int32(0)
                 exp_B = self._exp_B_bulk
                 exp_minus_B = self._exp_minus_B_bulk
             else:
-                target_gpu = self._backend.to_gpu(target.astype(_np.float32))
+                target_gpu = self._backend.to_gpu(_as_float32(target))
                 is_target = _np.int32(1)
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
@@ -1273,9 +1291,12 @@ class GCMCSampler:
             # see whether it is accepted via the Gelb correction.
             if self._is_pme:
                 max_accepted = num_accepted_attempts
+                # Read energy changes once for all accepted trials.
+                energy_changes = self._backend.from_gpu(self._energy_change).flatten()
             # For RF we just use the first accepted trial.
             else:
                 max_accepted = 1
+                energy_changes = None
 
             # Loop over the accepted trials.
             for i in range(max_accepted):
@@ -1313,10 +1334,7 @@ class GCMCSampler:
                     # Apply the PME correction.
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
-                        dE_RF = (
-                            self._backend.from_gpu(self._energy_change).flatten()[idx]
-                            * _openmm.unit.kilocalories_per_mole
-                        )
+                        dE_RF = energy_changes[idx] * _openmm.unit.kilocalories_per_mole
 
                         # Get the new energy.
                         final_energy = context.getState(
@@ -1397,10 +1415,7 @@ class GCMCSampler:
                     # Apply the PME correction.
                     if self._is_pme:
                         # Get the energy change in kcal/mol.
-                        dE_RF = (
-                            self._backend.from_gpu(self._energy_change).flatten()[idx]
-                            * _openmm.unit.kilocalories_per_mole
-                        )
+                        dE_RF = energy_changes[idx] * _openmm.unit.kilocalories_per_mole
 
                         # Get the new energy.
                         final_energy = context.getState(
@@ -1928,6 +1943,14 @@ class GCMCSampler:
                     is_ghost_water[self._water_indices[i] + j] = 1
         self._water_state = _np.array(water_state).astype(_np.int32)
 
+        # Initialize water index caches (invalidated when water_state changes).
+        self._ghost_waters_cache = None
+        self._non_ghost_waters_cache = None
+        self._invalidate_water_caches()
+
+        # Pre-allocate zero target array for bulk sampling.
+        self._zero_target_gpu = self._backend.to_gpu(_np.zeros(3, dtype=_np.float32))
+
         # Initialise the reaction field parameters.
         self._kernels["rf"](
             _np.float32(self._cutoff.value()),
@@ -2025,6 +2048,7 @@ class GCMCSampler:
 
         # Update the water state.
         self._water_state[idx_water] = 1
+        self._invalidate_water_caches()
 
         # Get the starting atom index.
         start_idx = self._water_indices[idx_water]
@@ -2095,6 +2119,7 @@ class GCMCSampler:
 
         # Update the water state.
         self._water_state[idx] = 0
+        self._invalidate_water_caches()
 
         # Get the starting atom index.
         start_idx = self._water_indices[idx]
@@ -2155,6 +2180,7 @@ class GCMCSampler:
 
         # Reset the water state.
         self._water_state[idx] = 1
+        self._invalidate_water_caches()
 
         # Get the starting atom index.
         start_idx = self._water_indices[idx]
@@ -2333,6 +2359,9 @@ class GCMCSampler:
 
                 # Set the new water state.
                 self._water_state[idx] = 1
+
+        # Invalidate water caches after all state updates.
+        self._invalidate_water_caches()
 
         # Update the NonbondedForce parameters in the context.
         self._nonbonded_force.updateParametersInContext(context)
@@ -2564,11 +2593,8 @@ class GCMCSampler:
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be a Sire system")
 
-        # First get the indices of the ghost waters.
-        ghost_waters = _np.where(self._water_state == 0)[0]
-
-        # Now extract the oxygen indices.
-        ghost_oxygens = self._water_indices[ghost_waters]
+        # Now extract the oxygen indices using cached ghost water indices.
+        ghost_oxygens = self._water_indices[self._get_ghost_waters()]
 
         # Loop over the ghost waters and set the is_ghost property.
         for i in ghost_oxygens:
