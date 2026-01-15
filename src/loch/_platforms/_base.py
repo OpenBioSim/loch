@@ -188,3 +188,15 @@ class PlatformBackend(_ABC):
             Platform name ('cuda' or 'opencl').
         """
         pass
+
+    @property
+    def compiler_log(self) -> str:
+        """
+        Get the kernel compiler log including any warnings.
+
+        Returns
+        -------
+        str
+            Compiler log output, or empty string if no warnings/messages.
+        """
+        return getattr(self, "_compiler_log", "")

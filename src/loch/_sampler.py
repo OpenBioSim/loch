@@ -732,6 +732,21 @@ class GCMCSampler:
         """
         return self._system.clone()
 
+    def compiler_log(self) -> str:
+        """
+        Return the GPU kernel compiler log.
+
+        This includes any warnings generated during kernel compilation.
+        Useful for debugging or investigating compiler messages.
+
+        Returns
+        -------
+
+        log: str
+            The compiler log, or empty string if no warnings/messages.
+        """
+        return self._backend.compiler_log
+
     def set_box(self, system: _Any) -> None:
         """
         Set the box information.

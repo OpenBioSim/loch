@@ -23,6 +23,9 @@
 OpenCL platform backend implementation.
 """
 
+import io as _io
+import sys as _sys
+import warnings as _warnings
 from typing import Any as _Any, Callable as _Callable, Dict as _Dict
 
 import numpy as _np
@@ -124,11 +127,27 @@ class OpenCLPlatform(_PlatformBackend):
             "NUM_ATOMS": self._num_atoms,
         }
 
-        # Compile program
+        # Compile program, suppressing stderr and warnings but capturing for errors.
+        stderr_capture = _io.StringIO()
+        old_stderr = _sys.stderr
         try:
-            program = _cl.Program(self._context, kernel_source).build()
+            _sys.stderr = stderr_capture
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
+                program = _cl.Program(self._context, kernel_source).build()
         except _cl.RuntimeError as e:
-            raise RuntimeError(f"OpenCL kernel compilation failed: {e}")
+            stderr_output = stderr_capture.getvalue().strip()
+            error_msg = f"OpenCL kernel compilation failed: {e}"
+            if stderr_output:
+                error_msg += f"\n{stderr_output}"
+            raise RuntimeError(error_msg)
+        finally:
+            _sys.stderr = old_stderr
+
+        # Capture the compiler log (including any warnings).
+        self._compiler_log = program.get_build_info(
+            self._device, _cl.program_build_info.LOG
+        ).strip()
 
         # Create kernel wrappers that match PyCUDA calling convention
         # OpenCL kernels need (queue, global_size, local_size, *args)

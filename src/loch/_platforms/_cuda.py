@@ -24,6 +24,8 @@ CUDA platform backend implementation.
 """
 
 import atexit as _atexit
+import io as _io
+import sys as _sys
 from typing import Any as _Any, Callable as _Callable, Dict as _Dict
 
 import numpy as _np
@@ -118,18 +120,34 @@ class CUDAPlatform(_PlatformBackend):
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        # Compile kernel module with template substitution
-        mod = _SourceModule(
-            _kernel_code
-            % {
-                "NUM_POINTS": self._num_points,
-                "NUM_BATCH": self._num_batch,
-                "NUM_WATERS": self._num_waters,
-                "NUM_ATOMS": self._num_atoms,
-            },
-            no_extern_c=True,
-            nvcc=self._nvcc,
-        )
+        # Compile kernel module with template substitution.
+        # Suppress stderr but capture it for error reporting.
+        stderr_capture = _io.StringIO()
+        old_stderr = _sys.stderr
+        try:
+            _sys.stderr = stderr_capture
+            mod = _SourceModule(
+                _kernel_code
+                % {
+                    "NUM_POINTS": self._num_points,
+                    "NUM_BATCH": self._num_batch,
+                    "NUM_WATERS": self._num_waters,
+                    "NUM_ATOMS": self._num_atoms,
+                },
+                no_extern_c=True,
+                nvcc=self._nvcc,
+            )
+        except Exception as e:
+            stderr_output = stderr_capture.getvalue().strip()
+            error_msg = f"CUDA kernel compilation failed: {e}"
+            if stderr_output:
+                error_msg += f"\n{stderr_output}"
+            raise RuntimeError(error_msg)
+        finally:
+            _sys.stderr = old_stderr
+
+        # Store any compiler warnings.
+        self._compiler_log = stderr_capture.getvalue().strip()
 
         # Extract kernel functions
         kernels = {
