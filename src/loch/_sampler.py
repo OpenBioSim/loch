@@ -677,8 +677,12 @@ class GCMCSampler:
         Clean up GPU resources and detach context.
         """
         try:
+            self._rng_manager.shutdown()
+        except Exception:
+            pass
+        try:
             self._backend.cleanup()
-        except:
+        except Exception:
             pass
 
     def push(self) -> None:
@@ -1191,11 +1195,11 @@ class GCMCSampler:
                 exp_B = self._exp_B
                 exp_minus_B = self._exp_minus_B
 
-            # Generate random numbers on host for this batch
-            rngs_insert = self._rng_manager.generate_insertion_randoms()
-            randoms_rotation = self._backend.to_gpu(rngs_insert["rotation"])
-            randoms_position = self._backend.to_gpu(rngs_insert["position"])
-            randoms_radius = self._backend.to_gpu(rngs_insert["radius"])
+            # Get pre-computed random numbers for this batch.
+            batch_randoms = self._rng_manager.get_batch_randoms()
+            randoms_rotation = self._backend.to_gpu(batch_randoms.rotation)
+            randoms_position = self._backend.to_gpu(batch_randoms.position)
+            randoms_radius = self._backend.to_gpu(batch_randoms.radius)
 
             # Generate the random water positions and orientations.
             self._kernels["water"](
@@ -1223,9 +1227,8 @@ class GCMCSampler:
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
 
-            # Generate acceptance randoms
-            rngs_accept = self._rng_manager.generate_acceptance_randoms()
-            randoms_acceptance = self._backend.to_gpu(rngs_accept)
+            # Transfer pre-computed acceptance randoms to GPU.
+            randoms_acceptance = self._backend.to_gpu(batch_randoms.acceptance)
 
             # Check the acceptance for each trial state.
             self._kernels["acceptance"](

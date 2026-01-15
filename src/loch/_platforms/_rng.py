@@ -23,9 +23,35 @@
 Random number generation utilities for GPU platforms.
 """
 
-from typing import Dict as _Dict, Optional as _Optional
+from dataclasses import dataclass as _dataclass
+from queue import Queue as _Queue
+from threading import Thread as _Thread
+from typing import Optional as _Optional
 
 import numpy as _np
+
+
+@_dataclass
+class BatchRandoms:
+    """
+    Container for all random numbers needed for a single batch.
+
+    Attributes
+    ----------
+    rotation : numpy.ndarray
+        Shape (batch_size, 3) array of uniform [0,1) randoms for water rotation.
+    position : numpy.ndarray
+        Shape (batch_size, 3) array of normal randoms for position direction.
+    radius : numpy.ndarray
+        Shape (batch_size,) array of uniform [0,1) randoms for radial distance.
+    acceptance : numpy.ndarray
+        Shape (batch_size,) array of uniform [0,1) randoms for Metropolis acceptance.
+    """
+
+    rotation: _np.ndarray
+    position: _np.ndarray
+    radius: _np.ndarray
+    acceptance: _np.ndarray
 
 
 class RNGManager:
@@ -36,7 +62,12 @@ class RNGManager:
     transferred to the GPU for use in kernels. This approach eliminates
     the need for device-side RNG libraries (like CURAND) and simplifies
     cross-platform support.
+
+    Random number batches are pre-computed in a background thread while GPU
+    kernels are running, so that they are ready when the next batch is requested.
     """
+
+    _MAX_QUEUE_SIZE = 10
 
     def __init__(self, batch_size: int, seed: _Optional[int] = None) -> None:
         """
@@ -50,44 +81,53 @@ class RNGManager:
         seed : int, optional
             Random seed for reproducibility. If None, a random seed is used.
         """
-        self.batch_size = batch_size
-        self.rng = _np.random.default_rng(seed)
+        self._batch_size = batch_size
+        self._rng = _np.random.default_rng(seed)
+        self._queue: _Queue[BatchRandoms] = _Queue(maxsize=self._MAX_QUEUE_SIZE)
+        self._shutdown = False
 
-    def generate_insertion_randoms(self) -> _Dict[str, _np.ndarray]:
+        # Start the background thread that fills the queue.
+        self._thread = _Thread(target=self._fill_queue, daemon=True)
+        self._thread.start()
+
+    def _generate_batch(self) -> BatchRandoms:
+        """Generate a single batch of random numbers."""
+        return BatchRandoms(
+            rotation=self._rng.uniform(0, 1, size=(self._batch_size, 3)).astype(
+                _np.float32
+            ),
+            position=self._rng.normal(0, 1, size=(self._batch_size, 3)).astype(
+                _np.float32
+            ),
+            radius=self._rng.uniform(0, 1, size=self._batch_size).astype(_np.float32),
+            acceptance=self._rng.uniform(0, 1, size=self._batch_size).astype(
+                _np.float32
+            ),
+        )
+
+    def _fill_queue(self) -> None:
+        """Background thread that continuously fills the queue with batches."""
+        while not self._shutdown:
+            batch = self._generate_batch()
+            self._queue.put(batch)  # Blocks if queue is full.
+
+    def get_batch_randoms(self) -> BatchRandoms:
         """
-        Generate random numbers for the generateWater kernel.
-
-        This method generates all random numbers needed for water insertion:
-        - 3 uniform randoms per trial for rotation (Householder method)
-        - 3 normal randoms per trial for position direction
-        - 1 uniform random per trial for radial distance
+        Get all random numbers needed for a single batch.
 
         Returns
         -------
-        dict
-            Dictionary with keys:
-            - 'rotation': (batch_size, 3) array of uniform [0,1) randoms
-            - 'position': (batch_size, 3) array of normal randoms
-            - 'radius': (batch_size,) array of uniform [0,1) randoms
+        BatchRandoms
+            Container with rotation, position, radius, and acceptance arrays.
         """
-        return {
-            "rotation": self.rng.uniform(0, 1, size=(self.batch_size, 3)).astype(
-                _np.float32
-            ),
-            "position": self.rng.normal(0, 1, size=(self.batch_size, 3)).astype(
-                _np.float32
-            ),
-            "radius": self.rng.uniform(0, 1, size=self.batch_size).astype(_np.float32),
-        }
+        return self._queue.get()
 
-    def generate_acceptance_randoms(self) -> _np.ndarray:
-        """
-        Generate random numbers for the checkAcceptance kernel.
-
-        Returns
-        -------
-        numpy.ndarray
-            Array of shape (batch_size,) with uniform [0,1) random numbers
-            for Metropolis acceptance checks.
-        """
-        return self.rng.uniform(0, 1, size=self.batch_size).astype(_np.float32)
+    def shutdown(self) -> None:
+        """Stop the background thread. Call when done using the RNG manager."""
+        self._shutdown = True
+        # Drain one item to unblock the thread if it's waiting on put().
+        try:
+            self._queue.get_nowait()
+        except Exception:
+            pass
+        self._thread.join(timeout=1.0)
