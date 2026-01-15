@@ -85,6 +85,7 @@ def create_backend(
     num_atoms: int,
     num_threads: int,
     nvcc: _Optional[str] = None,
+    compiler_optimisations: bool = True,
 ) -> _PlatformBackend:
     """
     Create a GPU platform backend instance.
@@ -116,6 +117,10 @@ def create_backend(
     nvcc : str, optional
         Path to NVCC compiler (CUDA only).
 
+    compiler_optimisations : bool, optional
+        Enable compiler optimisations for faster math operations.
+        Default: True (matches OpenMM defaults).
+
     Returns
     -------
     PlatformBackend
@@ -130,13 +135,27 @@ def create_backend(
         from ._cuda import CUDAPlatform as _CUDAPlatform
 
         return _CUDAPlatform(
-            device, num_points, num_batch, num_waters, num_atoms, num_threads, nvcc
+            device,
+            num_points,
+            num_batch,
+            num_waters,
+            num_atoms,
+            num_threads,
+            nvcc,
+            compiler_optimisations,
         )
     elif platform == "opencl":
         from ._opencl import OpenCLPlatform as _OpenCLPlatform
 
         return _OpenCLPlatform(
-            device, num_points, num_batch, num_waters, num_atoms, num_threads, nvcc
+            device,
+            num_points,
+            num_batch,
+            num_waters,
+            num_atoms,
+            num_threads,
+            nvcc,
+            compiler_optimisations,
         )
     else:
         raise ValueError(

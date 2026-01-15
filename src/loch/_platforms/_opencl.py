@@ -53,6 +53,7 @@ class OpenCLPlatform(_PlatformBackend):
         num_atoms,
         num_threads,
         nvcc=None,
+        compiler_optimisations=True,
     ):
         """
         Initialize the OpenCL platform backend.
@@ -79,6 +80,11 @@ class OpenCLPlatform(_PlatformBackend):
 
         nvcc : str, optional
             Ignored for OpenCL (included for API compatibility).
+
+        compiler_optimisations : bool, optional
+            Enable compiler optimisations for faster math operations.
+            When True, passes -cl-mad-enable and -cl-no-signed-zeros to the compiler.
+            Default: True (matches OpenMM defaults).
         """
         # Get platforms and devices
         platforms = _cl.get_platforms()
@@ -109,6 +115,7 @@ class OpenCLPlatform(_PlatformBackend):
         self._num_waters = num_waters
         self._num_atoms = num_atoms
         self._num_threads = num_threads
+        self._compiler_optimisations = compiler_optimisations
 
     def compile_kernels(self) -> _Dict[str, _Callable]:
         """
@@ -127,6 +134,11 @@ class OpenCLPlatform(_PlatformBackend):
             "NUM_ATOMS": self._num_atoms,
         }
 
+        # Build compiler options
+        build_options = []
+        if self._compiler_optimisations:
+            build_options.extend(["-cl-mad-enable", "-cl-no-signed-zeros"])
+
         # Compile program, suppressing stderr and warnings but capturing for errors.
         stderr_capture = _io.StringIO()
         old_stderr = _sys.stderr
@@ -134,7 +146,9 @@ class OpenCLPlatform(_PlatformBackend):
             _sys.stderr = stderr_capture
             with _warnings.catch_warnings():
                 _warnings.simplefilter("ignore")
-                program = _cl.Program(self._context, kernel_source).build()
+                program = _cl.Program(self._context, kernel_source).build(
+                    options=build_options
+                )
         except _cl.RuntimeError as e:
             stderr_output = stderr_capture.getvalue().strip()
             error_msg = f"OpenCL kernel compilation failed: {e}"

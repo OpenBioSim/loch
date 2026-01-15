@@ -89,6 +89,7 @@ class GCMCSampler:
         log_level: str = "error",
         seed: _Optional[int] = None,
         nvcc: _Optional[str] = None,
+        compiler_optimisations: bool = True,
         **kwargs: _Any,
     ) -> None:
         """
@@ -231,6 +232,12 @@ class GCMCSampler:
         nvcc: str
             The path to the nvcc compiler. If None, the default nvcc
             in the PATH will be used.
+
+        compiler_optimisations: bool
+            Enable compiler optimisations for faster math operations.
+            When True, passes --use_fast_math to CUDA (nvcc) and
+            -cl-mad-enable -cl-no-signed-zeros to OpenCL.
+            Default: True (matches OpenMM defaults).
         """
 
         # Validate the input.
@@ -534,6 +541,7 @@ class GCMCSampler:
             num_atoms=self._num_atoms,
             num_threads=self._num_threads,
             nvcc=nvcc,
+            compiler_optimisations=compiler_optimisations,
         )
 
         # Compile kernels

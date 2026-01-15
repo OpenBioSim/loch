@@ -54,6 +54,7 @@ class CUDAPlatform(_PlatformBackend):
         num_atoms,
         num_threads,
         nvcc=None,
+        compiler_optimisations=True,
     ):
         """
         Initialize the CUDA platform backend.
@@ -80,6 +81,11 @@ class CUDAPlatform(_PlatformBackend):
 
         nvcc : str, optional
             Path to NVCC compiler. If None, uses default from PATH.
+
+        compiler_optimisations : bool, optional
+            Enable compiler optimisations for faster math operations.
+            When True, passes --use_fast_math to nvcc.
+            Default: True (matches OpenMM defaults).
         """
         from pycuda.tools import make_default_context
 
@@ -107,6 +113,7 @@ class CUDAPlatform(_PlatformBackend):
         self._num_atoms = num_atoms
         self._num_threads = num_threads
         self._nvcc = nvcc
+        self._compiler_optimisations = compiler_optimisations
 
         # Register cleanup
         _atexit.register(self._cleanup_wrapper)
@@ -124,6 +131,12 @@ class CUDAPlatform(_PlatformBackend):
         # Suppress stderr but capture it for error reporting.
         stderr_capture = _io.StringIO()
         old_stderr = _sys.stderr
+
+        # Build compiler options
+        options = []
+        if self._compiler_optimisations:
+            options.append("--use_fast_math")
+
         try:
             _sys.stderr = stderr_capture
             mod = _SourceModule(
@@ -136,6 +149,7 @@ class CUDAPlatform(_PlatformBackend):
                 },
                 no_extern_c=True,
                 nvcc=self._nvcc,
+                options=options,
             )
         except Exception as e:
             stderr_output = stderr_capture.getvalue().strip()

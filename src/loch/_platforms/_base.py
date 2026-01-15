@@ -48,6 +48,7 @@ class PlatformBackend(_ABC):
         num_atoms,
         num_threads,
         nvcc=None,
+        compiler_optimisations=True,
     ):
         """
         Initialize the platform backend.
@@ -74,6 +75,10 @@ class PlatformBackend(_ABC):
 
         nvcc : str, optional
             Path to NVCC compiler (CUDA only). If None, uses default.
+
+        compiler_optimisations : bool, optional
+            Enable compiler optimisations for faster math operations.
+            Default: True (matches OpenMM defaults).
         """
         pass
 
