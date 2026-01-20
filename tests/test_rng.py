@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 import time
 
 from loch._platforms._rng import RNGManager, BatchRandoms

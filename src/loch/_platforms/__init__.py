@@ -54,7 +54,7 @@ def detect_platform() -> str:
         cuda.init()
         if cuda.Device.count() > 0:
             return "cuda"
-    except:
+    except Exception:
         pass
 
     # Fall back to OpenCL
@@ -66,7 +66,7 @@ def detect_platform() -> str:
             devices = platform.get_devices(device_type=cl.device_type.GPU)
             if devices:
                 return "opencl"
-    except:
+    except Exception:
         pass
 
     # No GPU found

@@ -29,7 +29,7 @@ import os as _os
 
 try:
     from somd2 import _logger
-except:
+except Exception:
     from loguru import logger as _logger
 
 import BioSimSpace as _BSS
@@ -253,7 +253,7 @@ class GCMCSampler:
                 self._system = _sr.morph.link_to_reference(self._system)
             else:
                 self._is_fep = False
-        except:
+        except Exception:
             self._is_fep = False
 
         if reference is not None:
@@ -264,7 +264,7 @@ class GCMCSampler:
         if not isinstance(cutoff_type, str):
             raise ValueError("'cutoff_type' must be of type 'str'")
         cutoff_type = cutoff_type.lower().replace(" ", "")
-        if not cutoff_type in ["rf", "pme"]:
+        if cutoff_type not in ["rf", "pme"]:
             raise ValueError("The cutoff type must be 'rf' or 'pme'.")
         self._cutoff_type = cutoff_type
 
@@ -384,7 +384,7 @@ class GCMCSampler:
             raise ValueError("'log_level' must be of type 'str'")
         log_level = log_level.lower().replace(" ", "")
         allowed_levels = [level.lower() for level in _logger._core.levels]
-        if not log_level in allowed_levels:
+        if log_level not in allowed_levels:
             raise ValueError(
                 f"Invalid 'log_level': {log_level}. Choices are: {', '.join(allowed_levels)}"
             )
@@ -440,7 +440,7 @@ class GCMCSampler:
 
         try:
             lambda_value = float(lambda_value)
-        except:
+        except Exception:
             raise ValueError("'lambda_value' must be of type 'float'")
         if not 0.0 <= lambda_value <= 1.0:
             raise ValueError("'lambda_value' must be between 0 and 1")
@@ -448,7 +448,7 @@ class GCMCSampler:
 
         try:
             rest2_scale = float(rest2_scale)
-        except:
+        except Exception:
             raise ValueError("'rest2_scale' must be of type 'float'")
         if rest2_scale < 1.0:
             raise ValueError("'rest2_scale' must be greater than or equal to 1.0")
@@ -462,7 +462,7 @@ class GCMCSampler:
 
             try:
                 atoms = selection_to_atoms(self._system, rest2_selection)
-            except:
+            except Exception:
                 msg = "Invalid 'rest2_selection' value."
                 _logger.error(msg)
                 raise ValueError(msg)
@@ -476,7 +476,7 @@ class GCMCSampler:
 
         try:
             coulomb_power = float(coulomb_power)
-        except:
+        except Exception:
             raise ValueError("'coulomb_power' must be of type 'float'")
         self._coulomb_power = float(coulomb_power)
 
@@ -501,7 +501,7 @@ class GCMCSampler:
         # Check for waters and validate the template.
         try:
             self._water_template = system["water and not property is_perturbable"][0]
-        except:
+        except Exception:
             if water_template is None:
                 raise ValueError(
                     "The system does not contain any water molecules. "
@@ -625,7 +625,7 @@ class GCMCSampler:
         # Create a logger that writes to stderr and the log file.
         # The 'no_logger' keyword argument can be used to disable logging if
         # the sampler is being driven by an external package, e.g. SOMD2.
-        if not "no_logger" in kwargs:
+        if "no_logger" not in kwargs:
             _logger.remove()
             _logger.add(sys.stderr, level=self._log_level.upper())
             if self._log_file is not None:
@@ -643,7 +643,7 @@ class GCMCSampler:
 
         # Check for testing mode.
         if "test" in kwargs:
-            if kwargs["test"] == True:
+            if kwargs["test"]:
                 _logger.debug("Testing mode enabled")
                 self._is_test = True
             else:
@@ -770,7 +770,7 @@ class GCMCSampler:
         if isinstance(system, _sr.system.System):
             try:
                 self._space = system.property("space")
-            except:
+            except Exception:
                 raise ValueError("'system' must contain a 'space' property")
         # Create a Sire TriclinicBox from the OpenMM box vectors.
         elif isinstance(system, _openmm.Context):
@@ -1177,7 +1177,7 @@ class GCMCSampler:
 
                 # If there are no ghost waters, then we can't perform any insertions.
                 if len(ghost_waters) == 0:
-                    msg = f"Cannot insert any more waters. Please increase 'num_ghost_waters'."
+                    msg = "Cannot insert any more waters. Please increase 'num_ghost_waters'."
                     _logger.error(msg)
                     raise RuntimeError(msg)
 
@@ -1704,7 +1704,7 @@ class GCMCSampler:
         # Get the space property from the system.
         try:
             space = system.property("space")
-        except:
+        except Exception:
             raise ValueError("'system' must contain a 'space' property")
 
         # Get the box matrix and diagonal.

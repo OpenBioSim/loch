@@ -249,7 +249,7 @@ class CUDAPlatform(_PlatformBackend):
         """
         try:
             self.pop_context()
-        except:
+        except Exception:
             pass
         self._pycuda_context.detach()
         self._pycuda_context = None
@@ -261,7 +261,7 @@ class CUDAPlatform(_PlatformBackend):
         try:
             if self._pycuda_context is not None:
                 self.cleanup()
-        except:
+        except Exception:
             pass
 
     @property

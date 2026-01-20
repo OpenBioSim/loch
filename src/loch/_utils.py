@@ -77,7 +77,6 @@ def excess_chemical_potential(
         Excess chemical potential in kcal/mol.
     """
 
-    import os
     import sire as sr
 
     from BioSimSpace.FreeEnergy import Relative
@@ -175,31 +174,31 @@ def excess_chemical_potential(
     system = sr.morph.link_to_reference(system)
 
     # Get the lambda schedule from the molecule.
-    l = mol.property("schedule")
+    s = mol.property("schedule")
 
     # Avoid scaling kappa during decouple stage.
-    l.set_equation(stage="decouple", lever="kappa", force="ghost/ghost", equation=0)
-    l.set_equation(stage="decouple", lever="kappa", force="ghost-14", equation=0)
+    s.set_equation(stage="decouple", lever="kappa", force="ghost/ghost", equation=0)
+    s.set_equation(stage="decouple", lever="kappa", force="ghost-14", equation=0)
 
     # Add new discharging stage.
-    l.set_equation(stage="decouple", lever="charge", equation=l.final())
-    l.prepend_stage("decharge", l.initial())
-    l.set_equation(
+    s.set_equation(stage="decouple", lever="charge", equation=s.final())
+    s.prepend_stage("decharge", s.initial())
+    s.set_equation(
         stage="decharge",
         lever="charge",
-        equation=l.lam() * l.final() + l.initial() * (1 - l.lam()),
+        equation=s.lam() * s.final() + s.initial() * (1 - s.lam()),
     )
-    l.set_equation(stage="decharge", force="ghost/ghost", equation=l.initial())
-    l.set_equation(stage="decharge", force="ghost-14", equation=l.initial())
-    l.set_equation(
-        stage="decharge", lever="kappa", force="ghost/ghost", equation=-l.lam() + 1
+    s.set_equation(stage="decharge", force="ghost/ghost", equation=s.initial())
+    s.set_equation(stage="decharge", force="ghost-14", equation=s.initial())
+    s.set_equation(
+        stage="decharge", lever="kappa", force="ghost/ghost", equation=-s.lam() + 1
     )
-    l.set_equation(
-        stage="decharge", lever="kappa", force="ghost-14", equation=-l.lam() + 1
+    s.set_equation(
+        stage="decharge", lever="kappa", force="ghost-14", equation=-s.lam() + 1
     )
 
     # Update the schedule in the configuration.
-    config.lambda_schedule = l
+    config.lambda_schedule = s
 
     # Set up the runner.
     try:
@@ -261,7 +260,6 @@ def standard_volume(
     float
         Standard volume in A^3/molecule.
     """
-    import os
     import sire as sr
 
     from openmm.unit import angstrom

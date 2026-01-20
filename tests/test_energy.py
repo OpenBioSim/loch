@@ -59,9 +59,6 @@ def test_energy(fixture, platform, request):
         platform=platform,
     )
 
-    # Get the context.
-    context = d.context()
-
     # Loop until we accept an insertion move.
     is_accepted = False
     while not is_accepted:
