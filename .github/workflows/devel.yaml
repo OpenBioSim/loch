@@ -17,7 +17,7 @@ jobs:
         platform:
           - { name: "linux", os: "ubuntu-latest", shell: "bash -l {0}" }
           - { name: "macos", os: "macos-latest", shell: "bash -l {0}" }
-      exclude:
+        exclude:
           # Exclude all but the latest Python from all
           # but Linux
           - platform:
