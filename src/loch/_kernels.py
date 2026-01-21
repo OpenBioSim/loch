@@ -1,7 +1,7 @@
 ######################################################################
 # Loch: GPU accelerated GCMC water sampling engine.
 #
-# Copyright: 2025
+# Copyright: 2025-2026
 #
 # Authors: The OpenBioSim Team <team@openbiosim.org>
 #
@@ -20,11 +20,38 @@
 #####################################################################
 
 """
-GCMC CUDA kernels.
+GCMC CUDA/OpenCL kernels.
 """
 
 code = """
-    #include <curand_kernel.h>
+    // Platform-specific definitions for CUDA and OpenCL compatibility
+    #ifdef __OPENCL_VERSION__
+        #define KERNEL __kernel
+        #define DEVICE  // OpenCL: file-scope variables visible to all kernels
+        #define GLOBAL __global
+        #define LOCAL __local
+        #define GET_GLOBAL_ID(dim) get_global_id(dim)
+        #define BLOCK_ID_Y get_group_id(1)  // OpenCL: work-group ID in dimension 1
+        // Map CUDA-style function names to OpenCL names
+        #define sqrtf sqrt
+        #define powf pow
+        #define expf exp
+        #define cosf cos
+        #define sinf sin
+        #define rsqrtf rsqrt
+        #define floorf floor
+        #define fmaf fma
+        // OpenCL doesn't have sincosf, so define it
+        #define sincosf(x, sptr, cptr) do { *(sptr) = sinf(x); *(cptr) = cosf(x); } while(0)
+        #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+    #else
+        #define KERNEL extern "C" __global__
+        #define DEVICE __device__  // CUDA: device memory (mutable)
+        #define GLOBAL
+        #define LOCAL __shared__
+        #define GET_GLOBAL_ID(dim) (threadIdx.x + blockIdx.x * blockDim.x)
+        #define BLOCK_ID_Y blockIdx.y  // CUDA: block index in y dimension
+    #endif
 
     // Constants.
     const float pi = 3.14159265359f;
@@ -32,68 +59,51 @@ code = """
     const int num_batch = %(NUM_BATCH)s;
     const int num_atoms = %(NUM_ATOMS)s;
     const int num_waters = %(NUM_WATERS)s;
-    const int num_water_atoms = 3*num_points;
+    const int num_water_positions = 3 * num_points;
     const float prefactor = 332.0637090025476f;
 
-    // Random number generator state for each water thread.
-    __device__ curandState_t* states[num_batch];
-
     // Reaction field parameters.
-    __device__ float rf_dielectric;
-    __device__ float rf_kappa;
-    __device__ float rf_cutoff;
-    __device__ float rf_correction;
+    DEVICE float rf_dielectric;
+    DEVICE float rf_kappa;
+    DEVICE float rf_cutoff;
+    DEVICE float rf_correction;
 
     // Soft-core parameters.
-    __device__ float coulomb_power;
-    __device__ float shift_coulomb;
-    __device__ float shift_delta;
+    DEVICE float coulomb_power;
+    DEVICE float shift_coulomb;
+    DEVICE float shift_delta;
 
     // Triclinic cell information.
-    __device__ float cell_matrix[3][3];
-    __device__ float cell_matrix_inverse[3][3];
-    __device__ float M[3][3];
+    DEVICE float cell_matrix[3][3];
+    DEVICE float cell_matrix_inverse[3][3];
+    DEVICE float M[3][3];
 
     // Atom properties.
-    __device__ float sigma[num_atoms];
-    __device__ float epsilon[num_atoms];
-    __device__ float charge[num_atoms];
-    __device__ float alpha[num_atoms];
-    __device__ float position[num_atoms * 3];
-    __device__ int is_ghost_water[num_atoms];
-    __device__ int is_ghost_fep[num_atoms];
+    DEVICE float sigma[num_atoms];
+    DEVICE float epsilon[num_atoms];
+    DEVICE float charge[num_atoms];
+    DEVICE float alpha[num_atoms];
+    DEVICE float position[num_atoms * 3];
+    DEVICE int is_ghost_water[num_atoms];
+    DEVICE int is_ghost_fep[num_atoms];
 
     // Water properties.
-    __device__ float sigma_water[num_points];
-    __device__ float epsilon_water[num_points];
-    __device__ float charge_water[num_points];
-    __device__ int water_idx[num_waters];
-    __device__ int water_state[num_waters];
+    DEVICE float sigma_water[num_points];
+    DEVICE float epsilon_water[num_points];
+    DEVICE float charge_water[num_points];
+    DEVICE int water_idx[num_waters];
+    DEVICE int water_state[num_waters];
 
+    #ifndef __OPENCL_VERSION__
     extern "C"
     {
-        // Initialisation of the random number generator state for each attempt thread.
-        __global__ void initialiseRNG(int* seed)
-        {
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
-
-            if (tidx < num_batch)
-            {
-                curandState_t* s = new curandState_t;
-                if (s != 0)
-                {
-                    curand_init(seed[tidx], tidx, 0, s);
-                }
-
-                states[tidx] = s;
-            }
-        }
+    #endif
 
         // Intialisation of the cell information for periodic triclinic boxes.
-        __global__ void setCellMatrix(
-            float* matrix,
-            float* matrix_inverse,
-            float* m)
+        KERNEL void setCellMatrix(
+            GLOBAL float* matrix,
+            GLOBAL float* matrix_inverse,
+            GLOBAL float* m)
         {
             for (int i = 0; i < 3; i++)
             {
@@ -107,18 +117,18 @@ code = """
         }
 
         // Set the reaction field parameters.
-        __global__ void setReactionField(float cutoff, float dielectric)
+        KERNEL void setReactionField(float cutoff, float dielectric)
         {
             rf_dielectric = dielectric;
             rf_cutoff = cutoff;
-            const auto rf_cutoff2 = cutoff * cutoff;
-            const auto rf_cutoff3_inv = 1.0f / (rf_cutoff * rf_cutoff2);
+            const float rf_cutoff2 = cutoff * cutoff;
+            const float rf_cutoff3_inv = 1.0f / (rf_cutoff * rf_cutoff2);
             rf_kappa = rf_cutoff3_inv * (dielectric - 1.0f) / (2.0f * dielectric + 1.0f);
             rf_correction = (1.0 / rf_cutoff) + rf_kappa * rf_cutoff2;
         }
 
         // Set the soft-core parameters.
-        __global__ void setSoftCore(float power, float coulomb, float delta)
+        KERNEL void setSoftCore(float power, float coulomb, float delta)
         {
             coulomb_power = power;
             shift_coulomb = coulomb;
@@ -126,15 +136,15 @@ code = """
         }
 
         // Set the properties of each atom.
-        __global__ void setAtomProperties(
-            float* charges,
-            float* sigmas,
-            float* epsilons,
-            float* alphas,
-            int* ghost_water,
-            int* ghost_fep)
+        KERNEL void setAtomProperties(
+            GLOBAL float* charges,
+            GLOBAL float* sigmas,
+            GLOBAL float* epsilons,
+            GLOBAL float* alphas,
+            GLOBAL int* ghost_water,
+            GLOBAL int* ghost_fep)
         {
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = GET_GLOBAL_ID(0);
 
             if (tidx < num_atoms)
             {
@@ -148,9 +158,9 @@ code = """
         }
 
         // Set the positions of each atom.
-        __global__ void setAtomPositions(float* positions, float scale=1.0)
+        KERNEL void setAtomPositions(GLOBAL float* positions, float scale)
         {
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = GET_GLOBAL_ID(0);
 
             if (tidx < num_atoms)
             {
@@ -161,12 +171,12 @@ code = """
         }
 
         // Set the properties of each water atom.
-        __global__ void setWaterProperties(
-            float* charges,
-            float* sigmas,
-            float* epsilons,
-            int* idx,
-            int* state)
+        KERNEL void setWaterProperties(
+            GLOBAL float* charges,
+            GLOBAL float* sigmas,
+            GLOBAL float* epsilons,
+            GLOBAL int* idx,
+            GLOBAL int* state)
         {
             for (int i = 0; i < num_points; i++)
             {
@@ -183,7 +193,7 @@ code = """
         }
 
         // Update a single water.
-        __global__ void updateWater(int idx, int state, int is_insertion, float* new_position)
+        KERNEL void updateWater(int idx, int state, int is_insertion, GLOBAL float* new_position)
         {
             // Set the new state.
             water_state[idx] = state;
@@ -222,7 +232,7 @@ code = """
 
         // Calculate the delta that needs to be subtracted from the interatomic distance
         // so that the atoms are wrapped to the same periodic box.
-        __device__ void wrapDelta(float* v0, float* v1, float* delta_box)
+        DEVICE void wrapDelta(float* v0, float* v1, float* delta_box)
         {
             // Work out the positions of v0 and v1 in "box" space.
             float v0_box[3];
@@ -253,40 +263,10 @@ code = """
             float frac_y = delta_box[1] - int_y;
             float frac_z = delta_box[2] - int_z;
 
-            // Shift to the box.
-
-            // x
-
-            if (frac_x > 0.5f)
-            {
-                int_x += 1;
-            }
-            else if (frac_x < -0.5f)
-            {
-                int_x -= 1;
-            }
-
-            // y
-
-            if (frac_y > 0.5f)
-            {
-                int_y += 1;
-            }
-            else if (frac_y < -0.5f)
-            {
-                int_y -= 1;
-            }
-
-            // z
-
-            if (frac_z > 0.5f)
-            {
-                int_z += 1;
-            }
-            else if (frac_z < -0.5f)
-            {
-                int_z -= 1;
-            }
+            // Shift to the box (branchless).
+            int_x += (int)floorf(frac_x + 0.5f);
+            int_y += (int)floorf(frac_y + 0.5f);
+            int_z += (int)floorf(frac_z + 0.5f);
 
             // Calculate the shifts over the box vectors.
             delta_box[0] = 0.0f;
@@ -301,10 +281,10 @@ code = """
         }
 
         // Calculate the distance between two atoms within the periodic box.
-        __device__ void distance2(
+        DEVICE void distance2(
             float* v0,
             float* v1,
-            float& dist2)
+            float* dist2)
         {
             // Work out the positions of v0 and v1 in "box" space.
             float v0_box[3];
@@ -336,40 +316,10 @@ code = """
             float frac_y = delta_box[1] - int_y;
             float frac_z = delta_box[2] - int_z;
 
-            // Shift to the box.
-
-            // x
-
-            if (frac_x >= 0.5f)
-            {
-                frac_x -= 1.0f;
-            }
-            else if (frac_x <= -0.5f)
-            {
-                frac_x += 1.0f;
-            }
-
-            // y
-
-            if (frac_y >= 0.5f)
-            {
-                frac_y -= 1.0f;
-            }
-            else if (frac_y <= -0.5f)
-            {
-                frac_y += 1.0f;
-            }
-
-            // z
-
-            if (frac_z >= 0.5f)
-            {
-                frac_z -= 1.0f;
-            }
-            else if (frac_z <= -0.5f)
-            {
-                frac_z += 1.0f;
-            }
+            // Shift to the box (branchless).
+            frac_x -= floorf(frac_x + 0.5f);
+            frac_y -= floorf(frac_y + 0.5f);
+            frac_z -= floorf(frac_z + 0.5f);
 
             float frac_dist[3];
             frac_dist[0] = frac_x;
@@ -384,11 +334,11 @@ code = """
                     delta_box[i] += M[i][j] * frac_dist[j];
                 }
             }
-            dist2 = frac_x * delta_box[0] + frac_y * delta_box[1] + frac_z * delta_box[2];
+            *dist2 = frac_x * delta_box[0] + frac_y * delta_box[1] + frac_z * delta_box[2];
         }
 
         // Perform a random rotation about a unit sphere.
-        __device__ void uniform_random_rotation(float* v, float r0, float r1, float r2)
+        DEVICE void uniform_random_rotation(float* v, float r0, float r1, float r2)
         {
             /* Adapted from:
                 https://www.blopig.com/blog/2021/08/uniformly-sampled-3d-rotation-matrices/
@@ -401,15 +351,20 @@ code = """
             float x2 = 2.0f * pi * r0;
             float x3 = r1;
             float R[3][3];
-            R[0][0] = R[1][1] = cosf(2.0f * pi * r2);
-            R[0][1] = -sinf(2.0f * pi * r2);
-            R[1][0] = sinf(2.0f * pi * r2);
+            float sin_r2, cos_r2;
+            sincosf(2.0f * pi * r2, &sin_r2, &cos_r2);
+            R[0][0] = R[1][1] = cos_r2;
+            R[0][1] = -sin_r2;
+            R[1][0] = sin_r2;
             R[0][2] = R[1][2] = R[2][0] = R[2][1] = 0.0f;
             R[2][2] = 1.0f;
 
             // Now compute the Householder matrix H.
-            float v0 = cosf(x2) * sqrtf(x3);
-            float v1 = sinf(x2) * sqrtf(x3);
+            float sin_x2, cos_x2;
+            sincosf(x2, &sin_x2, &cos_x2);
+            float sqrt_x3 = sqrtf(x3);
+            float v0 = cos_x2 * sqrt_x3;
+            float v1 = sin_x2 * sqrt_x3;
             float v2 = sqrtf(1.0f - x3);
             float H[3][3];
             H[0][0] = 1.0f - 2.0f * v0 * v0;
@@ -440,7 +395,13 @@ code = """
             mean_coord[1] = (v[1] + v[4] + v[7]) / 3.0f;
             mean_coord[2] = (v[2] + v[5] + v[8]) / 3.0f;
 
-            // Now compute ((v - mean_coord) @ M) + mean_coord @ M.
+            // Precompute mean_coord @ M (avoids redundant calculations).
+            float mean_M[3];
+            mean_M[0] = fmaf(mean_coord[0], M[0][0], fmaf(mean_coord[1], M[1][0], mean_coord[2] * M[2][0]));
+            mean_M[1] = fmaf(mean_coord[0], M[0][1], fmaf(mean_coord[1], M[1][1], mean_coord[2] * M[2][1]));
+            mean_M[2] = fmaf(mean_coord[0], M[0][2], fmaf(mean_coord[1], M[1][2], mean_coord[2] * M[2][2]));
+
+            // Now compute ((v - mean_coord) @ M) + mean_M.
             float x[3][3];
             x[0][0] = v[0] - mean_coord[0];
             x[0][1] = v[1] - mean_coord[1];
@@ -452,47 +413,38 @@ code = """
             x[2][1] = v[7] - mean_coord[1];
             x[2][2] = v[8] - mean_coord[2];
 
-            // Compute the rotated coordinates.
-            v[0] = x[0][0] * M[0][0] + x[0][1] * M[1][0] + x[0][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[1] = x[0][0] * M[0][1] + x[0][1] * M[1][1] + x[0][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[2] = x[0][0] * M[0][2] + x[0][1] * M[1][2] + x[0][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
-            v[3] = x[1][0] * M[0][0] + x[1][1] * M[1][0] + x[1][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[4] = x[1][0] * M[0][1] + x[1][1] * M[1][1] + x[1][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[5] = x[1][0] * M[0][2] + x[1][1] * M[1][2] + x[1][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
-            v[6] = x[2][0] * M[0][0] + x[2][1] * M[1][0] + x[2][2] * M[2][0]
-                + mean_coord[0] * M[0][0] + mean_coord[1] * M[1][0] + mean_coord[2] * M[2][0];
-            v[7] = x[2][0] * M[0][1] + x[2][1] * M[1][1] + x[2][2] * M[2][1]
-                + mean_coord[0] * M[0][1] + mean_coord[1] * M[1][1] + mean_coord[2] * M[2][1];
-            v[8] = x[2][0] * M[0][2] + x[2][1] * M[1][2] + x[2][2] * M[2][2]
-                + mean_coord[0] * M[0][2] + mean_coord[1] * M[1][2] + mean_coord[2] * M[2][2];
+            // Compute the rotated coordinates using fma.
+            v[0] = fmaf(x[0][0], M[0][0], fmaf(x[0][1], M[1][0], fmaf(x[0][2], M[2][0], mean_M[0])));
+            v[1] = fmaf(x[0][0], M[0][1], fmaf(x[0][1], M[1][1], fmaf(x[0][2], M[2][1], mean_M[1])));
+            v[2] = fmaf(x[0][0], M[0][2], fmaf(x[0][1], M[1][2], fmaf(x[0][2], M[2][2], mean_M[2])));
+            v[3] = fmaf(x[1][0], M[0][0], fmaf(x[1][1], M[1][0], fmaf(x[1][2], M[2][0], mean_M[0])));
+            v[4] = fmaf(x[1][0], M[0][1], fmaf(x[1][1], M[1][1], fmaf(x[1][2], M[2][1], mean_M[1])));
+            v[5] = fmaf(x[1][0], M[0][2], fmaf(x[1][1], M[1][2], fmaf(x[1][2], M[2][2], mean_M[2])));
+            v[6] = fmaf(x[2][0], M[0][0], fmaf(x[2][1], M[1][0], fmaf(x[2][2], M[2][0], mean_M[0])));
+            v[7] = fmaf(x[2][0], M[0][1], fmaf(x[2][1], M[1][1], fmaf(x[2][2], M[2][1], mean_M[1])));
+            v[8] = fmaf(x[2][0], M[0][2], fmaf(x[2][1], M[1][2], fmaf(x[2][2], M[2][2], mean_M[2])));
         }
 
         // Generate a random position and orientation within the GCMC sphere
         // for each trial insertion.
-        __global__ void generateWater(
-            float* water_template,
-            float* target,
+        KERNEL void generateWater(
+            GLOBAL float* water_template,
+            GLOBAL float* target,
             float radius,
-            float* water_position,
-            int is_target)
+            GLOBAL float* water_position,
+            int is_target,
+            GLOBAL float* randoms_rotation,
+            GLOBAL float* randoms_position,
+            GLOBAL float* randoms_radius)
         {
             // Work out the thread index.
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = GET_GLOBAL_ID(0);
 
             // Make sure we are within the number of waters.
             if (tidx < num_batch)
             {
-                // Get the RNG state.
-                curandState_t state = *states[tidx];
-
                 // Translate the oxygen atom to the origin.
-                float water[num_water_atoms];
+                float water[num_water_positions];
                 water[0] = 0.0f;
                 water[1] = 0.0f;
                 water[2] = 0.0f;
@@ -505,8 +457,11 @@ code = """
                     water[i*3 + 2] = water_template[i*3 + 2] - water_template[2];
                 }
 
-                // Rotate the water randomly.
-                uniform_random_rotation(water, curand_uniform(&state), curand_uniform(&state), curand_uniform(&state));
+                // Rotate the water randomly using pre-generated randoms.
+                uniform_random_rotation(water,
+                    randoms_rotation[tidx * 3],
+                    randoms_rotation[tidx * 3 + 1],
+                    randoms_rotation[tidx * 3 + 2]);
 
                 // Calculate the distance between the oxygen and the hydrogens.
                 float dh[num_points][3];
@@ -522,16 +477,16 @@ code = """
                 // Choose a random position within the GCMC sphere.
                 if (is_target == 1)
                 {
-                    // Generate a random position around the target.
-                    xyz[0] = curand_normal(&state);
-                    xyz[1] = curand_normal(&state);
-                    xyz[2] = curand_normal(&state);
+                    // Generate a random position around the target using pre-generated normals.
+                    xyz[0] = randoms_position[tidx * 3];
+                    xyz[1] = randoms_position[tidx * 3 + 1];
+                    xyz[2] = randoms_position[tidx * 3 + 2];
 
                     float norm = sqrtf(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
                     xyz[0] /= norm;
                     xyz[1] /= norm;
                     xyz[2] /= norm;
-                    float r = radius * powf(curand_uniform(&state), 1.0f / 3.0f);
+                    float r = radius * powf(randoms_radius[tidx], 1.0f / 3.0f);
                     xyz[0] = target[0] + r * xyz[0];
                     xyz[1] = target[1] + r * xyz[1];
                     xyz[2] = target[2] + r * xyz[2];
@@ -539,10 +494,11 @@ code = """
                 // Choose a random position within the triclinic box.
                 else
                 {
+                    // Use pre-generated uniform randoms for bulk sampling.
                     float r[3];
-                    r[0] = curand_uniform(&state);
-                    r[1] = curand_uniform(&state);
-                    r[2] = curand_uniform(&state);
+                    r[0] = randoms_position[tidx * 3];
+                    r[1] = randoms_position[tidx * 3 + 1];
+                    r[2] = randoms_position[tidx * 3 + 2];
 
                     for (int i = 0; i < 3; i++)
                     {
@@ -555,44 +511,41 @@ code = """
                 }
 
                 // Place the oxygen (first atom) at the random position.
-                water_position[tidx * num_water_atoms] = xyz[0];
-                water_position[tidx * num_water_atoms + 1] = xyz[1];
-                water_position[tidx * num_water_atoms + 2] = xyz[2];
+                water_position[tidx * num_water_positions] = xyz[0];
+                water_position[tidx * num_water_positions + 1] = xyz[1];
+                water_position[tidx * num_water_positions + 2] = xyz[2];
 
                 // Shift the hydrogens by the appropriate amount.
                 for (int i = 0; i < num_points-1; i++)
                 {
-                    water_position[tidx * num_water_atoms + 3 + i*3] = xyz[0] + dh[i][0];
-                    water_position[tidx * num_water_atoms + 4 + i*3] = xyz[1] + dh[i][1];
-                    water_position[tidx * num_water_atoms + 5 + i*3] = xyz[2] + dh[i][2];
+                    water_position[tidx * num_water_positions + 3 + i*3] = xyz[0] + dh[i][0];
+                    water_position[tidx * num_water_positions + 4 + i*3] = xyz[1] + dh[i][1];
+                    water_position[tidx * num_water_positions + 5 + i*3] = xyz[2] + dh[i][2];
                 }
-
-                // Set the new state.
-                *states[tidx] = state;
             }
         }
 
         // Compute the Lennard-Jones and reaction field Coulomb energy between
         // the water and the atoms.
-        __global__ void computeEnergy(
-            float* water_position,
-            float* energy_coul,
-            float* energy_lj,
-            int* deletion_candidates,
-            int* is_deletion,
+        KERNEL void computeEnergy(
+            GLOBAL float* water_position,
+            GLOBAL float* energy_coul,
+            GLOBAL float* energy_lj,
+            GLOBAL int* deletion_candidates,
+            GLOBAL int* is_deletion,
             int is_fep)
         {
             // Work out the atom index.
-            const int idx_atom = threadIdx.x + blockDim.x * blockIdx.x;
+            const int idx_atom = GET_GLOBAL_ID(0);
 
             // Make sure we're in bounds.
             if (idx_atom < num_atoms)
             {
                 // Store the squared cut-off distance.
-                const auto cutoff2 = rf_cutoff * rf_cutoff;
+                const float cutoff2 = rf_cutoff * rf_cutoff;
 
                 // Work out the water index.
-                const int idx_water = blockIdx.y;
+                const int idx_water = BLOCK_ID_Y;
 
                 // Work out the index for the result.
                 const int idx = (idx_water * num_atoms) + idx_atom;
@@ -607,13 +560,13 @@ code = """
                     for (int i = 0; i < num_points; i++)
                     {
                         // Self interaction.
-                        const auto q1 = charge_water[i];
+                        const float q1 = charge_water[i];
                         energy_coul[idx] -= 0.5f * (q1 * q1) * rf_correction;
 
                         // Pair interaction.
                         for (int j = i+1; j < num_points; j++)
                         {
-                            const auto q2 = charge_water[j];
+                            const float q2 = charge_water[j];
                             energy_coul[idx] -= (q1 * q2) * rf_correction;
                         }
                     }
@@ -623,10 +576,10 @@ code = """
                 if (is_deletion[idx_water] == 1)
                 {
                     const int idx_water_context = water_idx[deletion_candidates[idx_water]];
-                    const auto delta = idx_atom - idx_water_context;
+                    const float delta = idx_atom - idx_water_context;
 
                     // Don't compute self-interactions.
-                    if (delta >= 0 and delta < num_points)
+                    if (delta >= 0 && delta < num_points)
                     {
                         return;
                     }
@@ -656,7 +609,7 @@ code = """
                 v0[2] = position[3 * idx_atom + 2];
 
                 // Store the charge on the atom.
-                auto q0 = charge[idx_atom];
+                float q0 = charge[idx_atom];
 
                 // Store the epsilon and sigma for the atom.
                 float s0 = sigma[idx_atom];
@@ -676,20 +629,20 @@ code = """
                     }
                     else
                     {
-                        v1[0] = water_position[3 * num_points * idx_water + 3 * i];
-                        v1[1] = water_position[3 * num_points * idx_water + 3 * i + 1];
-                        v1[2] = water_position[3 * num_points * idx_water + 3 * i + 2];
+                        v1[0] = water_position[num_water_positions * idx_water + 3 * i];
+                        v1[1] = water_position[num_water_positions * idx_water + 3 * i + 1];
+                        v1[2] = water_position[num_water_positions * idx_water + 3 * i + 2];
                     }
 
                     // Calculate the squared distance between the atoms.
                     float r2;
-                    distance2(v0, v1, r2);
+                    distance2(v0, v1, &r2);
 
                     // The distance is within the cut-off.
                     if (r2 < cutoff2)
                     {
                         // Don't divide by zero.
-                        if (not is_fep and r2 < 1e-6)
+                        if (!is_fep && r2 < 1e-6)
                         {
                             energy_coul[idx] = 1e6;
                             energy_lj[idx] = 1e6;
@@ -698,38 +651,38 @@ code = """
                         else
                         {
                             // Regular non-bonded forces.
-                            if (not is_ghost_atom)
+                            if (!is_ghost_atom)
                             {
                                 // Compute the LJ interaction.
-                                auto s1 = sigma_water[i];
-                                const auto e1 = epsilon_water[i];
-                                const auto s = 0.5f * (s0 + s1);
-                                const auto e = sqrtf(e0 * e1);
-                                const auto s2 = s * s;
-                                const auto sr2 = s2 / r2;
-                                const auto sr6 = sr2 * sr2 * sr2;
+                                float s1 = sigma_water[i];
+                                const float e1 = epsilon_water[i];
+                                const float s = 0.5f * (s0 + s1);
+                                const float e = sqrtf(e0 * e1);
+                                const float s2 = s * s;
+                                const float sr2 = s2 / r2;
+                                const float sr6 = sr2 * sr2 * sr2;
                                 energy_lj[idx] += 4.0f * e * sr6 * (sr6 - 1.0f);
 
-                                // Compute the distance between the atoms.
-                                const auto r = sqrtf(r2);
+                                // Compute reciprocal distance (faster than sqrtf).
+                                const float r_inv = rsqrtf(r2);
 
                                 // Store the charge on the water atom.
-                                const auto q1 = charge_water[i];
+                                const float q1 = charge_water[i];
 
                                 // Add the reaction field pair energy.
-                                energy_coul[idx] += (q0 * q1) * ((1.0f / r) + (rf_kappa * r2) - rf_correction);
+                                energy_coul[idx] += (q0 * q1) * (r_inv + (rf_kappa * r2) - rf_correction);
                             }
 
                             // Zacharias soft-core potential.
                             else
                             {
                                 // Store required parameters.
-                                const auto q1 = charge_water[i];
-                                const auto s1 = sigma_water[i];
-                                const auto e1 = epsilon_water[i];
-                                const auto s = 0.5f * (s0 + s1);
-                                const auto e = sqrtf(e0 * e1);
-                                const auto a = alpha[idx_atom];
+                                const float q1 = charge_water[i];
+                                const float s1 = sigma_water[i];
+                                const float e1 = epsilon_water[i];
+                                const float s = 0.5f * (s0 + s1);
+                                const float e = sqrtf(e0 * e1);
+                                const float a = alpha[idx_atom];
 
                                 // Compute the distance between the atoms.
                                 float r = sqrtf(r2);
@@ -741,8 +694,8 @@ code = """
                                 }
 
                                 // Compute the Lennard-Jones interaction.
-                                const auto delta_lj = shift_delta * a;
-                                const auto s6 = powf(s, 6.0) / powf((s * delta_lj) + (r * r), 3.0);
+                                const float delta_lj = shift_delta * a;
+                                const float s6 = powf(s, 6.0f) / powf((s * delta_lj) + (r * r), 3.0f);
                                 energy_lj[idx] += 4.0f * e * s6 * (s6 - 1.0f);
 
                                 // Compute the Coulomb power expression.
@@ -769,20 +722,21 @@ code = """
         }
 
         // Calculate whether each attempt is accepted.
-        __global__ void checkAcceptance(
+        KERNEL void checkAcceptance(
             int N,
             float exp_B,
             float exp_minus_B,
             float beta,
-            int* is_deletion,
-            float* energy_coul,
-            float* energy_lj,
-            float* energy_change,
-            float* probability,
-            int* accepted,
-            float tolerance)
+            GLOBAL int* is_deletion,
+            GLOBAL float* energy_coul,
+            GLOBAL float* energy_lj,
+            GLOBAL float* energy_change,
+            GLOBAL float* probability,
+            GLOBAL int* accepted,
+            float tolerance,
+            GLOBAL float* randoms_acceptance)
         {
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = GET_GLOBAL_ID(0);
 
             if (tidx < num_batch)
             {
@@ -825,13 +779,10 @@ code = """
                 // Store the probability.
                 probability[tidx] = prob;
 
-                // Get the RNG state.
-                curandState_t state = *states[tidx];
-
-                // Accept or reject based on the Boltzmann weight. A tolerance
-                // can be used to reject low probability states that can cause
+                // Accept or reject based on the Boltzmann weight using pre-generated random.
+                // A tolerance can be used to reject low probability states that can cause
                 // instabilities and/or crashes in the MD engine.
-                if (prob > tolerance and curand_uniform(&state) < prob)
+                if (prob > tolerance && randoms_acceptance[tidx] < prob)
                 {
                     accepted[tidx] = 1;
                 }
@@ -839,19 +790,16 @@ code = """
                 {
                     accepted[tidx] = 0;
                 }
-
-                // Set the new state.
-                *states[tidx] = state;
             }
         }
 
         // Find candidate waters for deletion.
-        __global__ void findDeletionCandidates(
-            int* candidates,
-            float* target,
+        KERNEL void findDeletionCandidates(
+            GLOBAL int* candidates,
+            GLOBAL float* target,
             float radius)
         {
-            const int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+            const int tidx = GET_GLOBAL_ID(0);
 
             if (tidx < num_waters)
             {
@@ -872,7 +820,7 @@ code = """
 
                     // Calculate the distance between the water and the target.
                     float r2;
-                    distance2(v, target, r2);
+                    distance2(v, target, &r2);
 
                     // The water is within the GCMC sphere. Flag it as a candidate.
                     if (r2 < radius * radius)
@@ -882,5 +830,8 @@ code = """
                 }
             }
         }
+
+    #ifndef __OPENCL_VERSION__
     }
+    #endif
 """

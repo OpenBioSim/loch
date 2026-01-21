@@ -1,7 +1,7 @@
 ######################################################################
 # Loch: GPU accelerated GCMC water sampling engine.
 #
-# Copyright: 2025
+# Copyright: 2025-2026
 #
 # Authors: The OpenBioSim Team <team@openbiosim.org>
 #

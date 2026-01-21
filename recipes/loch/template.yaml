@@ -18,6 +18,7 @@ requirements:
     - loguru
     - pip
     - pycuda # [not macos]
+    - pyopencl
     - python
     - setuptools
     - sire

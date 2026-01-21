@@ -1,22 +1,23 @@
-# Loch: CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling
+# Loch: GPU accelerated Grand Canonical Monte Carlo (GCMC) water sampling
 
 ## Introduction
 
-We present `loch`, a high-performance CUDA-accelerated Python package designed
+We present `loch`, a high-performance GPU-accelerated Python package designed
 for Grand Canonical Monte Carlo (GCMC) water sampling in molecular simulations
 via [OpenMM](https://openmm.org/). To enable parallelisation of insertion and
-deletion attempts, `loch` leverages GPU capabilities using a custom CUDA kernel
-for nonbonded interactions. This allows thousands of GCMC trials to be attempted
-in parallel, significantly enhancing sampling efficiency compared to traditional
-CPU-based implementations that perform sequential attempts via the OpenMM Python
-API. Additionally, electrostatics for GCMC attempts are computed using the
-reaction field (RF) method, with accepted candidates being re-evaluated with a
-correction step based on the difference between reaction field and Particle Mesh
-Ewald (PME) potential energies. The use of an approximate potential for trial
-moves leads to a substantial speed-up in GCMC move evaluation. `loch` has been
-designed to be modular, allowing standalone GCMC sampling, or integration with
-OpenMM-based molecular dynamics simulation code, e.g. as has been done in the
-[SOMD2](https://github.com/openbiosim/somd2) free-energy perturbation engine.
+deletion attempts, `loch` leverages GPU capabilities using a custom CUDA/OpenCL
+kernel for nonbonded interactions. This allows thousands of GCMC trials to be
+attempted in parallel, significantly enhancing sampling efficiency compared to
+traditional CPU-based implementations that perform sequential attempts via the
+OpenMM Python API. Additionally, electrostatics for GCMC attempts are computed
+using the reaction field (RF) method, with accepted candidates being
+re-evaluated with a correction step based on the difference between reaction
+field and Particle Mesh Ewald (PME) potential energies. The use of an
+approximate potential for trial moves leads to a substantial speed-up in GCMC
+move evaluation. `loch` has been designed to be modular, allowing standalone
+GCMC sampling, or integration with OpenMM-based molecular dynamics simulation
+code, e.g. as has been done in the [SOMD2](https://github.com/openbiosim/somd2)
+free-energy perturbation engine.
 
 ## Parallelisation strategy
 
@@ -51,6 +52,14 @@ computation. A larger batch size also increases the computational cost of
 each iteration, as more trials need to be evaluated in parallel, and more data
 needs to be transferred to and from the GPU, in which case it might be more
 efficient to simply perform more iterations with a smaller batch size.
+
+To enable reproduciblility across GPU platforms we choose to generate random
+numbers on the host using NumPy's random number generator, then transfer these
+to the GPU kernels where required. This avoids differences in random number
+generation across different GPU architectures and drivers, making testing
+and validation of the implementation significantly easier. In benchmarks we
+have found the NumPy approach to be as performant as using GPU-based random
+numbers for the typical batch sizes employed in `loch`.
 
 ## Sampling from an approximate potential
 
@@ -91,7 +100,7 @@ Other than the cost of evaluating GCMC trials using PME, performance is aslo
 impacted by the cost of updating nonbonded parameters and atomic positions
 in the OpenMM context after each accepted insertion or deletion. (No updates
 are required for trial moves, since these are all evaluated via the custom
-CUDA kernel.) [Recent updates](https://github.com/openmm/openmm/pull/4610)
+CUDA/OpenCL kernel.) [Recent updates](https://github.com/openmm/openmm/pull/4610)
 to OpenMM have helped mitigate the cost of modifying force field parameters,
 allowing updates for only the subset of parameters that have changed within
 a particular force. However, updating atomic positions still requires

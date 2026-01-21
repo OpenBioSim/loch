@@ -66,6 +66,14 @@ parser.add_argument(
     choices=["info", "debug", "error"],
     required=False,
 )
+parser.add_argument(
+    "--platform",
+    help="The GPU platform to use",
+    type=str,
+    default="auto",
+    choices=["auto", "cuda", "opencl"],
+    required=False,
+)
 args = parser.parse_args()
 
 # Load the water box.
@@ -91,6 +99,8 @@ sampler = GCMCSampler(
     temperature=args.temperature,
     num_ghost_waters=100,
     log_level=args.log_level,
+    platform=args.platform,
+    overwrite=True,
 )
 
 # Create a dynamics object using the modified GCMC system.
@@ -104,6 +114,7 @@ d = sampler.system().dynamics(
     pressure=None,
     constraint="h_bonds",
     timestep="2 fs",
+    platform=args.platform,
 )
 d.randomise_velocities()
 
