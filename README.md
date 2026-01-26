@@ -87,6 +87,7 @@ sampler = GCMCSampler(
     temperature="298 K",
     num_ghost_waters=50,
     bulk_sampling_probability=0.1,
+    platform="auto",
     log_level="info",
 )
 ```
@@ -98,6 +99,11 @@ a total of `num_attempts` random insertion and deletion attempts, with
 `bulk_sampling_probability` controls the probability performing a bulk
 sampling move, i.e. performing attempts within the entire simulation box,
 rather than just within the GCMC sphere.
+
+The GPU platform is controlled via the `platform` argument, which can be set to
+`"cuda"`, `"opencl"` or `"auto"` (default). When set to `"auto"`, `loch` will
+attempt to use the CUDA platform first, falling back to OpenCL if CUDA is not
+available.
 
 3) Get the GCMC system:
 
