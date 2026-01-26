@@ -126,6 +126,7 @@ def create_backend(
     PlatformBackend
         Initialized platform backend (CUDAPlatform or OpenCLPlatform).
     """
+
     # Detect platform if auto
     if platform == "auto":
         platform = detect_platform()

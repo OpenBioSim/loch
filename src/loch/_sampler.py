@@ -417,6 +417,7 @@ class GCMCSampler:
             from shutil import which
 
             nvcc = _os.environ.get("PYCUDA_NVCC", which("nvcc"))
+        self._nvcc = nvcc
 
         # Set the tolerance.
         try:
@@ -531,17 +532,41 @@ class GCMCSampler:
         except Exception as e:
             raise ValueError(f"Could not prepare the system for GCMC sampling: {e}")
 
+        # Validate the platform parameter.
+        valid_platforms = {"auto", "cuda", "opencl"}
+
+        if not isinstance(platform, str):
+            raise TypeError("'platform' mut be of type 'str'.")
+
+        # Convert to lower case and strip whitespace.
+        platform = platform.lower().replace(" ", "")
+
+        if platform not in valid_platforms:
+            raise ValueError(
+                f"Invalid platform '{platform}'. Must be one of {valid_platforms}."
+            )
+        self._platform = platform
+
+        if device is not None:
+            if not isinstance(device, int):
+                raise ValueError("'device' must be of type 'int'")
+        self._device = device
+
+        if not isinstance(compiler_optimisations, bool):
+            raise ValueError("'compiler_optimisations' must be of type 'bool'")
+        self._compiler_optimisations = compiler_optimisations
+
         # Create platform backend
         self._backend = _create_backend(
-            platform=platform,
-            device=device if device is not None else 0,
+            platform=self._platform,
+            device=self._device if self._device is not None else 0,
             num_points=self._num_points,
             num_batch=self._batch_size,
             num_waters=self._num_waters,
             num_atoms=self._num_atoms,
             num_threads=self._num_threads,
-            nvcc=nvcc,
-            compiler_optimisations=compiler_optimisations,
+            nvcc=self._nvcc,
+            compiler_optimisations=self._compiler_optimisations,
         )
 
         # Compile kernels
@@ -657,7 +682,7 @@ class GCMCSampler:
         """
 
         return (
-            f"GCMCSampler(system={self._system}, "
+            f"GCMCSampler(self._system, "
             f"reference={self._reference}, "
             f"radius={self._radius}, "
             f"cutoff_type={self._cutoff_type}, "
@@ -672,10 +697,20 @@ class GCMCSampler:
             f"num_threads={self._num_threads}), "
             f"bulk_sampling_probability={self._bulk_sampling_probability}, "
             f"water_template={self._water_template}, "
+            f"platform={self._platform}, "
             f"device={self._device}, "
             f"tolerance={self._tolerance}, "
+            f"nvcc={self._nvcc}, "
+            f"compiler_optimisations={self._compiler_optimisations}, "
             f"lambda_schedule={self._lambda_schedule}, "
             f"lambda_value={self._lambda_value}, "
+            f"swap_end_states={self._swap_end_states}, "
+            f"restart={self._restart}, "
+            f"rest2_scale={self._rest2_scale}, "
+            f"rest2_selection={self._rest2_selection}, "
+            f"coulomb_power={self._coulomb_power}, "
+            f"shift_coulomb={self._shift_coulomb}, "
+            f"shift_delta={self._shift_delta}, "
             f"overwrite={self._overwrite}, "
             f"ghost_file={self._ghost_file}, "
             f"log_file={self._log_file}, "
