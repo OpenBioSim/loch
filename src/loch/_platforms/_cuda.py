@@ -266,14 +266,28 @@ class CUDAPlatform(_PlatformBackend):
         """
         return buffer.get()
 
+    def push_context(self):
+        """
+        Push the primary context onto the calling thread's context stack.
+        """
+        self._pycuda_context.push()
+
+    def pop_context(self):
+        """
+        Pop the primary context from the calling thread's context stack.
+        """
+        self._pycuda_context.pop()
+
     def cleanup(self):
         """
-        Clean up CUDA resources.
-
-        The primary context is intentionally not popped — it is shared with
-        OpenMM and other CUDA users and must remain current.
+        Clean up CUDA resources and pop the context pushed during __init__.
         """
-        self._pycuda_context = None
+        if self._pycuda_context is not None:
+            try:
+                self._pycuda_context.pop()
+            except Exception:
+                pass
+            self._pycuda_context = None
 
     @property
     def platform_name(self) -> str:

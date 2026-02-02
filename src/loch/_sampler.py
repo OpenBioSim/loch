@@ -751,6 +751,14 @@ class GCMCSampler:
         """Get indices of non-ghost waters (cached)."""
         return self._non_ghost_waters_cache
 
+    def push(self) -> None:
+        """Push the GPU context onto the calling thread's context stack."""
+        self._backend.push_context()
+
+    def pop(self) -> None:
+        """Pop the GPU context from the calling thread's context stack."""
+        self._backend.pop_context()
+
     @property
     def kernel_cache_hit(self) -> bool:
         """

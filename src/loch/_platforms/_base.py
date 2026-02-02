@@ -150,6 +150,23 @@ class PlatformBackend(_ABC):
         """
         pass
 
+    def push_context(self):
+        """
+        Make the GPU context current on the calling thread.
+
+        For CUDA, this pushes the primary context onto the thread-local
+        context stack. For OpenCL, this is a no-op.
+        """
+        pass
+
+    def pop_context(self):
+        """
+        Remove the GPU context from the calling thread's stack.
+
+        For CUDA, this pops the primary context. For OpenCL, this is a no-op.
+        """
+        pass
+
     @_abstractmethod
     def cleanup(self):
         """
