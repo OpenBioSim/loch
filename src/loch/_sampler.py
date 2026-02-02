@@ -751,6 +751,19 @@ class GCMCSampler:
         """Get indices of non-ghost waters (cached)."""
         return self._non_ghost_waters_cache
 
+    @property
+    def kernel_cache_hit(self) -> bool:
+        """
+        Whether kernel compilation was satisfied from cache.
+
+        Returns
+        -------
+
+        cache_hit: bool
+            True if kernels were loaded from cache, False if freshly compiled.
+        """
+        return self._backend.cache_hit
+
     def system(self) -> _Any:
         """
         Return the GCMC system.

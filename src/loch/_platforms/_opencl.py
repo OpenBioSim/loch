@@ -35,6 +35,11 @@ import pyopencl.array as _cl_array
 from .._kernels import code as _kernel_code
 from ._base import PlatformBackend as _PlatformBackend
 
+# Module-level kernel compilation cache. Stores compiled binaries keyed on
+# (device_index, num_points, num_batch, num_waters, num_atoms, compiler_optimisations).
+_kernel_cache = {}
+_cache_stats = {"hits": 0, "misses": 0}
+
 
 class OpenCLPlatform(_PlatformBackend):
     """
@@ -101,9 +106,10 @@ class OpenCLPlatform(_PlatformBackend):
                 raise ValueError("'device' must be of type 'int'")
             if device < 0 or device >= len(devices):
                 raise ValueError(f"'device' must be between 0 and {len(devices) - 1}")
-            self._device = devices[device]
+            self._device_index = device
         else:
-            self._device = devices[0]
+            self._device_index = 0
+        self._device = devices[self._device_index]
 
         # Create context and command queue
         self._context = _cl.Context([self._device])
@@ -121,62 +127,104 @@ class OpenCLPlatform(_PlatformBackend):
         """
         Compile OpenCL kernels and return callable functions.
 
+        Uses a module-level cache of compiled binaries so that backends with
+        identical template parameters skip source compilation.
+
         Returns
         -------
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        # Substitute template parameters
-        kernel_source = _kernel_code % {
-            "NUM_POINTS": self._num_points,
-            "NUM_BATCH": self._num_batch,
-            "NUM_WATERS": self._num_waters,
-            "NUM_ATOMS": self._num_atoms,
-        }
+        cache_key = (
+            self._device_index,
+            self._num_points,
+            self._num_batch,
+            self._num_waters,
+            self._num_atoms,
+            self._compiler_optimisations,
+        )
 
         # Build compiler options
         build_options = []
         if self._compiler_optimisations:
             build_options.extend(["-cl-mad-enable", "-cl-no-signed-zeros"])
 
-        # Compile program, suppressing stderr and warnings but capturing for errors.
-        stderr_capture = _io.StringIO()
-        old_stderr = _sys.stderr
-        try:
-            _sys.stderr = stderr_capture
-            with _warnings.catch_warnings():
-                _warnings.simplefilter("ignore")
-                program = _cl.Program(self._context, kernel_source).build(
-                    options=build_options
-                )
-        except _cl.RuntimeError as e:
-            stderr_output = stderr_capture.getvalue().strip()
-            error_msg = f"OpenCL kernel compilation failed: {e}"
-            if stderr_output:
-                error_msg += f"\n{stderr_output}"
-            raise RuntimeError(error_msg)
-        finally:
-            _sys.stderr = old_stderr
+        if cache_key in _kernel_cache:
+            _cache_stats["hits"] += 1
+            cached_binary = _kernel_cache[cache_key]
 
-        # Capture the compiler log (including any warnings).
-        self._compiler_log = program.get_build_info(
-            self._device, _cl.program_build_info.LOG
-        ).strip()
+            # Create program from cached binary.
+            stderr_capture = _io.StringIO()
+            old_stderr = _sys.stderr
+            try:
+                _sys.stderr = stderr_capture
+                with _warnings.catch_warnings():
+                    _warnings.simplefilter("ignore")
+                    program = _cl.Program(
+                        self._context, [self._device], [cached_binary]
+                    )
+                    program.build(options=build_options)
+            except _cl.RuntimeError as e:
+                stderr_output = stderr_capture.getvalue().strip()
+                error_msg = f"OpenCL kernel build from cached binary failed: {e}"
+                if stderr_output:
+                    error_msg += f"\n{stderr_output}"
+                raise RuntimeError(error_msg)
+            finally:
+                _sys.stderr = old_stderr
 
-        # Create kernel wrappers that match PyCUDA calling convention
+            self._compiler_log = ""
+            self._cache_hit = True
+        else:
+            _cache_stats["misses"] += 1
+
+            # Substitute template parameters
+            kernel_source = _kernel_code % {
+                "NUM_POINTS": self._num_points,
+                "NUM_BATCH": self._num_batch,
+                "NUM_WATERS": self._num_waters,
+                "NUM_ATOMS": self._num_atoms,
+            }
+
+            # Compile program from source, suppressing stderr and warnings.
+            stderr_capture = _io.StringIO()
+            old_stderr = _sys.stderr
+            try:
+                _sys.stderr = stderr_capture
+                with _warnings.catch_warnings():
+                    _warnings.simplefilter("ignore")
+                    program = _cl.Program(self._context, kernel_source).build(
+                        options=build_options
+                    )
+            except _cl.RuntimeError as e:
+                stderr_output = stderr_capture.getvalue().strip()
+                error_msg = f"OpenCL kernel compilation failed: {e}"
+                if stderr_output:
+                    error_msg += f"\n{stderr_output}"
+                raise RuntimeError(error_msg)
+            finally:
+                _sys.stderr = old_stderr
+
+            # Capture the compiler log (including any warnings).
+            self._compiler_log = program.get_build_info(
+                self._device, _cl.program_build_info.LOG
+            ).strip()
+            self._cache_hit = False
+
+            # Cache the compiled binary.
+            _kernel_cache[cache_key] = program.get_info(_cl.program_info.BINARIES)[0]
+
+        # Create kernel wrappers that match PyCUDA calling convention.
         # OpenCL kernels need (queue, global_size, local_size, *args)
-        # We'll wrap them to match CUDA's (args..., block, grid) signature
+        # We wrap them to match CUDA's (args..., block, grid) signature.
         def make_kernel_wrapper(kernel):
             def wrapper(*args, **kwargs):
-                # Extract block and grid from kwargs
                 block = kwargs.get("block", (self._num_threads, 1, 1))
                 grid = kwargs.get("grid", (1, 1, 1))
 
-                # Calculate global work size
                 global_size = tuple(b * g for b, g in zip(block, grid))
                 local_size = block
 
-                # Convert PyOpenCL array objects to their .data buffers
                 processed_args = []
                 for arg in args:
                     if isinstance(arg, _cl_array.Array):
@@ -184,13 +232,11 @@ class OpenCLPlatform(_PlatformBackend):
                     else:
                         processed_args.append(arg)
 
-                # Execute kernel
                 kernel(self._queue, global_size, local_size, *processed_args)
                 self._queue.finish()
 
             return wrapper
 
-        # Extract and wrap kernel functions
         kernels = {
             "update_water": make_kernel_wrapper(program.updateWater),
             "deletion": make_kernel_wrapper(program.findDeletionCandidates),
@@ -200,6 +246,18 @@ class OpenCLPlatform(_PlatformBackend):
         }
 
         return kernels
+
+    @staticmethod
+    def get_cache_stats():
+        """Return kernel cache statistics as a dict with 'hits' and 'misses'."""
+        return _cache_stats.copy()
+
+    @staticmethod
+    def clear_cache():
+        """Clear the kernel cache and reset statistics."""
+        _kernel_cache.clear()
+        _cache_stats["hits"] = 0
+        _cache_stats["misses"] = 0
 
     def to_gpu(self, array: _np.ndarray) -> _Any:
         """

@@ -30,10 +30,15 @@ from typing import Any as _Any, Callable as _Callable, Dict as _Dict
 import numpy as _np
 import pycuda.driver as _cuda
 import pycuda.gpuarray as _gpuarray
-from pycuda.compiler import SourceModule as _SourceModule
+from pycuda.compiler import compile as _compile
 
 from .._kernels import code as _kernel_code
 from ._base import PlatformBackend as _PlatformBackend
+
+# Module-level kernel compilation cache. Keyed on
+# (device_index, num_points, num_batch, num_waters, num_atoms, compiler_optimisations).
+_kernel_cache = {}
+_cache_stats = {"hits": 0, "misses": 0}
 
 
 class CUDAPlatform(_PlatformBackend):
@@ -99,9 +104,10 @@ class CUDAPlatform(_PlatformBackend):
                 raise ValueError(
                     f"'device' must be between 0 and {_cuda.Device.count() - 1}"
                 )
-            self._cuda_device = _cuda.Device(device)
+            self._device_index = device
         else:
-            self._cuda_device = _cuda.Device(0)
+            self._device_index = 0
+        self._cuda_device = _cuda.Device(self._device_index)
 
         # Use the primary context (shared with OpenMM and other CUDA users).
         self._pycuda_context = self._cuda_device.retain_primary_context()
@@ -122,46 +128,69 @@ class CUDAPlatform(_PlatformBackend):
         """
         Compile CUDA kernels and return callable functions.
 
+        Uses a module-level cache of compiled cubin bytes so that backends
+        with identical template parameters skip source compilation.
+
         Returns
         -------
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        # Compile kernel module with template substitution.
-        # Suppress stderr but capture it for error reporting.
-        stderr_capture = _io.StringIO()
-        old_stderr = _sys.stderr
+        cache_key = (
+            self._device_index,
+            self._num_points,
+            self._num_batch,
+            self._num_waters,
+            self._num_atoms,
+            self._compiler_optimisations,
+        )
 
-        # Build compiler options
-        options = []
-        if self._compiler_optimisations:
-            options.append("--use_fast_math")
+        if cache_key in _kernel_cache:
+            _cache_stats["hits"] += 1
+            cubin = _kernel_cache[cache_key]
+            mod = _cuda.module_from_buffer(cubin)
+            self._compiler_log = ""
+            self._cache_hit = True
+        else:
+            _cache_stats["misses"] += 1
 
-        try:
-            _sys.stderr = stderr_capture
-            mod = _SourceModule(
-                _kernel_code
-                % {
-                    "NUM_POINTS": self._num_points,
-                    "NUM_BATCH": self._num_batch,
-                    "NUM_WATERS": self._num_waters,
-                    "NUM_ATOMS": self._num_atoms,
-                },
-                no_extern_c=True,
-                nvcc=self._nvcc,
-                options=options,
-            )
-        except Exception as e:
-            stderr_output = stderr_capture.getvalue().strip()
-            error_msg = f"CUDA kernel compilation failed: {e}"
-            if stderr_output:
-                error_msg += f"\n{stderr_output}"
-            raise RuntimeError(error_msg)
-        finally:
-            _sys.stderr = old_stderr
+            # Compile kernel source with template substitution.
+            # Suppress stderr but capture it for error reporting.
+            stderr_capture = _io.StringIO()
+            old_stderr = _sys.stderr
 
-        # Store any compiler warnings.
-        self._compiler_log = stderr_capture.getvalue().strip()
+            options = []
+            if self._compiler_optimisations:
+                options.append("--use_fast_math")
+
+            source = _kernel_code % {
+                "NUM_POINTS": self._num_points,
+                "NUM_BATCH": self._num_batch,
+                "NUM_WATERS": self._num_waters,
+                "NUM_ATOMS": self._num_atoms,
+            }
+
+            try:
+                _sys.stderr = stderr_capture
+                cubin = _compile(
+                    source,
+                    no_extern_c=True,
+                    nvcc=self._nvcc,
+                    options=options,
+                )
+            except Exception as e:
+                stderr_output = stderr_capture.getvalue().strip()
+                error_msg = f"CUDA kernel compilation failed: {e}"
+                if stderr_output:
+                    error_msg += f"\n{stderr_output}"
+                raise RuntimeError(error_msg)
+            finally:
+                _sys.stderr = old_stderr
+
+            self._compiler_log = stderr_capture.getvalue().strip()
+            self._cache_hit = False
+            _kernel_cache[cache_key] = cubin
+            mod = _cuda.module_from_buffer(cubin)
 
         # Extract kernel functions
         kernels = {
@@ -173,6 +202,18 @@ class CUDAPlatform(_PlatformBackend):
         }
 
         return kernels
+
+    @staticmethod
+    def get_cache_stats():
+        """Return kernel cache statistics as a dict with 'hits' and 'misses'."""
+        return _cache_stats.copy()
+
+    @staticmethod
+    def clear_cache():
+        """Clear the kernel cache and reset statistics."""
+        _kernel_cache.clear()
+        _cache_stats["hits"] = 0
+        _cache_stats["misses"] = 0
 
     def to_gpu(self, array: _np.ndarray) -> _Any:
         """
@@ -227,14 +268,12 @@ class CUDAPlatform(_PlatformBackend):
 
     def cleanup(self):
         """
-        Clean up CUDA resources and release primary context reference.
+        Clean up CUDA resources.
+
+        The primary context is intentionally not popped — it is shared with
+        OpenMM and other CUDA users and must remain current.
         """
-        if self._pycuda_context is not None:
-            try:
-                self._pycuda_context.pop()
-            except Exception:
-                pass
-            self._pycuda_context = None
+        self._pycuda_context = None
 
     @property
     def platform_name(self) -> str:
