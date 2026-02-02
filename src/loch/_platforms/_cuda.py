@@ -23,7 +23,6 @@
 CUDA platform backend implementation.
 """
 
-import atexit as _atexit
 import io as _io
 import sys as _sys
 from typing import Any as _Any, Callable as _Callable, Dict as _Dict
@@ -42,7 +41,9 @@ class CUDAPlatform(_PlatformBackend):
     CUDA platform backend using PyCUDA.
 
     This backend wraps PyCUDA functionality to provide GPU-accelerated
-    GCMC sampling on NVIDIA GPUs.
+    GCMC sampling on NVIDIA GPUs. Uses the CUDA primary context for
+    compatibility with other CUDA libraries (e.g. OpenMM) sharing the
+    same device.
     """
 
     def __init__(
@@ -87,8 +88,6 @@ class CUDAPlatform(_PlatformBackend):
             When True, passes --use_fast_math to nvcc.
             Default: True (matches OpenMM defaults).
         """
-        from pycuda.tools import make_default_context
-
         # Initialize CUDA driver
         _cuda.init()
 
@@ -100,9 +99,13 @@ class CUDAPlatform(_PlatformBackend):
                 raise ValueError(
                     f"'device' must be between 0 and {_cuda.Device.count() - 1}"
                 )
-            self._pycuda_context = _cuda.Device(device).make_context()
+            self._cuda_device = _cuda.Device(device)
         else:
-            self._pycuda_context = make_default_context()
+            self._cuda_device = _cuda.Device(0)
+
+        # Use the primary context (shared with OpenMM and other CUDA users).
+        self._pycuda_context = self._cuda_device.retain_primary_context()
+        self._pycuda_context.push()
 
         self._device = self._pycuda_context.get_device()
 
@@ -114,9 +117,6 @@ class CUDAPlatform(_PlatformBackend):
         self._num_threads = num_threads
         self._nvcc = nvcc
         self._compiler_optimisations = compiler_optimisations
-
-        # Register cleanup
-        _atexit.register(self._cleanup_wrapper)
 
     def compile_kernels(self) -> _Dict[str, _Callable]:
         """
@@ -165,12 +165,6 @@ class CUDAPlatform(_PlatformBackend):
 
         # Extract kernel functions
         kernels = {
-            "cell": mod.get_function("setCellMatrix"),
-            "rf": mod.get_function("setReactionField"),
-            "softcore": mod.get_function("setSoftCore"),
-            "atom_properties": mod.get_function("setAtomProperties"),
-            "atom_positions": mod.get_function("setAtomPositions"),
-            "water_properties": mod.get_function("setWaterProperties"),
             "update_water": mod.get_function("updateWater"),
             "deletion": mod.get_function("findDeletionCandidates"),
             "water": mod.get_function("generateWater"),
@@ -231,38 +225,16 @@ class CUDAPlatform(_PlatformBackend):
         """
         return buffer.get()
 
-    def push_context(self):
-        """
-        Push the CUDA context onto the context stack.
-        """
-        self._pycuda_context.push()
-
-    def pop_context(self):
-        """
-        Pop the CUDA context from the context stack.
-        """
-        self._pycuda_context.pop()
-
     def cleanup(self):
         """
-        Clean up CUDA resources and detach context.
+        Clean up CUDA resources and release primary context reference.
         """
-        try:
-            self.pop_context()
-        except Exception:
-            pass
-        self._pycuda_context.detach()
-        self._pycuda_context = None
-
-    def _cleanup_wrapper(self):
-        """
-        Wrapper for cleanup to handle atexit registration.
-        """
-        try:
-            if self._pycuda_context is not None:
-                self.cleanup()
-        except Exception:
-            pass
+        if self._pycuda_context is not None:
+            try:
+                self._pycuda_context.pop()
+            except Exception:
+                pass
+            self._pycuda_context = None
 
     @property
     def platform_name(self) -> str:

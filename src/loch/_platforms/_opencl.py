@@ -192,12 +192,6 @@ class OpenCLPlatform(_PlatformBackend):
 
         # Extract and wrap kernel functions
         kernels = {
-            "cell": make_kernel_wrapper(program.setCellMatrix),
-            "rf": make_kernel_wrapper(program.setReactionField),
-            "softcore": make_kernel_wrapper(program.setSoftCore),
-            "atom_properties": make_kernel_wrapper(program.setAtomProperties),
-            "atom_positions": make_kernel_wrapper(program.setAtomPositions),
-            "water_properties": make_kernel_wrapper(program.setWaterProperties),
             "update_water": make_kernel_wrapper(program.updateWater),
             "deletion": make_kernel_wrapper(program.findDeletionCandidates),
             "water": make_kernel_wrapper(program.generateWater),
@@ -258,30 +252,10 @@ class OpenCLPlatform(_PlatformBackend):
         """
         return buffer.get()
 
-    def push_context(self):
-        """
-        Push context (no-op for OpenCL).
-
-        OpenCL doesn't use context stacking like CUDA, so this method
-        does nothing. It's provided for API compatibility.
-        """
-        pass
-
-    def pop_context(self):
-        """
-        Pop context (no-op for OpenCL).
-
-        OpenCL doesn't use context stacking like CUDA, so this method
-        does nothing. It's provided for API compatibility.
-        """
-        pass
-
     def cleanup(self):
         """
         Clean up OpenCL resources.
         """
-        # OpenCL resources are automatically released when objects are deleted
-        # No explicit cleanup needed, but we'll clear references
         self._queue = None
         self._context = None
 

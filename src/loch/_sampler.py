@@ -751,18 +751,6 @@ class GCMCSampler:
         """Get indices of non-ghost waters (cached)."""
         return self._non_ghost_waters_cache
 
-    def push(self) -> None:
-        """
-        Push the GPU context on top of the stack (CUDA only, no-op for OpenCL).
-        """
-        self._backend.push_context()
-
-    def pop(self) -> None:
-        """
-        Pop the GPU context from the stack (CUDA only, no-op for OpenCL).
-        """
-        self._backend.pop_context()
-
     def system(self) -> _Any:
         """
         Return the GCMC system.
@@ -826,14 +814,10 @@ class GCMCSampler:
             self._get_box_information(self._space)
         )
 
-        # Update the cell matrix information on the GPU.
-        self._kernels["cell"](
-            self._cell_matrix,
-            self._cell_matrix_inverse,
-            self._M,
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
+        # Store cell matrices as GPU buffers (used as kernel arguments).
+        self._gpu_cell_matrix = self._cell_matrix
+        self._gpu_cell_matrix_inverse = self._cell_matrix_inverse
+        self._gpu_M = self._M
 
     def set_bulk_sampling_probability(self, probability: float) -> None:
         """
@@ -882,19 +866,19 @@ class GCMCSampler:
             self._get_target_position(positions).astype(_np.float32)
         )
 
-        # Set the positions on the GPU.
-        self._kernels["atom_positions"](
-            self._backend.to_gpu(positions.astype(_np.float32).flatten()),
-            _np.float32(1.0),
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, 1, 1),
-        )
+        # Upload atom positions to GPU.
+        self._gpu_position = self._backend.to_gpu(_as_float32(positions).flatten())
 
         # Find the non-ghost waters within the GCMC region.
         self._kernels["deletion"](
             self._deletion_candidates,
             self._backend.to_gpu(target.astype(_np.float32)),
             _np.float32(self._radius.value()),
+            self._gpu_position,
+            self._gpu_water_idx,
+            self._gpu_water_state,
+            self._gpu_cell_matrix_inverse,
+            self._gpu_M,
             block=(self._num_threads, 1, 1),
             grid=(self._water_blocks, 1, 1),
         )
@@ -944,19 +928,19 @@ class GCMCSampler:
                 self._get_target_position(positions).astype(_np.float32)
             )
 
-            # Set the positions on the GPU.
-            self._kernels["atom_positions"](
-                self._backend.to_gpu(positions.astype(_np.float32).flatten()),
-                _np.float32(1.0),
-                block=(self._num_threads, 1, 1),
-                grid=(self._atom_blocks, 1, 1),
-            )
+            # Upload atom positions to GPU.
+            self._gpu_position = self._backend.to_gpu(_as_float32(positions).flatten())
 
             # Find the non-ghost waters within the GCMC region.
             self._kernels["deletion"](
                 self._deletion_candidates,
                 self._backend.to_gpu(target.astype(_np.float32)),
                 _np.float32(self._radius.value()),
+                self._gpu_position,
+                self._gpu_water_idx,
+                self._gpu_water_state,
+                self._gpu_cell_matrix_inverse,
+                self._gpu_M,
                 block=(self._num_threads, 1, 1),
                 grid=(self._water_blocks, 1, 1),
             )
@@ -1175,12 +1159,9 @@ class GCMCSampler:
                             _np.float32
                         )
 
-                    # Set the positions on the GPU.
-                    self._kernels["atom_positions"](
-                        self._backend.to_gpu(_as_float32(positions_angstrom).flatten()),
-                        _np.float32(1.0),
-                        block=(self._num_threads, 1, 1),
-                        grid=(self._atom_blocks, 1, 1),
+                    # Upload atom positions to GPU.
+                    self._gpu_position = self._backend.to_gpu(
+                        _as_float32(positions_angstrom).flatten()
                     )
 
                 # Work out the number of waters in the sampling volume.
@@ -1189,6 +1170,11 @@ class GCMCSampler:
                         self._deletion_candidates,
                         self._backend.to_gpu(_as_float32(target)),
                         _np.float32(self._radius.value()),
+                        self._gpu_position,
+                        self._gpu_water_idx,
+                        self._gpu_water_state,
+                        self._gpu_cell_matrix_inverse,
+                        self._gpu_M,
                         block=(self._num_threads, 1, 1),
                         grid=(self._water_blocks, 1, 1),
                     )
@@ -1287,6 +1273,7 @@ class GCMCSampler:
                 randoms_rotation,
                 randoms_position,
                 randoms_radius,
+                self._gpu_cell_matrix,
                 block=(self._num_threads, 1, 1),
                 grid=(self._batch_blocks, 1, 1),
             )
@@ -1299,6 +1286,25 @@ class GCMCSampler:
                 candidates_gpu,
                 is_deletion_gpu,
                 _np.int32(self._is_fep),
+                self._gpu_position,
+                self._gpu_charge,
+                self._gpu_sigma,
+                self._gpu_epsilon,
+                self._gpu_alpha,
+                self._gpu_is_ghost_water,
+                self._gpu_is_ghost_fep,
+                self._gpu_sigma_water,
+                self._gpu_epsilon_water,
+                self._gpu_charge_water,
+                self._gpu_water_idx,
+                self._gpu_cell_matrix_inverse,
+                self._gpu_M,
+                self._rf_cutoff,
+                self._rf_kappa,
+                self._rf_correction,
+                self._sc_coulomb_power,
+                self._sc_shift_coulomb,
+                self._sc_shift_delta,
                 block=(self._num_threads, 1, 1),
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
@@ -2017,46 +2023,44 @@ class GCMCSampler:
         # Pre-allocate zero target array for bulk sampling.
         self._zero_target_gpu = self._backend.to_gpu(_np.zeros(3, dtype=_np.float32))
 
-        # Initialise the reaction field parameters.
-        self._kernels["rf"](
-            _np.float32(self._cutoff.value()),
-            _np.float32(78.3),
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
+        # Compute reaction field parameters on host.
+        cutoff_val = self._cutoff.value()
+        self._rf_cutoff = _np.float32(cutoff_val)
+        self._rf_kappa = _np.float32(
+            (78.3 - 1.0) / ((2.0 * 78.3 + 1.0) * cutoff_val**3)
+        )
+        self._rf_correction = _np.float32(
+            1.0 / cutoff_val + float(self._rf_kappa) * cutoff_val**2
         )
 
-        # Initialise the soft-core parameters.
-        if self._is_fep:
-            self._kernels["softcore"](
-                _np.float32(self._coulomb_power),
-                _np.float32(self._shift_coulomb.value()),
-                _np.float32(self._shift_delta.value()),
-                block=(1, 1, 1),
-                grid=(1, 1, 1),
-            )
+        # Store soft-core parameters as scalars.
+        self._sc_coulomb_power = _np.float32(self._coulomb_power)
+        self._sc_shift_coulomb = _np.float32(self._shift_coulomb.value())
+        self._sc_shift_delta = _np.float32(self._shift_delta.value())
 
-        # Set the atomic properties.
-        self._kernels["atom_properties"](
-            charges,
-            sigmas,
-            epsilons,
-            alphas,
-            self._backend.to_gpu(is_ghost_water.astype(_np.int32)),
-            is_ghost_fep,
-            block=(self._num_threads, 1, 1),
-            grid=(self._atom_blocks, 1, 1),
+        # Store immutable per-atom buffers on GPU.
+        self._gpu_sigma = sigmas
+        self._gpu_epsilon = epsilons
+        self._gpu_charge = charges
+        self._gpu_alpha = alphas
+        self._gpu_is_ghost_water = self._backend.to_gpu(
+            is_ghost_water.astype(_np.int32)
+        )
+        self._gpu_is_ghost_fep = is_ghost_fep
+
+        # Store immutable water property buffers on GPU.
+        self._gpu_charge_water = charge_water
+        self._gpu_sigma_water = sigma_water
+        self._gpu_epsilon_water = epsilon_water
+        self._gpu_water_idx = self._backend.to_gpu(
+            self._water_indices.astype(_np.int32)
+        )
+        self._gpu_water_state = self._backend.to_gpu(
+            self._water_state.astype(_np.int32)
         )
 
-        # Set the water properties.
-        self._kernels["water_properties"](
-            charge_water,
-            sigma_water,
-            epsilon_water,
-            self._backend.to_gpu(self._water_indices.astype(_np.int32)),
-            self._backend.to_gpu(self._water_state.astype(_np.int32)),
-            block=(1, 1, 1),
-            grid=(1, 1, 1),
-        )
+        # Allocate mutable position buffer (will be filled before each move).
+        self._gpu_position = self._backend.empty((1, self._num_atoms * 3), _np.float32)
 
         # Initialise the memory to store the water positions.
         self._water_positions = self._backend.empty(
@@ -2162,6 +2166,14 @@ class GCMCSampler:
             _np.int32(1),
             _np.int32(1),
             self._backend.to_gpu(water_positions.flatten().astype(_np.float32)),
+            self._gpu_position,
+            self._gpu_charge,
+            self._gpu_epsilon,
+            self._gpu_is_ghost_water,
+            self._gpu_water_state,
+            self._gpu_water_idx,
+            self._gpu_charge_water,
+            self._gpu_epsilon_water,
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2223,6 +2235,14 @@ class GCMCSampler:
             self._backend.to_gpu(
                 _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
             ),
+            self._gpu_position,
+            self._gpu_charge,
+            self._gpu_epsilon,
+            self._gpu_is_ghost_water,
+            self._gpu_water_state,
+            self._gpu_water_idx,
+            self._gpu_charge_water,
+            self._gpu_epsilon_water,
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2287,6 +2307,14 @@ class GCMCSampler:
             self._backend.to_gpu(
                 _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
             ),
+            self._gpu_position,
+            self._gpu_charge,
+            self._gpu_epsilon,
+            self._gpu_is_ghost_water,
+            self._gpu_water_state,
+            self._gpu_water_idx,
+            self._gpu_charge_water,
+            self._gpu_epsilon_water,
             block=(1, 1, 1),
             grid=(1, 1, 1),
         )
@@ -2381,6 +2409,14 @@ class GCMCSampler:
                     self._backend.to_gpu(
                         _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
                     ),
+                    self._gpu_position,
+                    self._gpu_charge,
+                    self._gpu_epsilon,
+                    self._gpu_is_ghost_water,
+                    self._gpu_water_state,
+                    self._gpu_water_idx,
+                    self._gpu_charge_water,
+                    self._gpu_epsilon_water,
                     block=(1, 1, 1),
                     grid=(1, 1, 1),
                 )
@@ -2419,6 +2455,14 @@ class GCMCSampler:
                     self._backend.to_gpu(
                         _np.zeros((self._num_points, 3), dtype=_np.float32).flatten()
                     ),
+                    self._gpu_position,
+                    self._gpu_charge,
+                    self._gpu_epsilon,
+                    self._gpu_is_ghost_water,
+                    self._gpu_water_state,
+                    self._gpu_water_idx,
+                    self._gpu_charge_water,
+                    self._gpu_epsilon_water,
                     block=(1, 1, 1),
                     grid=(1, 1, 1),
                 )
