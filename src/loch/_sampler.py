@@ -1401,7 +1401,11 @@ class GCMCSampler:
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_RF)
+                            min(
+                                0.0,
+                                -self._beta_openmm
+                                * (final_energy - initial_energy - dE_RF),
+                            )
                         )
 
                         # Store the PME energy change and acceptance probability.
@@ -1482,7 +1486,11 @@ class GCMCSampler:
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
-                            -self._beta_openmm * (final_energy - initial_energy - dE_RF)
+                            min(
+                                0.0,
+                                -self._beta_openmm
+                                * (final_energy - initial_energy - dE_RF),
+                            )
                         )
 
                         # Store the PME energy change and acceptance probability.
