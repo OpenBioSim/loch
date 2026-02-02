@@ -27,6 +27,7 @@ requirements:
     - biosimspace
     - loguru
     - pycuda # [not osx]
+    - pyopencl
     - python
     - sire
 
