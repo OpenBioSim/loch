@@ -55,12 +55,11 @@ code = """
 
     // Constants.
     const float pi = 3.14159265359f;
-    const int num_points = %(NUM_POINTS)s;
-    const int num_batch = %(NUM_BATCH)s;
-    const int num_atoms = %(NUM_ATOMS)s;
-    const int num_waters = %(NUM_WATERS)s;
-    const int num_water_positions = 3 * num_points;
     const float prefactor = 332.0637090025476f;
+
+    // Maximum number of atoms per water molecule (for stack array sizing).
+    #define MAX_POINTS 5
+    #define MAX_WATER_POSITIONS (3 * MAX_POINTS)
 
     #ifndef __OPENCL_VERSION__
     extern "C"
@@ -216,6 +215,7 @@ code = """
 
         // Update a single water.
         KERNEL void updateWater(
+            int num_points,
             int idx,
             int state,
             int is_insertion,
@@ -267,6 +267,8 @@ code = """
         // Generate a random position and orientation within the GCMC sphere
         // for each trial insertion.
         KERNEL void generateWater(
+            int num_points,
+            int num_batch,
             GLOBAL float* water_template,
             GLOBAL float* target,
             float radius,
@@ -283,8 +285,10 @@ code = """
             // Make sure we are within the number of waters.
             if (tidx < num_batch)
             {
+                const int num_water_positions = 3 * num_points;
+
                 // Translate the oxygen atom to the origin.
-                float water[num_water_positions];
+                float water[MAX_WATER_POSITIONS];
                 water[0] = 0.0f;
                 water[1] = 0.0f;
                 water[2] = 0.0f;
@@ -304,7 +308,7 @@ code = """
                     randoms_rotation[tidx * 3 + 2]);
 
                 // Calculate the distance between the oxygen and the hydrogens.
-                float dh[num_points][3];
+                float dh[MAX_POINTS][3];
                 for (int i = 0; i < num_points-1; i++)
                 {
                     dh[i][0] = water[(i+1)*3] - water[0];
@@ -368,6 +372,9 @@ code = """
         // Compute the Lennard-Jones and reaction field Coulomb energy between
         // the water and the atoms.
         KERNEL void computeEnergy(
+            int num_points,
+            int num_batch,
+            int num_atoms,
             GLOBAL float* water_position,
             GLOBAL float* energy_coul,
             GLOBAL float* energy_lj,
@@ -400,6 +407,8 @@ code = """
             // Make sure we're in bounds.
             if (idx_atom < num_atoms)
             {
+                const int num_water_positions = 3 * num_points;
+
                 // Store the squared cut-off distance.
                 const float cutoff2 = rf_cutoff * rf_cutoff;
 
@@ -582,6 +591,8 @@ code = """
 
         // Calculate whether each attempt is accepted.
         KERNEL void checkAcceptance(
+            int num_batch,
+            int num_atoms,
             int N,
             float exp_B,
             float exp_minus_B,
@@ -654,6 +665,7 @@ code = """
 
         // Find candidate waters for deletion.
         KERNEL void findDeletionCandidates(
+            int num_waters,
             GLOBAL int* candidates,
             GLOBAL float* target,
             float radius,

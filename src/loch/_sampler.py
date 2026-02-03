@@ -759,19 +759,6 @@ class GCMCSampler:
         """Pop the GPU context from the calling thread's context stack."""
         self._backend.pop_context()
 
-    @property
-    def kernel_cache_hit(self) -> bool:
-        """
-        Whether kernel compilation was satisfied from cache.
-
-        Returns
-        -------
-
-        cache_hit: bool
-            True if kernels were loaded from cache, False if freshly compiled.
-        """
-        return self._backend.cache_hit
-
     def system(self) -> _Any:
         """
         Return the GCMC system.
@@ -892,6 +879,7 @@ class GCMCSampler:
 
         # Find the non-ghost waters within the GCMC region.
         self._kernels["deletion"](
+            _np.int32(self._num_waters),
             self._deletion_candidates,
             self._backend.to_gpu(target.astype(_np.float32)),
             _np.float32(self._radius.value()),
@@ -954,6 +942,7 @@ class GCMCSampler:
 
             # Find the non-ghost waters within the GCMC region.
             self._kernels["deletion"](
+                _np.int32(self._num_waters),
                 self._deletion_candidates,
                 self._backend.to_gpu(target.astype(_np.float32)),
                 _np.float32(self._radius.value()),
@@ -1188,6 +1177,7 @@ class GCMCSampler:
                 # Work out the number of waters in the sampling volume.
                 if not self._is_bulk:
                     self._kernels["deletion"](
+                        _np.int32(self._num_waters),
                         self._deletion_candidates,
                         self._backend.to_gpu(_as_float32(target)),
                         _np.float32(self._radius.value()),
@@ -1286,6 +1276,8 @@ class GCMCSampler:
 
             # Generate the random water positions and orientations.
             self._kernels["water"](
+                _np.int32(self._num_points),
+                _np.int32(self._batch_size),
                 template_positions,
                 target_gpu,
                 _np.float32(self._radius.value()),
@@ -1301,6 +1293,9 @@ class GCMCSampler:
 
             # Perform the energy calculation.
             self._kernels["energy"](
+                _np.int32(self._num_points),
+                _np.int32(self._batch_size),
+                _np.int32(self._num_atoms),
                 self._water_positions,
                 self._energy_coul,
                 self._energy_lj,
@@ -1335,6 +1330,8 @@ class GCMCSampler:
 
             # Check the acceptance for each trial state.
             self._kernels["acceptance"](
+                _np.int32(self._batch_size),
+                _np.int32(self._num_atoms),
                 _np.int32(self._N),
                 _np.float32(exp_B),
                 _np.float32(exp_minus_B),
@@ -2183,6 +2180,7 @@ class GCMCSampler:
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
+            _np.int32(self._num_points),
             _np.int32(idx_water),
             _np.int32(1),
             _np.int32(1),
@@ -2250,6 +2248,7 @@ class GCMCSampler:
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
+            _np.int32(self._num_points),
             _np.int32(idx),
             _np.int32(0),
             _np.int32(0),
@@ -2322,6 +2321,7 @@ class GCMCSampler:
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
+            _np.int32(self._num_points),
             _np.int32(idx),
             _np.int32(1),
             _np.int32(0),
@@ -2424,6 +2424,7 @@ class GCMCSampler:
 
                 # Update the state of the water on the GPU.
                 self._kernels["update_water"](
+                    _np.int32(self._num_points),
                     _np.int32(idx),
                     _np.int32(0),
                     _np.int32(0),
@@ -2470,6 +2471,7 @@ class GCMCSampler:
 
                 # Update the state of the water on the GPU.
                 self._kernels["update_water"](
+                    _np.int32(self._num_points),
                     _np.int32(idx),
                     _np.int32(1),
                     _np.int32(0),

@@ -191,18 +191,6 @@ class PlatformBackend(_ABC):
         pass
 
     @property
-    def cache_hit(self) -> bool:
-        """
-        Whether the last compile_kernels() call was a cache hit.
-
-        Returns
-        -------
-        bool
-            True if kernels were loaded from cache, False if freshly compiled.
-        """
-        return getattr(self, "_cache_hit", False)
-
-    @property
     def compiler_log(self) -> str:
         """
         Get the kernel compiler log including any warnings.
