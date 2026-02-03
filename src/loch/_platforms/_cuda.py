@@ -35,6 +35,12 @@ from pycuda.compiler import compile as _compile
 from .._kernels import code as _kernel_code
 from ._base import PlatformBackend as _PlatformBackend
 
+# Module-level kernel compilation cache. Keyed on
+# (device_index, compiler_optimisations). Since the kernel source no longer
+# depends on system-specific parameters, the same compiled binary can be
+# reused across all samplers on a given device.
+_kernel_cache = {}
+
 
 class CUDAPlatform(_PlatformBackend):
     """
@@ -123,38 +129,51 @@ class CUDAPlatform(_PlatformBackend):
         """
         Compile CUDA kernels and return callable functions.
 
+        Uses a module-level cache so that only the first sampler on a given
+        device pays the nvcc compilation cost.
+
         Returns
         -------
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        # Compile kernel source.
-        # Suppress stderr but capture it for error reporting.
-        stderr_capture = _io.StringIO()
-        old_stderr = _sys.stderr
+        cache_key = (self._device_index, self._compiler_optimisations)
 
-        options = []
-        if self._compiler_optimisations:
-            options.append("--use_fast_math")
+        if cache_key in _kernel_cache:
+            cubin = _kernel_cache[cache_key]
+            self._compiler_log = ""
+            self._cache_hit = True
+        else:
+            # Compile kernel source.
+            # Suppress stderr but capture it for error reporting.
+            stderr_capture = _io.StringIO()
+            old_stderr = _sys.stderr
 
-        try:
-            _sys.stderr = stderr_capture
-            cubin = _compile(
-                _kernel_code,
-                no_extern_c=True,
-                nvcc=self._nvcc,
-                options=options,
-            )
-        except Exception as e:
-            stderr_output = stderr_capture.getvalue().strip()
-            error_msg = f"CUDA kernel compilation failed: {e}"
-            if stderr_output:
-                error_msg += f"\n{stderr_output}"
-            raise RuntimeError(error_msg)
-        finally:
-            _sys.stderr = old_stderr
+            options = []
+            if self._compiler_optimisations:
+                options.append("--use_fast_math")
 
-        self._compiler_log = stderr_capture.getvalue().strip()
+            try:
+                _sys.stderr = stderr_capture
+                cubin = _compile(
+                    _kernel_code,
+                    no_extern_c=True,
+                    nvcc=self._nvcc,
+                    options=options,
+                )
+            except Exception as e:
+                stderr_output = stderr_capture.getvalue().strip()
+                error_msg = f"CUDA kernel compilation failed: {e}"
+                if stderr_output:
+                    error_msg += f"\n{stderr_output}"
+                raise RuntimeError(error_msg)
+            finally:
+                _sys.stderr = old_stderr
+
+            self._compiler_log = stderr_capture.getvalue().strip()
+            self._cache_hit = False
+            _kernel_cache[cache_key] = cubin
+
         mod = _cuda.module_from_buffer(cubin)
 
         # Extract kernel functions
@@ -167,6 +186,11 @@ class CUDAPlatform(_PlatformBackend):
         }
 
         return kernels
+
+    @staticmethod
+    def clear_cache():
+        """Clear the kernel compilation cache."""
+        _kernel_cache.clear()
 
     def to_gpu(self, array: _np.ndarray) -> _Any:
         """

@@ -759,6 +759,19 @@ class GCMCSampler:
         """Pop the GPU context from the calling thread's context stack."""
         self._backend.pop_context()
 
+    @property
+    def kernel_cache_hit(self) -> bool:
+        """
+        Whether kernel compilation was satisfied from cache.
+
+        Returns
+        -------
+
+        cache_hit: bool
+            True if kernels were loaded from cache, False if freshly compiled.
+        """
+        return self._backend.cache_hit
+
     def system(self) -> _Any:
         """
         Return the GCMC system.
