@@ -126,7 +126,7 @@ code = """
         }
 
         // Perform a random rotation about a unit sphere.
-        DEVICE void uniform_random_rotation(float* v, float r0, float r1, float r2)
+        DEVICE void uniform_random_rotation(float* v, int num_points, float r0, float r1, float r2)
         {
             /* Adapted from:
                 https://www.blopig.com/blog/2021/08/uniformly-sampled-3d-rotation-matrices/
@@ -167,50 +167,47 @@ code = """
 
             // Now compute M = -(H @ R), i.e. rotate all points around the x axis.
             float M[3][3];
-            M[0][0] = -(H[0][0] * R[0][0] + H[0][1] * R[1][0] + H[0][2] * R[2][0]);
-            M[0][1] = -(H[0][0] * R[0][1] + H[0][1] * R[1][1] + H[0][2] * R[2][1]);
-            M[0][2] = -(H[0][0] * R[0][2] + H[0][1] * R[1][2] + H[0][2] * R[2][2]);
-            M[1][0] = -(H[1][0] * R[0][0] + H[1][1] * R[1][0] + H[1][2] * R[2][0]);
-            M[1][1] = -(H[1][0] * R[0][1] + H[1][1] * R[1][1] + H[1][2] * R[2][1]);
-            M[1][2] = -(H[1][0] * R[0][2] + H[1][1] * R[1][2] + H[1][2] * R[2][2]);
-            M[2][0] = -(H[2][0] * R[0][0] + H[2][1] * R[1][0] + H[2][2] * R[2][0]);
-            M[2][1] = -(H[2][0] * R[0][1] + H[2][1] * R[1][1] + H[2][2] * R[2][1]);
-            M[2][2] = -(H[2][0] * R[0][2] + H[2][1] * R[1][2] + H[2][2] * R[2][2]);
+            for (int i = 0; i < 3; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    M[i][j] = -(H[i][0] * R[0][j] + H[i][1] * R[1][j] + H[i][2] * R[2][j]);
+                }
+            }
 
             // Compute the mean coordinate of the water molecule.
             float mean_coord[3];
-            mean_coord[0] = (v[0] + v[3] + v[6]) / 3.0f;
-            mean_coord[1] = (v[1] + v[4] + v[7]) / 3.0f;
-            mean_coord[2] = (v[2] + v[5] + v[8]) / 3.0f;
+            mean_coord[0] = 0.0f;
+            mean_coord[1] = 0.0f;
+            mean_coord[2] = 0.0f;
+            for (int i = 0; i < num_points; i++)
+            {
+                mean_coord[0] += v[i * 3];
+                mean_coord[1] += v[i * 3 + 1];
+                mean_coord[2] += v[i * 3 + 2];
+            }
+            mean_coord[0] /= (float)num_points;
+            mean_coord[1] /= (float)num_points;
+            mean_coord[2] /= (float)num_points;
 
             // Precompute mean_coord @ M (avoids redundant calculations).
             float mean_M[3];
-            mean_M[0] = fmaf(mean_coord[0], M[0][0], fmaf(mean_coord[1], M[1][0], mean_coord[2] * M[2][0]));
-            mean_M[1] = fmaf(mean_coord[0], M[0][1], fmaf(mean_coord[1], M[1][1], mean_coord[2] * M[2][1]));
-            mean_M[2] = fmaf(mean_coord[0], M[0][2], fmaf(mean_coord[1], M[1][2], mean_coord[2] * M[2][2]));
+            for (int j = 0; j < 3; j++)
+            {
+                mean_M[j] = fmaf(mean_coord[0], M[0][j], fmaf(mean_coord[1], M[1][j], mean_coord[2] * M[2][j]));
+            }
 
-            // Now compute ((v - mean_coord) @ M) + mean_M.
-            float x[3][3];
-            x[0][0] = v[0] - mean_coord[0];
-            x[0][1] = v[1] - mean_coord[1];
-            x[0][2] = v[2] - mean_coord[2];
-            x[1][0] = v[3] - mean_coord[0];
-            x[1][1] = v[4] - mean_coord[1];
-            x[1][2] = v[5] - mean_coord[2];
-            x[2][0] = v[6] - mean_coord[0];
-            x[2][1] = v[7] - mean_coord[1];
-            x[2][2] = v[8] - mean_coord[2];
+            // Compute ((v - mean_coord) @ M) + mean_M for each atom.
+            for (int i = 0; i < num_points; i++)
+            {
+                float dx = v[i * 3]     - mean_coord[0];
+                float dy = v[i * 3 + 1] - mean_coord[1];
+                float dz = v[i * 3 + 2] - mean_coord[2];
 
-            // Compute the rotated coordinates using fma.
-            v[0] = fmaf(x[0][0], M[0][0], fmaf(x[0][1], M[1][0], fmaf(x[0][2], M[2][0], mean_M[0])));
-            v[1] = fmaf(x[0][0], M[0][1], fmaf(x[0][1], M[1][1], fmaf(x[0][2], M[2][1], mean_M[1])));
-            v[2] = fmaf(x[0][0], M[0][2], fmaf(x[0][1], M[1][2], fmaf(x[0][2], M[2][2], mean_M[2])));
-            v[3] = fmaf(x[1][0], M[0][0], fmaf(x[1][1], M[1][0], fmaf(x[1][2], M[2][0], mean_M[0])));
-            v[4] = fmaf(x[1][0], M[0][1], fmaf(x[1][1], M[1][1], fmaf(x[1][2], M[2][1], mean_M[1])));
-            v[5] = fmaf(x[1][0], M[0][2], fmaf(x[1][1], M[1][2], fmaf(x[1][2], M[2][2], mean_M[2])));
-            v[6] = fmaf(x[2][0], M[0][0], fmaf(x[2][1], M[1][0], fmaf(x[2][2], M[2][0], mean_M[0])));
-            v[7] = fmaf(x[2][0], M[0][1], fmaf(x[2][1], M[1][1], fmaf(x[2][2], M[2][1], mean_M[1])));
-            v[8] = fmaf(x[2][0], M[0][2], fmaf(x[2][1], M[1][2], fmaf(x[2][2], M[2][2], mean_M[2])));
+                v[i * 3]     = fmaf(dx, M[0][0], fmaf(dy, M[1][0], fmaf(dz, M[2][0], mean_M[0])));
+                v[i * 3 + 1] = fmaf(dx, M[0][1], fmaf(dy, M[1][1], fmaf(dz, M[2][1], mean_M[1])));
+                v[i * 3 + 2] = fmaf(dx, M[0][2], fmaf(dy, M[1][2], fmaf(dz, M[2][2], mean_M[2])));
+            }
         }
 
         // Update a single water.
@@ -302,7 +299,7 @@ code = """
                 }
 
                 // Rotate the water randomly using pre-generated randoms.
-                uniform_random_rotation(water,
+                uniform_random_rotation(water, num_points,
                     randoms_rotation[tidx * 3],
                     randoms_rotation[tidx * 3 + 1],
                     randoms_rotation[tidx * 3 + 2]);
