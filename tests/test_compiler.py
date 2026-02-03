@@ -113,6 +113,9 @@ class TestCUDACompiler:
             nvcc=_get_nvcc(),
         )
 
+        # Clear the cache so the patched code is actually compiled.
+        CUDAPlatform.clear_cache()
+
         # Patch kernel code directly in the cuda module (not the kernels module,
         # since it's already imported as _kernel_code at module load time).
         original_code = cuda_module._kernel_code

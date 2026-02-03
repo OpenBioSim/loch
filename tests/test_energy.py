@@ -267,3 +267,180 @@ def test_platform_consistency(fixture, request):
     assert (
         relative_diff < 0.001
     ), f"Platform energies differ: CUDA={cuda_energy:.6f}, OpenCL={opencl_energy:.6f}, relative_diff={relative_diff:.6f}"
+
+
+# Reference energy values captured with seed=42 on the original kernel implementation.
+# These anchor the kernel output to exact values so that refactors (e.g. moving from
+# __device__ static arrays to buffer arguments) can be validated.
+_REFERENCE_ENERGIES = {
+    "water_box": {
+        "energy_coul": -9.45853172201302,
+        "energy_lj": 3.2191088,
+    },
+    "bpti": {
+        "energy_coul": -15.377882774621897,
+        "energy_lj": -0.58867246,
+    },
+}
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+@pytest.mark.parametrize("fixture", ["water_box", "bpti"])
+def test_energy_regression(fixture, platform, request):
+    """
+    Test that kernel energy values are unchanged for a fixed random seed.
+
+    This catches silent numerical changes introduced by kernel refactors.
+    """
+
+    # Get the fixture.
+    mols, reference = request.getfixturevalue(fixture)
+
+    # Standard lambda schedule.
+    schedule = sr.cas.LambdaSchedule.standard_morph()
+
+    # Set the lambda value.
+    lambda_value = 0.5
+
+    # Create a GCMC sampler with a fixed seed.
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        lambda_schedule=schedule,
+        lambda_value=lambda_value,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+        seed=42,
+    )
+
+    # Create a dynamics object.
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        schedule=schedule,
+        lambda_value=lambda_value,
+        coulomb_power=sampler._coulomb_power,
+        shift_coulomb=str(sampler._shift_coulomb),
+        shift_delta=str(sampler._shift_delta),
+        platform=platform,
+    )
+
+    # Loop until we get an accepted insertion move.
+    is_accepted = False
+    while not is_accepted:
+        moves = sampler.move(d.context())
+        if len(moves) > 0 and moves[0] == 0:
+            is_accepted = True
+
+    # Get the energy components.
+    energy_coul = sampler._debug["energy_coul"]
+    energy_lj = sampler._debug["energy_lj"]
+
+    # Check against reference values.
+    ref = _REFERENCE_ENERGIES[fixture]
+    assert math.isclose(
+        energy_coul, ref["energy_coul"], abs_tol=1e-4
+    ), f"Coulomb energy changed: {energy_coul!r} != {ref['energy_coul']!r}"
+    assert math.isclose(
+        energy_lj, ref["energy_lj"], abs_tol=1e-4
+    ), f"LJ energy changed: {energy_lj!r} != {ref['energy_lj']!r}"
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_cached_kernel_correctness(platform, water_box):
+    """
+    A second sampler using cached kernels must produce the same energies
+    as the first.
+    """
+
+    mols, reference = water_box
+
+    schedule = sr.cas.LambdaSchedule.standard_morph()
+
+    def _create_and_run(seed):
+        sampler = GCMCSampler(
+            mols,
+            cutoff_type="rf",
+            cutoff="10 A",
+            reference=reference,
+            lambda_schedule=schedule,
+            lambda_value=0.5,
+            log_level="debug",
+            ghost_file=None,
+            log_file=None,
+            test=True,
+            platform=platform,
+            seed=seed,
+        )
+
+        d = sampler.system().dynamics(
+            cutoff_type="rf",
+            cutoff="10 A",
+            temperature="298 K",
+            pressure=None,
+            constraint="h_bonds",
+            timestep="2 fs",
+            schedule=schedule,
+            lambda_value=0.5,
+            coulomb_power=sampler._coulomb_power,
+            shift_coulomb=str(sampler._shift_coulomb),
+            shift_delta=str(sampler._shift_delta),
+            platform=platform,
+        )
+
+        is_accepted = False
+        while not is_accepted:
+            moves = sampler.move(d.context())
+            if len(moves) > 0 and moves[0] == 0:
+                is_accepted = True
+
+        return sampler
+
+    # Clear the cache so the first sampler compiles from source.
+    if platform == "cuda":
+        from loch._platforms._cuda import CUDAPlatform
+
+        CUDAPlatform.clear_cache()
+    else:
+        from loch._platforms._opencl import OpenCLPlatform
+
+        OpenCLPlatform.clear_cache()
+
+    # First sampler compiles kernels, second uses the cache.
+    # Both use the same seed so random water positions are identical.
+    sampler1 = _create_and_run(seed=42)
+    sampler2 = _create_and_run(seed=42)
+
+    # Verify cache behaviour.
+    assert not sampler1.kernel_cache_hit, "First sampler should compile from source"
+    assert sampler2.kernel_cache_hit, "Second sampler should use cached kernels"
+
+    # Verify energy consistency.
+    energy1_coul = sampler1._debug["energy_coul"]
+    energy1_lj = sampler1._debug["energy_lj"]
+    energy2_coul = sampler2._debug["energy_coul"]
+    energy2_lj = sampler2._debug["energy_lj"]
+
+    assert math.isclose(
+        energy1_coul, energy2_coul, abs_tol=1e-4
+    ), f"Coulomb energy mismatch: {energy1_coul!r} vs {energy2_coul!r}"
+    assert math.isclose(
+        energy1_lj, energy2_lj, abs_tol=1e-4
+    ), f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"

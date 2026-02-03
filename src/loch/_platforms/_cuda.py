@@ -23,7 +23,6 @@
 CUDA platform backend implementation.
 """
 
-import atexit as _atexit
 import io as _io
 import sys as _sys
 from typing import Any as _Any, Callable as _Callable, Dict as _Dict
@@ -31,10 +30,16 @@ from typing import Any as _Any, Callable as _Callable, Dict as _Dict
 import numpy as _np
 import pycuda.driver as _cuda
 import pycuda.gpuarray as _gpuarray
-from pycuda.compiler import SourceModule as _SourceModule
+from pycuda.compiler import compile as _compile
 
 from .._kernels import code as _kernel_code
 from ._base import PlatformBackend as _PlatformBackend
+
+# Module-level kernel compilation cache. Keyed on
+# (device_index, compiler_optimisations). Since the kernel source no longer
+# depends on system-specific parameters, the same compiled binary can be
+# reused across all samplers on a given device.
+_kernel_cache = {}
 
 
 class CUDAPlatform(_PlatformBackend):
@@ -42,7 +47,9 @@ class CUDAPlatform(_PlatformBackend):
     CUDA platform backend using PyCUDA.
 
     This backend wraps PyCUDA functionality to provide GPU-accelerated
-    GCMC sampling on NVIDIA GPUs.
+    GCMC sampling on NVIDIA GPUs. Uses the CUDA primary context for
+    compatibility with other CUDA libraries (e.g. OpenMM) sharing the
+    same device.
     """
 
     def __init__(
@@ -87,8 +94,6 @@ class CUDAPlatform(_PlatformBackend):
             When True, passes --use_fast_math to nvcc.
             Default: True (matches OpenMM defaults).
         """
-        from pycuda.tools import make_default_context
-
         # Initialize CUDA driver
         _cuda.init()
 
@@ -100,9 +105,14 @@ class CUDAPlatform(_PlatformBackend):
                 raise ValueError(
                     f"'device' must be between 0 and {_cuda.Device.count() - 1}"
                 )
-            self._pycuda_context = _cuda.Device(device).make_context()
+            self._device_index = device
         else:
-            self._pycuda_context = make_default_context()
+            self._device_index = 0
+        self._cuda_device = _cuda.Device(self._device_index)
+
+        # Use the primary context (shared with OpenMM and other CUDA users).
+        self._pycuda_context = self._cuda_device.retain_primary_context()
+        self._pycuda_context.push()
 
         self._device = self._pycuda_context.get_device()
 
@@ -115,62 +125,59 @@ class CUDAPlatform(_PlatformBackend):
         self._nvcc = nvcc
         self._compiler_optimisations = compiler_optimisations
 
-        # Register cleanup
-        _atexit.register(self._cleanup_wrapper)
-
     def compile_kernels(self) -> _Dict[str, _Callable]:
         """
         Compile CUDA kernels and return callable functions.
+
+        Uses a module-level cache so that only the first sampler on a given
+        device pays the nvcc compilation cost.
 
         Returns
         -------
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        # Compile kernel module with template substitution.
-        # Suppress stderr but capture it for error reporting.
-        stderr_capture = _io.StringIO()
-        old_stderr = _sys.stderr
+        cache_key = (self._device_index, self._compiler_optimisations)
 
-        # Build compiler options
-        options = []
-        if self._compiler_optimisations:
-            options.append("--use_fast_math")
+        if cache_key in _kernel_cache:
+            cubin = _kernel_cache[cache_key]
+            self._compiler_log = ""
+            self._cache_hit = True
+        else:
+            # Compile kernel source.
+            # Suppress stderr but capture it for error reporting.
+            stderr_capture = _io.StringIO()
+            old_stderr = _sys.stderr
 
-        try:
-            _sys.stderr = stderr_capture
-            mod = _SourceModule(
-                _kernel_code
-                % {
-                    "NUM_POINTS": self._num_points,
-                    "NUM_BATCH": self._num_batch,
-                    "NUM_WATERS": self._num_waters,
-                    "NUM_ATOMS": self._num_atoms,
-                },
-                no_extern_c=True,
-                nvcc=self._nvcc,
-                options=options,
-            )
-        except Exception as e:
-            stderr_output = stderr_capture.getvalue().strip()
-            error_msg = f"CUDA kernel compilation failed: {e}"
-            if stderr_output:
-                error_msg += f"\n{stderr_output}"
-            raise RuntimeError(error_msg)
-        finally:
-            _sys.stderr = old_stderr
+            options = []
+            if self._compiler_optimisations:
+                options.append("--use_fast_math")
 
-        # Store any compiler warnings.
-        self._compiler_log = stderr_capture.getvalue().strip()
+            try:
+                _sys.stderr = stderr_capture
+                cubin = _compile(
+                    _kernel_code,
+                    no_extern_c=True,
+                    nvcc=self._nvcc,
+                    options=options,
+                )
+            except Exception as e:
+                stderr_output = stderr_capture.getvalue().strip()
+                error_msg = f"CUDA kernel compilation failed: {e}"
+                if stderr_output:
+                    error_msg += f"\n{stderr_output}"
+                raise RuntimeError(error_msg)
+            finally:
+                _sys.stderr = old_stderr
+
+            self._compiler_log = stderr_capture.getvalue().strip()
+            self._cache_hit = False
+            _kernel_cache[cache_key] = cubin
+
+        mod = _cuda.module_from_buffer(cubin)
 
         # Extract kernel functions
         kernels = {
-            "cell": mod.get_function("setCellMatrix"),
-            "rf": mod.get_function("setReactionField"),
-            "softcore": mod.get_function("setSoftCore"),
-            "atom_properties": mod.get_function("setAtomProperties"),
-            "atom_positions": mod.get_function("setAtomPositions"),
-            "water_properties": mod.get_function("setWaterProperties"),
             "update_water": mod.get_function("updateWater"),
             "deletion": mod.get_function("findDeletionCandidates"),
             "water": mod.get_function("generateWater"),
@@ -179,6 +186,11 @@ class CUDAPlatform(_PlatformBackend):
         }
 
         return kernels
+
+    @staticmethod
+    def clear_cache():
+        """Clear the kernel compilation cache."""
+        _kernel_cache.clear()
 
     def to_gpu(self, array: _np.ndarray) -> _Any:
         """
@@ -233,36 +245,26 @@ class CUDAPlatform(_PlatformBackend):
 
     def push_context(self):
         """
-        Push the CUDA context onto the context stack.
+        Push the primary context onto the calling thread's context stack.
         """
         self._pycuda_context.push()
 
     def pop_context(self):
         """
-        Pop the CUDA context from the context stack.
+        Pop the primary context from the calling thread's context stack.
         """
         self._pycuda_context.pop()
 
     def cleanup(self):
         """
-        Clean up CUDA resources and detach context.
+        Clean up CUDA resources and pop the context pushed during __init__.
         """
-        try:
-            self.pop_context()
-        except Exception:
-            pass
-        self._pycuda_context.detach()
-        self._pycuda_context = None
-
-    def _cleanup_wrapper(self):
-        """
-        Wrapper for cleanup to handle atexit registration.
-        """
-        try:
-            if self._pycuda_context is not None:
-                self.cleanup()
-        except Exception:
-            pass
+        if self._pycuda_context is not None:
+            try:
+                self._pycuda_context.pop()
+            except Exception:
+                pass
+            self._pycuda_context = None
 
     @property
     def platform_name(self) -> str:

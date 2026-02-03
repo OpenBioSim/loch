@@ -91,9 +91,8 @@ class PlatformBackend(_ABC):
         -------
         dict
             Dictionary mapping kernel names to callable kernel functions.
-            Expected keys: 'cell', 'rf', 'softcore', 'atom_properties',
-            'atom_positions', 'water_properties', 'update_water', 'deletion',
-            'water', 'energy', 'acceptance'.
+            Expected keys: 'update_water', 'deletion', 'water', 'energy',
+            'acceptance'.
         """
         pass
 
@@ -151,32 +150,29 @@ class PlatformBackend(_ABC):
         """
         pass
 
-    @_abstractmethod
     def push_context(self):
         """
-        Push GPU context onto the context stack.
+        Make the GPU context current on the calling thread.
 
-        For CUDA, this pushes the context onto the driver stack.
-        For OpenCL, this is a no-op as OpenCL doesn't use context stacking.
+        For CUDA, this pushes the primary context onto the thread-local
+        context stack. For OpenCL, this is a no-op.
         """
         pass
 
-    @_abstractmethod
     def pop_context(self):
         """
-        Pop GPU context from the context stack.
+        Remove the GPU context from the calling thread's stack.
 
-        For CUDA, this pops the context from the driver stack.
-        For OpenCL, this is a no-op as OpenCL doesn't use context stacking.
+        For CUDA, this pops the primary context. For OpenCL, this is a no-op.
         """
         pass
 
     @_abstractmethod
     def cleanup(self):
         """
-        Clean up GPU resources and detach context.
+        Clean up GPU resources and release context.
 
-        This method should release all GPU memory and detach the context.
+        This method should release all GPU memory and context references.
         It is called during shutdown to ensure proper resource cleanup.
         """
         pass
@@ -193,6 +189,18 @@ class PlatformBackend(_ABC):
             Platform name ('cuda' or 'opencl').
         """
         pass
+
+    @property
+    def cache_hit(self) -> bool:
+        """
+        Whether the last compile_kernels() call was a cache hit.
+
+        Returns
+        -------
+        bool
+            True if kernels were loaded from cache, False if freshly compiled.
+        """
+        return getattr(self, "_cache_hit", False)
 
     @property
     def compiler_log(self) -> str:
