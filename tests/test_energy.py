@@ -429,8 +429,8 @@ def test_cached_kernel_correctness(platform, water_box):
     sampler2 = _create_and_run(seed=42)
 
     # Verify cache behaviour.
-    assert not sampler1.kernel_cache_hit, "First sampler should compile from source"
-    assert sampler2.kernel_cache_hit, "Second sampler should use cached kernels"
+    assert not sampler1._kernel_cache_hit, "First sampler should compile from source"
+    assert sampler2._kernel_cache_hit, "Second sampler should use cached kernels"
 
     # Verify energy consistency.
     energy1_coul = sampler1._debug["energy_coul"]
