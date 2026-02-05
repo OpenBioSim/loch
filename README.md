@@ -19,31 +19,57 @@ and [PyOpenCL](https://documen.tician.de/pyopencl/).
 
 ## Installation
 
-First, create a conda environment with the required dependencies:
+### Conda package
+
+Install `loch` directly from the `openbiosim` channel:
 
 ```
-conda env create -f environment.yaml
-conda activate loch
-```
-
-Next, clone the repository and install the package:
-
-```
-git clone https://github.com/openbiosim/loch
-cd loch
-pip install -e .
-```
-
-Alternatively, to install `loch` into an existing conda environment:
-
-```
-conda install -c conda-forge openbiosim loch
+conda install -c conda-forge -c openbiosim loch
 ```
 
 Or, for the development version:
 
 ```
 conda install -c conda-forge -c openbiosim/label/dev loch
+```
+
+### Installing from source (standalone)
+
+To install from source using [pixi](https://pixi.sh), which will
+automatically create an environment with all required dependencies
+(including pre-built [Sire](https://github.com/OpenBioSim/sire) and
+[BioSimSpace](https://github.com/OpenBioSim/biosimspace)):
+
+```
+git clone https://github.com/openbiosim/loch
+cd loch
+pixi install
+pixi shell
+pip install -e .
+```
+
+### Installing from source (full OpenBioSim development)
+
+If you are developing across the full OpenBioSim stack, first install
+[Sire](https://github.com/OpenBioSim/sire) from source by following the
+instructions [here](https://github.com/OpenBioSim/sire#installation), then
+activate its pixi environment:
+
+```
+pixi shell --manifest-path /path/to/sire/pixi.toml -e dev
+```
+
+You may also need to install other packages from source, e.g.
+[BioSimSpace](https://github.com/OpenBioSim/biosimspace):
+
+```
+pip install -e /path/to/biosimspace/python
+```
+
+Then install `loch` into the environment:
+
+```
+pip install -e .
 ```
 
 ## How does it work?

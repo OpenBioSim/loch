@@ -1,0 +1,41 @@
+context:
+  name: loch
+
+package:
+  name: ${{ name }}
+  version: ${{ env.get('GIT_DESCRIBE_TAG', default='PR') }}
+
+source:
+  path: ../../loch-source.tar.gz
+
+build:
+  number: ${{ env.get('GIT_DESCRIBE_NUMBER', default='0') }}
+  script: python -m pip install . --no-deps --ignore-installed -vv
+
+requirements:
+  host:
+    - pip
+    - python
+    - setuptools
+    - versioningit
+  run:
+    - biosimspace
+    - loguru
+    - numpy <2.3  # Remove when nglview >=4.1 is released
+    - pyopencl
+    - python
+    - if: not osx
+      then:
+        - pycuda
+
+about:
+  homepage: https://github.com/openbiosim/loch
+  license: GPL-3.0-or-later
+  license_file: LICENSE
+  summary: "CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code."
+  repository: https://github.com/openbiosim/loch
+  documentation: https://github.com/openbiosim/loch
+
+extra:
+  recipe-maintainers:
+    - lohedges
