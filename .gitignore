@@ -37,3 +37,6 @@ output.yaml
 
 # Conda recipe (it is auto-generated)
 recipes/loch/meta.yaml
+
+# Auto-generated version file.
+src/loch/_version.py
