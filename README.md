@@ -63,7 +63,7 @@ You may also need to install other packages from source, e.g.
 [BioSimSpace](https://github.com/OpenBioSim/biosimspace):
 
 ```
-pip install -e /path/to/biosimspace/python
+pip install -e /path/to/biosimspace
 ```
 
 Then install `loch` into the environment:
@@ -97,7 +97,7 @@ import sire as sr
 mols = sr.load_test_files("bpti.prm7", "bpti.rst7")
 ```
 
-2) Create a `GCMCSampler`:
+1) Create a `GCMCSampler`:
 
 ```python
 from loch import GCMCSampler
@@ -131,7 +131,7 @@ The GPU platform is controlled via the `platform` argument, which can be set to
 attempt to use the CUDA platform first, falling back to OpenCL if CUDA is not
 available.
 
-3) Get the GCMC system:
+1) Get the GCMC system:
 
 In order to perform a simulation we need to get back the GCMC system, which
 contains an additional `num_ghost_waters` number of ghost water molecules
@@ -141,7 +141,7 @@ that are used for insertion moves.
 gcmc_system = sampler.system()
 ```
 
-4) Create an OpenMM context:
+1) Create an OpenMM context:
 
 We can directly use the Sire dynamics interface to create an OpenMM context
 for us, e.g.:
@@ -177,7 +177,7 @@ a crash:
 sampler.bind_dynamics(d)
 ```
 
-5) Run dynamics with GCMC sampling:
+1) Run dynamics with GCMC sampling:
 
 ```python
 # Set the cycle frequency for saving ghost residue indices.
