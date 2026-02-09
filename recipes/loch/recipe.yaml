@@ -21,7 +21,6 @@ requirements:
   run:
     - biosimspace
     - loguru
-    - numpy <2.3  # Remove when nglview >=4.1 is released
     - pyopencl
     - python
     - if: not osx
