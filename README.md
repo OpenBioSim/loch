@@ -72,6 +72,24 @@ Then install `loch` into the environment:
 pip install -e .
 ```
 
+## Development
+
+Pre-commit hooks are used to ensure consistent code formatting and linting.
+To set up pre-commit in your development environment:
+
+```
+pixi shell -e dev
+pre-commit install
+```
+
+This will run [ruff](https://docs.astral.sh/ruff/) formatting and linting
+checks automatically on each commit. To run the checks manually against all
+files:
+
+```
+pre-commit run --all-files
+```
+
 ## How does it work?
 
 Instead of computing the energy change for each trial insertion/deletion with
