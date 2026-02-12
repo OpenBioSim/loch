@@ -1,0 +1,28 @@
+[workspace]
+name = "loch"
+channels = ["conda-forge", "openbiosim/label/dev"]
+# No Windows - pycuda/pyopencl only available on linux-64
+platforms = ["linux-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.10"
+biosimspace = "*"
+loguru = "*"
+pyopencl = "*"
+
+[target.linux-64.dependencies]
+pycuda = "*"
+
+[feature.test.dependencies]
+pytest = "*"
+black = "*"
+
+[feature.lint.dependencies]
+pre-commit = "*"
+rattler-build = "*"
+ruff = "*"
+
+[environments]
+default = []
+test = ["test"]
+dev = ["test", "lint"]
