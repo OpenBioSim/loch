@@ -31,7 +31,7 @@ about:
   homepage: https://github.com/openbiosim/loch
   license: GPL-3.0-or-later
   license_file: LICENSE
-  summary: "CUDA accelerated Grand Canonical Monte Carlo (GCMC) water sampling code."
+  summary: "GPU accelerated Grand Canonical Monte Carlo (GCMC) water sampling code."
   repository: https://github.com/openbiosim/loch
   documentation: https://github.com/openbiosim/loch
 
