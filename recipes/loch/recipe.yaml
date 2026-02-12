@@ -23,9 +23,18 @@ requirements:
     - loguru
     - pyopencl
     - python
+    - if: linux
+      then:
+        - ocl-id
+        - ocl-id-system
     - if: not osx
       then:
         - pycuda
+      else:
+        - ocl_icd_wrapper_apple
+    - if: osx or win
+      then:
+        - khronos-opencl-icd-loader
 
 about:
   homepage: https://github.com/openbiosim/loch
