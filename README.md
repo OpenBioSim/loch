@@ -48,6 +48,18 @@ pixi shell
 pip install -e .
 ```
 
+> [!Note]
+> Pixi does not run conda post-link scripts, so the `ocl-icd-system`
+> symlink needed for OpenCL won't be created automatically. Add the
+> following to your `pixi.sh` activation script to fix this:
+>
+> ```bash
+> # Create OpenCL ICD symlink (pixi doesn't run post-link scripts)
+> if [ -d /etc/OpenCL/vendors ] && [ ! -e "${CONDA_PREFIX}/etc/OpenCL/vendors/ocl-icd-system" ]; then
+>     ln -s /etc/OpenCL/vendors "${CONDA_PREFIX}/etc/OpenCL/vendors/ocl-icd-system" 2>/dev/null || true
+> fi
+> ```
+
 ### Installing from source (full OpenBioSim development)
 
 If you are developing across the full OpenBioSim stack, first install
