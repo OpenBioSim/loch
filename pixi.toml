@@ -11,20 +11,12 @@ pyopencl = "*"
 
 [target.linux-64.dependencies]
 pycuda = "*"
-ocl-icd = "*"
-ocl-icd-system = "*"
 
-[target.osx-arm64.dependencies]
-khronos-opencl-icd-loader = "*"
-ocl_cd_wrapper_apple = "*"
-
-[target.windows-64.dependencies]
+[target.win-64.dependencies]
 pycuda = "*"
-khronos-opencl-icd-loader = "*"
 
 [feature.test.dependencies]
 pytest = "*"
-black = "*"
 
 [feature.lint.dependencies]
 pre-commit = "*"
