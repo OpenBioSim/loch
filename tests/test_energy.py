@@ -264,9 +264,9 @@ def test_platform_consistency(fixture, request):
     relative_diff = abs(cuda_energy - opencl_energy) / max(
         abs(cuda_energy), abs(opencl_energy), 1.0
     )
-    assert (
-        relative_diff < 0.001
-    ), f"Platform energies differ: CUDA={cuda_energy:.6f}, OpenCL={opencl_energy:.6f}, relative_diff={relative_diff:.6f}"
+    assert relative_diff < 0.001, (
+        f"Platform energies differ: CUDA={cuda_energy:.6f}, OpenCL={opencl_energy:.6f}, relative_diff={relative_diff:.6f}"
+    )
 
 
 # Reference energy values captured with seed=42 on the original kernel implementation.
@@ -351,12 +351,12 @@ def test_energy_regression(fixture, platform, request):
 
     # Check against reference values.
     ref = _REFERENCE_ENERGIES[fixture]
-    assert math.isclose(
-        energy_coul, ref["energy_coul"], abs_tol=1e-4
-    ), f"Coulomb energy changed: {energy_coul!r} != {ref['energy_coul']!r}"
-    assert math.isclose(
-        energy_lj, ref["energy_lj"], abs_tol=1e-4
-    ), f"LJ energy changed: {energy_lj!r} != {ref['energy_lj']!r}"
+    assert math.isclose(energy_coul, ref["energy_coul"], abs_tol=1e-4), (
+        f"Coulomb energy changed: {energy_coul!r} != {ref['energy_coul']!r}"
+    )
+    assert math.isclose(energy_lj, ref["energy_lj"], abs_tol=1e-4), (
+        f"LJ energy changed: {energy_lj!r} != {ref['energy_lj']!r}"
+    )
 
 
 @pytest.mark.skipif(
@@ -438,9 +438,9 @@ def test_cached_kernel_correctness(platform, water_box):
     energy2_coul = sampler2._debug["energy_coul"]
     energy2_lj = sampler2._debug["energy_lj"]
 
-    assert math.isclose(
-        energy1_coul, energy2_coul, abs_tol=1e-4
-    ), f"Coulomb energy mismatch: {energy1_coul!r} vs {energy2_coul!r}"
-    assert math.isclose(
-        energy1_lj, energy2_lj, abs_tol=1e-4
-    ), f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"
+    assert math.isclose(energy1_coul, energy2_coul, abs_tol=1e-4), (
+        f"Coulomb energy mismatch: {energy1_coul!r} vs {energy2_coul!r}"
+    )
+    assert math.isclose(energy1_lj, energy2_lj, abs_tol=1e-4), (
+        f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"
+    )

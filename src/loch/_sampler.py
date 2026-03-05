@@ -1946,7 +1946,7 @@ class GCMCSampler:
                 charges[i] = q
                 # Rescale and convert units.
                 sigmas[i] = _sr.u(f"{2.0 * half_sigma} nm").to("angstrom")
-                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon)**2} kJ/mol").to(
+                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon) ** 2} kJ/mol").to(
                     "kcal/mol"
                 )
                 # Store the softening parameter.
