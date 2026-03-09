@@ -1626,8 +1626,8 @@ class GCMCSampler:
         parameter: str
             The name of the parameter.
 
-        value: str
-            The value to validate.
+        value: str, sire.units.GeneralUnit
+            The value or GeneralUnit to validate.
 
         unit: str
             The unit to validate.
@@ -1639,8 +1639,10 @@ class GCMCSampler:
             The validated unit.
         """
 
-        if not isinstance(value, str):
-            raise ValueError(f"'{parameter}' must be of type 'str'")
+        if not isinstance(value, (str, _sr.units.GeneralUnit)):
+            raise ValueError(
+                f"'{parameter}' must be of type 'str' or 'sire.units.GeneralUnit'"
+            )
 
         try:
             u = _sr.u(value)
