@@ -55,6 +55,7 @@ class PlatformBackend(_ABC):
 
         Parameters
         ----------
+
         device : int
             The GPU device index to use.
 
@@ -89,6 +90,7 @@ class PlatformBackend(_ABC):
 
         Returns
         -------
+
         dict
             Dictionary mapping kernel names to callable kernel functions.
             Expected keys: 'update_water', 'deletion', 'water', 'energy',
@@ -103,11 +105,13 @@ class PlatformBackend(_ABC):
 
         Parameters
         ----------
+
         array : numpy.ndarray
             Array to transfer to GPU.
 
         Returns
         -------
+
         GPU buffer
             Platform-specific GPU buffer object.
         """
@@ -120,6 +124,7 @@ class PlatformBackend(_ABC):
 
         Parameters
         ----------
+
         shape : tuple
             Shape of the array to allocate.
 
@@ -128,6 +133,7 @@ class PlatformBackend(_ABC):
 
         Returns
         -------
+
         GPU buffer
             Platform-specific GPU buffer object.
         """
@@ -140,11 +146,13 @@ class PlatformBackend(_ABC):
 
         Parameters
         ----------
+
         buffer : GPU buffer
             Platform-specific GPU buffer to transfer from.
 
         Returns
         -------
+
         numpy.ndarray
             Array containing the data from GPU.
         """
@@ -185,6 +193,7 @@ class PlatformBackend(_ABC):
 
         Returns
         -------
+
         str
             Platform name ('cuda' or 'opencl').
         """
@@ -197,6 +206,7 @@ class PlatformBackend(_ABC):
 
         Returns
         -------
+
         bool
             True if kernels were loaded from cache, False if freshly compiled.
         """
@@ -209,6 +219,7 @@ class PlatformBackend(_ABC):
 
         Returns
         -------
+
         str
             Compiler log output, or empty string if no warnings/messages.
         """

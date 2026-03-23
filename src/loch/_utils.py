@@ -239,19 +239,19 @@ def standard_volume(
     system: sire.system.System
         The bulk water system.
 
-    temperature : str, optional
+    temperature: str, optional
         Temperature of the system (default is "298 K").
 
-    pressure : str, optional
+    pressure: str, optional
         Pressure of the system (default is "1 bar").
 
-    cutoff : str, optional
+    cutoff: str, optional
         Non-bonded interaction cutoff distance (default is "10 A").
 
-    num_samples : int, optional
+    num_samples: int, optional
         Number of volume samples to collect (default is 5000).
 
-    sample_interval : str, optional
+    sample_interval: str, optional
         Interval at which to sample the volume (default is "1 ps").
 
     Returns

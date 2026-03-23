@@ -64,6 +64,7 @@ class OpenCLPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         device : int
             The OpenCL device index to use.
 
@@ -131,6 +132,7 @@ class OpenCLPlatform(_PlatformBackend):
 
         Returns
         -------
+
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
@@ -240,11 +242,13 @@ class OpenCLPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         array : numpy.ndarray
             Array to transfer to GPU.
 
         Returns
         -------
+
         pyopencl.array.Array
             GPU array containing the data.
         """
@@ -256,6 +260,7 @@ class OpenCLPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         shape : tuple
             Shape of the array to allocate.
 
@@ -264,6 +269,7 @@ class OpenCLPlatform(_PlatformBackend):
 
         Returns
         -------
+
         pyopencl.array.Array
             Allocated GPU array.
         """
@@ -275,11 +281,13 @@ class OpenCLPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         buffer : pyopencl.array.Array
             GPU array to transfer from.
 
         Returns
         -------
+
         numpy.ndarray
             Array containing the data from GPU.
         """
@@ -299,6 +307,7 @@ class OpenCLPlatform(_PlatformBackend):
 
         Returns
         -------
+
         str
             Platform name ('opencl').
         """

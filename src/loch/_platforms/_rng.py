@@ -38,12 +38,16 @@ class BatchRandoms:
 
     Attributes
     ----------
+
     rotation : numpy.ndarray
         Shape (batch_size, 3) array of uniform [0,1) randoms for water rotation.
+
     position : numpy.ndarray
         Shape (batch_size, 3) array of normal randoms for position direction.
+
     radius : numpy.ndarray
         Shape (batch_size,) array of uniform [0,1) randoms for radial distance.
+
     acceptance : numpy.ndarray
         Shape (batch_size,) array of uniform [0,1) randoms for Metropolis acceptance.
     """
@@ -75,6 +79,7 @@ class RNGManager:
 
         Parameters
         ----------
+
         batch_size : int
             Number of parallel trials in a batch.
 
@@ -117,6 +122,7 @@ class RNGManager:
 
         Returns
         -------
+
         BatchRandoms
             Container with rotation, position, radius, and acceptance arrays.
         """

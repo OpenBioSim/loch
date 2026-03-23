@@ -68,6 +68,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         device : int
             The CUDA device index to use.
 
@@ -134,6 +135,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
@@ -198,11 +200,13 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         array : numpy.ndarray
             Array to transfer to GPU.
 
         Returns
         -------
+
         pycuda.gpuarray.GPUArray
             GPU array containing the data.
         """
@@ -214,6 +218,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         shape : tuple
             Shape of the array to allocate.
 
@@ -222,6 +227,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         pycuda.gpuarray.GPUArray
             Allocated GPU array.
         """
@@ -233,11 +239,13 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         buffer : pycuda.gpuarray.GPUArray
             GPU array to transfer from.
 
         Returns
         -------
+
         numpy.ndarray
             Array containing the data from GPU.
         """
@@ -273,6 +281,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         str
             Platform name ('cuda').
         """
