@@ -114,6 +114,7 @@ class CUDAPlatform(_PlatformBackend):
         # Use the primary context (shared with OpenMM and other CUDA users).
         self._pycuda_context = self._cuda_device.retain_primary_context()
         self._pycuda_context.push()
+        self._push_count = 1
 
         self._device = self._pycuda_context.get_device()
 
@@ -256,22 +257,26 @@ class CUDAPlatform(_PlatformBackend):
         Push the primary context onto the calling thread's context stack.
         """
         self._pycuda_context.push()
+        self._push_count += 1
 
     def pop_context(self):
         """
         Pop the primary context from the calling thread's context stack.
         """
         self._pycuda_context.pop()
+        self._push_count -= 1
 
     def cleanup(self):
         """
-        Clean up CUDA resources and pop the context pushed during __init__.
+        Clean up CUDA resources and pop all outstanding context pushes.
         """
         if self._pycuda_context is not None:
-            try:
-                self._pycuda_context.pop()
-            except Exception:
-                pass
+            for _ in range(self._push_count):
+                try:
+                    self._pycuda_context.pop()
+                except Exception:
+                    pass
+            self._push_count = 0
             self._pycuda_context = None
 
     @property
