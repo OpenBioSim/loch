@@ -394,9 +394,11 @@ code = """
             float rf_cutoff,
             float rf_kappa,
             float rf_correction,
+            int softcore_form,
             float sc_coulomb_power,
             float sc_shift_coulomb,
-            float sc_shift_delta)
+            float sc_shift_delta,
+            int sc_taylor_power)
         {
             // Work out the atom index.
             const int idx_atom = GET_GLOBAL_ID(0);
@@ -538,7 +540,7 @@ code = """
                                 energy_coul[idx] += (q0 * q1) * (r_inv + (rf_kappa * r2) - rf_correction);
                             }
 
-                            // Zacharias soft-core potential.
+                            // Soft-core potential for ghost atoms.
                             else
                             {
                                 // Store required parameters.
@@ -558,10 +560,27 @@ code = """
                                     r = 0.001f;
                                 }
 
-                                // Compute the Lennard-Jones interaction.
-                                const float delta_lj = sc_shift_delta * a;
-                                const float s6 = powf(s, 6.0f) / powf((s * delta_lj) + (r * r), 3.0f);
-                                energy_lj[idx] += 4.0f * e * s6 * (s6 - 1.0f);
+                                // Compute the LJ interaction using the chosen soft-core form.
+                                float sig6;
+                                if (softcore_form == 1)
+                                {
+                                    // Taylor soft-core LJ:
+                                    //   sig6 = sigma^6 / (alpha^m * sigma^6 + r^6)
+                                    const float s6_val = powf(s, 6.0f);
+                                    const float r6 = r * r * r * r * r * r;
+                                    const float alpha_m = (sc_taylor_power == 1)
+                                        ? a : powf(a, (float)sc_taylor_power);
+                                    sig6 = s6_val / (alpha_m * s6_val + r6);
+                                }
+                                else
+                                {
+                                    // Zacharias soft-core LJ:
+                                    //   sig6 = sigma^6 / (sigma*delta + r^2)^3
+                                    //   delta = shift_delta * alpha
+                                    const float delta_lj = sc_shift_delta * a;
+                                    sig6 = powf(s, 6.0f) / powf((s * delta_lj) + (r * r), 3.0f);
+                                }
+                                energy_lj[idx] += 4.0f * e * sig6 * (sig6 - 1.0f);
 
                                 // Compute the Coulomb power expression.
                                 float cpe;

@@ -37,6 +37,7 @@ import sire as _sr
 
 from ._platforms import create_backend as _create_backend
 from ._platforms._rng import RNGManager as _RNGManager
+from ._softcore import SoftcoreForm as _SoftcoreForm
 
 
 def _as_float32(arr: _np.ndarray) -> _np.ndarray:
@@ -81,6 +82,8 @@ class GCMCSampler:
         coulomb_power: float = 0.0,
         shift_coulomb: str = "1 A",
         shift_delta: str = "1.5 A",
+        softcore_form: str = "zacharias",
+        taylor_power: int = 1,
         swap_end_states: bool = False,
         restart: bool = False,
         overwrite: bool = False,
@@ -206,6 +209,17 @@ class GCMCSampler:
         shift_delta : str
             The soft-core shift-delta parameter. This is used to soften the
             Lennard-Jones interaction.
+
+        softcore_form : str
+            The soft-core potential form to use for alchemical interactions.
+            This can be either 'zacharias' or 'taylor'. The default is
+            'zacharias'.
+
+        taylor_power : int
+            The power to use for the alpha term in the Taylor soft-core LJ
+            expression, i.e. sig6 = sigma^6 / (alpha^m * sigma^6 + r^6).
+            Must be between 0 and 4. The default is 1. Only used when
+            softcore_form is 'taylor'.
 
         swap_end_states: bool
             Whether to swap the end states of the alchemical systems.
@@ -494,6 +508,26 @@ class GCMCSampler:
             )
         except Exception as e:
             raise ValueError(f"Could not validate the 'shift_delta': {e}")
+
+        if not isinstance(softcore_form, str):
+            raise TypeError("'softcore_form' must be of type 'str'")
+        softcore_form = softcore_form.lower().replace(" ", "")
+        _valid_softcore_forms = {m.name.lower(): m for m in _SoftcoreForm}
+        if softcore_form not in _valid_softcore_forms:
+            raise ValueError(
+                f"'softcore_form' not recognised. Valid forms are: "
+                f"{', '.join(_valid_softcore_forms)}"
+            )
+        self._softcore_form = _valid_softcore_forms[softcore_form]
+
+        if not isinstance(taylor_power, int):
+            try:
+                taylor_power = int(taylor_power)
+            except Exception:
+                raise ValueError("'taylor_power' must be of type 'int'")
+        if not 0 <= taylor_power <= 4:
+            raise ValueError("'taylor_power' must be between 0 and 4")
+        self._taylor_power = taylor_power
 
         if not isinstance(swap_end_states, bool):
             raise ValueError("'swap_end_states' must be of type 'bool'")
@@ -1323,9 +1357,11 @@ class GCMCSampler:
                 self._rf_cutoff,
                 self._rf_kappa,
                 self._rf_correction,
+                self._sc_softcore_form,
                 self._sc_coulomb_power,
                 self._sc_shift_coulomb,
                 self._sc_shift_delta,
+                self._sc_taylor_power,
                 block=(self._num_threads, 1, 1),
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
@@ -1902,6 +1938,12 @@ class GCMCSampler:
             # Link to the reference state.
             mols = _sr.morph.link_to_reference(self._system)
 
+            # Build map of extra options for the dynamics object.
+            _map = {}
+            if self._softcore_form == _SoftcoreForm.TAYLOR:
+                _map["use_taylor_softening"] = True
+                _map["taylor_power"] = self._taylor_power
+
             # Create a dynamics object.
             d = mols.dynamics(
                 cutoff_type=self._cutoff,
@@ -1916,6 +1958,7 @@ class GCMCSampler:
                 rest2_selection=self._rest2_selection,
                 swap_end_states=self._swap_end_states,
                 platform="cpu",
+                map=_map,
             )
 
             # Flags for the required force.
@@ -2059,9 +2102,11 @@ class GCMCSampler:
         )
 
         # Store soft-core parameters as scalars.
+        self._sc_softcore_form = _np.int32(int(self._softcore_form))
         self._sc_coulomb_power = _np.float32(self._coulomb_power)
         self._sc_shift_coulomb = _np.float32(self._shift_coulomb.value())
         self._sc_shift_delta = _np.float32(self._shift_delta.value())
+        self._sc_taylor_power = _np.int32(self._taylor_power)
 
         # Store immutable per-atom buffers on GPU.
         self._gpu_sigma = sigmas
