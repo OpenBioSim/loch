@@ -5,7 +5,7 @@ import pytest
 
 import sire as sr
 
-from loch import GCMCSampler
+from loch import GCMCSampler, SoftcoreForm
 
 
 @pytest.mark.skipif(
@@ -13,8 +13,16 @@ from loch import GCMCSampler
     reason="Requires CUDA enabled GPU.",
 )
 @pytest.mark.parametrize("platform", ["cuda", "opencl"])
-@pytest.mark.parametrize("fixture", ["water_box", "bpti", "sd12"])
-def test_energy(fixture, platform, request):
+@pytest.mark.parametrize(
+    "fixture,softcore_form",
+    [
+        ("water_box", "zacharias"),
+        ("bpti", "zacharias"),
+        ("sd12", "zacharias"),
+        ("sd12", "taylor"),
+    ],
+)
+def test_energy(fixture, softcore_form, platform, request):
     """
     Test that the RF energy difference agrees with OpenMM.
     """
@@ -36,12 +44,18 @@ def test_energy(fixture, platform, request):
         reference=reference,
         lambda_schedule=schedule,
         lambda_value=lambda_value,
+        softcore_form=softcore_form,
         log_level="debug",
         ghost_file=None,
         log_file=None,
         test=True,
         platform=platform,
     )
+
+    # Build map of extra options for the dynamics object.
+    dyn_map = {}
+    if sampler._softcore_form == SoftcoreForm.TAYLOR:
+        dyn_map["use_taylor_softening"] = True
 
     # Create a dynamics object using the modified GCMC system.
     d = sampler.system().dynamics(
@@ -57,6 +71,7 @@ def test_energy(fixture, platform, request):
         shift_coulomb=str(sampler._shift_coulomb),
         shift_delta=str(sampler._shift_delta),
         platform=platform,
+        map=dyn_map,
     )
 
     # Loop until we accept an insertion move.
