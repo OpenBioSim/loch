@@ -568,8 +568,9 @@ code = """
                                     //   sig6 = sigma^6 / (alpha^m * sigma^6 + r^6)
                                     const float s6_val = powf(s, 6.0f);
                                     const float r6 = r * r * r * r * r * r;
-                                    const float alpha_m = (sc_taylor_power == 1)
-                                        ? a : powf(a, (float)sc_taylor_power);
+                                    const float alpha_m = (sc_taylor_power == 1) ? a
+                                        : (sc_taylor_power == 0) ? 1.0f
+                                        : powf(a, (float)sc_taylor_power);
                                     sig6 = s6_val / (alpha_m * s6_val + r6);
                                 }
                                 else
