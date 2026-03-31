@@ -1041,7 +1041,8 @@ class GCMCSampler:
 
     def move_acceptance_probability(self) -> float:
         """
-        Return the acceptance probability.
+        Return the acceptance probability. Note that this can be greater than
+        1, since multiple insertions/deletions can be accepter per move.
 
         Returns
         -------
