@@ -1102,6 +1102,44 @@ class GCMCSampler:
         self._num_accepted_insertions = 0
         self._num_accepted_deletions = 0
 
+    def restore_stats(self, stats: dict) -> None:
+        """
+        Restore sampler statistics from a dictionary.
+
+        Parameters
+        ----------
+
+        stats : dict
+            Dictionary of sampler statistics as returned by ``get_stats()``.
+        """
+        self._num_moves = stats["num_moves"]
+        self._num_accepted = stats["num_accepted"]
+        self._num_insertions = stats["num_insertions"]
+        self._num_deletions = stats["num_deletions"]
+        self._num_accepted_attempts = stats["num_accepted_attempts"]
+        self._num_accepted_insertions = stats["num_accepted_insertions"]
+        self._num_accepted_deletions = stats["num_accepted_deletions"]
+
+    def get_stats(self) -> dict:
+        """
+        Return the current sampler statistics as a dictionary.
+
+        Returns
+        -------
+
+        dict
+            Dictionary of sampler statistics.
+        """
+        return {
+            "num_moves": self._num_moves,
+            "num_accepted": self._num_accepted,
+            "num_insertions": self._num_insertions,
+            "num_deletions": self._num_deletions,
+            "num_accepted_attempts": self._num_accepted_attempts,
+            "num_accepted_insertions": self._num_accepted_insertions,
+            "num_accepted_deletions": self._num_accepted_deletions,
+        }
+
         # Clear the forces.
         self._nonbonded_force = None
         self._custom_nonbonded_force = None
