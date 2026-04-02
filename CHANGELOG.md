@@ -4,7 +4,7 @@ Changelog
 [2026.1.0](https://github.com/openbiosim/loch/compare/2025.2.0...2026.1.0) - ********
 -------------------------------------------------------------------------------------
 
-* Please add an item to this CHANGELOG for any new features or bug fixes when creating a PR.
+* Add support for getting and restoring sampling statistics.
 
 [2025.2.0](https://github.com/openbiosim/loch/compare/2025.1.0...2025.2.0) - Feb 2026
 -------------------------------------------------------------------------------------
