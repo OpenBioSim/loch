@@ -566,6 +566,33 @@ class GCMCSampler:
         except Exception as e:
             raise ValueError(f"Could not prepare the system for GCMC sampling: {e}")
 
+        # Compute per-molecule virtual site information. Virtual sites are
+        # appended after the real atoms of each molecule in the OpenMM system,
+        # so all subsequent molecules have their OpenMM particle indices shifted
+        # by the cumulative number of virtual sites in preceding molecules.
+        (
+            self._total_vsites,
+            self._vsite_atom_offsets,
+            self._mol_vsite_charges,
+        ) = self._get_vsite_offsets(self._system)
+
+        if self._total_vsites > 0:
+            # Offset water oxygen indices from Sire atom indices to OpenMM
+            # particle indices.
+            self._water_indices = (
+                self._water_indices + self._vsite_atom_offsets[self._water_indices]
+            )
+
+            # Apply the same correction to the reference atom indices.
+            if self._reference is not None:
+                self._reference_indices = (
+                    self._reference_indices
+                    + self._vsite_atom_offsets[self._reference_indices]
+                )
+
+        # Update the total atom count to include virtual site particles.
+        self._num_atoms = self._system.num_atoms() + self._total_vsites
+
         # Validate the platform parameter.
         valid_platforms = {"auto", "cuda", "opencl"}
 
@@ -1102,6 +1129,13 @@ class GCMCSampler:
         self._num_accepted_insertions = 0
         self._num_accepted_deletions = 0
 
+        # Clear the forces.
+        self._nonbonded_force = None
+        self._custom_nonbonded_force = None
+
+        # Clear the OpenMM context.
+        self._openmm_context = None
+
     def restore_stats(self, stats: dict) -> None:
         """
         Restore sampler statistics from a dictionary.
@@ -1140,17 +1174,11 @@ class GCMCSampler:
             "num_accepted_deletions": self._num_accepted_deletions,
         }
 
-        # Clear the forces.
-        self._nonbonded_force = None
-        self._custom_nonbonded_force = None
-
-        # Clear the OpenMM context.
-        self._openmm_context = None
-
     def ghost_residues(self) -> _np.ndarray:
         """
-        Return the current indices of the ghost water residues in the OpenMM
-        context.
+        Return the residue indices of the current ghost waters in the input
+        topology. These are Sire/BioSimSpace residue indices and do not
+        include any virtual site particles that were added on context creation.
 
         Returns
         -------
@@ -1786,6 +1814,75 @@ class GCMCSampler:
         return cell_matrix, cell_matrix_inverse, M
 
     @staticmethod
+    def _get_vsite_offsets(system):
+        """
+        Compute per-atom OpenMM index offsets due to virtual sites.
+
+        In OpenMM, virtual site particles are appended after the real atoms
+        of each molecule. Molecules that appear after a molecule with virtual
+        sites therefore have their OpenMM particle indices shifted relative
+        to their Sire atom indices.
+
+        Parameters
+        ----------
+
+        system: sire.system.System
+            The molecular system.
+
+        Returns
+        -------
+
+        total_vsites: int
+            Total number of virtual site particles in the system.
+
+        atom_offsets: numpy.ndarray
+            Array of shape (num_sire_atoms,) where entry i is the
+            cumulative number of virtual sites in all molecules that
+            precede the molecule containing Sire atom i. Adding this
+            offset to a Sire atom index yields the corresponding OpenMM
+            particle index.
+
+        mol_vsite_charges: dict
+            Mapping from molecule number to a list of virtual site charges in
+            units of elementary charge. Only molecules that carry virtual sites
+            appear as keys; all other molecules are absent from the dict.
+        """
+        n_sire_atoms = system.num_atoms()
+        atom_offsets = _np.zeros(n_sire_atoms, dtype=_np.int32)
+        mol_vsite_charges = {}
+        total_vsites = 0
+
+        try:
+            vsite_mols = system["property n_virtual_sites"].molecules()
+        except Exception:
+            # No molecules carry virtual sites.
+            return 0, atom_offsets, mol_vsite_charges
+
+        all_atoms = system.atoms()
+
+        for mol in vsite_mols:
+            n_vs = int(mol.property("n_virtual_sites"))
+            if n_vs <= 0:
+                continue
+
+            # Locate where this molecule's atoms sit in the global index space,
+            # then shift every subsequent atom's offset by n_vs in one operation.
+            mol_start = int(_np.array(all_atoms.find(mol.atoms()))[0])
+            mol_end = mol_start + mol.num_atoms()
+            atom_offsets[mol_end:] += n_vs
+            total_vsites += n_vs
+
+            try:
+                raw_charges = mol.property("vs_charges")
+                vs_charges = [float(raw_charges[k]) for k in range(n_vs)]
+            except Exception:
+                vs_charges = [0.0] * n_vs
+
+            mol_vsite_charges[mol.number()] = vs_charges
+
+        return total_vsites, atom_offsets, mol_vsite_charges
+
+    @staticmethod
     def _get_reference_indices(system, reference):
         """
         Get the indices of the reference atoms.
@@ -1937,6 +2034,10 @@ class GCMCSampler:
                     for q in mol.property("charge"):
                         charges[i] = q.value()
                         i += 1
+                    # Append virtual site charges (zero LJ, non-zero charge).
+                    for vc in self._mol_vsite_charges.get(mol.number(), []):
+                        charges[i] = vc
+                        i += 1
 
                 # Convert to a GPU array.
                 charges = self._backend.to_gpu(charges.astype(_np.float32))
@@ -1953,6 +2054,12 @@ class GCMCSampler:
                     for lj in mol.property("LJ"):
                         sigmas[i] = lj.sigma().value()
                         epsilons[i] = lj.epsilon().value()
+                        i += 1
+                    # Virtual sites have zero LJ. Use sigma=1.0 Å as a
+                    # nominal placeholder (epsilon=0 so it has no effect).
+                    for _ in self._mol_vsite_charges.get(mol.number(), []):
+                        sigmas[i] = 1.0
+                        epsilons[i] = 0.0
                         i += 1
 
                 # Convert to GPU arrays.
@@ -2063,8 +2170,9 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = atoms.find(atom)
-                            is_ghost_fep[idx] = 1
+                            sire_idx = atoms.find(atom)
+                            omm_idx = sire_idx + int(self._vsite_atom_offsets[sire_idx])
+                            is_ghost_fep[omm_idx] = 1
 
                     # The charge at the perturbed state is zero.
                     elif _np.isclose(charge1, 0.0):
@@ -2073,8 +2181,9 @@ class GCMCSampler:
 
                         # This is a null LJ parameter.
                         if _np.isclose(lj.epsilon().value(), 0.0):
-                            idx = atoms.find(atom)
-                            is_ghost_fep[idx] = 1
+                            sire_idx = atoms.find(atom)
+                            omm_idx = sire_idx + int(self._vsite_atom_offsets[sire_idx])
+                            is_ghost_fep[omm_idx] = 1
 
             # Convert to GPU array.
             is_ghost_fep = self._backend.to_gpu(is_ghost_fep.astype(_np.int32))
