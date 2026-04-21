@@ -576,6 +576,12 @@ class GCMCSampler:
             self._mol_vsite_charges,
         ) = self._get_vsite_offsets(self._system)
 
+        # Keep a copy of the Sire atom indices before applying the OpenMM
+        # offset. These are needed by any operation that works on the Sire
+        # topology (e.g. _flag_ghost_waters, ghost_residues), which has no
+        # knowledge of virtual site particles.
+        self._water_indices_sire = self._water_indices.copy()
+
         if self._total_vsites > 0:
             # Offset water oxygen indices from Sire atom indices to OpenMM
             # particle indices.
@@ -2925,8 +2931,9 @@ class GCMCSampler:
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be a Sire system")
 
-        # Now extract the oxygen indices using cached ghost water indices.
-        ghost_oxygens = self._water_indices[self._get_ghost_waters()]
+        # Use the Sire atom indices (no vsite offset) so that lookups into the
+        # input topology are correct regardless of virtual sites in the context.
+        ghost_oxygens = self._water_indices_sire[self._get_ghost_waters()]
 
         # Loop over the ghost waters and set the is_ghost property.
         for i in ghost_oxygens:

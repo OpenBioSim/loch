@@ -158,3 +158,53 @@ def test_vsite_index_offsets(bpti, platform):
     # Reference atoms are inside molecule 0 (the protein), which has no
     # preceding vsites, so their OpenMM indices are unchanged.
     assert (sampler._reference_indices == baseline._reference_indices).all()
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_flag_ghost_waters_sire_indices(bpti, platform):
+    """
+    _flag_ghost_waters must use Sire atom indices, not OpenMM particle indices.
+
+    With virtual sites present, OpenMM indices are larger than the corresponding
+    Sire atom indices. Using the OpenMM indices to look up atoms in the Sire
+    topology raises SireError::invalid_index. This test confirms that the
+    Sire-side indices are used and that _flag_ghost_waters completes without
+    error.
+    """
+    mols, reference = bpti
+
+    n_vs = 2
+    mols_with_vs = mols.clone()
+    mols_with_vs.update(_add_vsites_to_mol(mols_with_vs[0], n_vs))
+
+    sampler = GCMCSampler(
+        mols_with_vs,
+        reference=reference,
+        cutoff_type="rf",
+        cutoff="10 A",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+        seed=42,
+    )
+
+    n_sire_atoms = sampler.system().num_atoms()
+
+    # Sire indices must be within the topology's atom range.
+    assert (sampler._water_indices_sire < n_sire_atoms).all()
+
+    # OpenMM indices exceed the Sire range by n_vs, which is exactly the
+    # bug that would have caused SireError::invalid_index.
+    assert (sampler._water_indices == sampler._water_indices_sire + n_vs).all()
+
+    # _flag_ghost_waters must complete without raising an index error.
+    flagged = sampler._flag_ghost_waters(sampler.system())
+
+    # Every initially-ghost water molecule should be flagged.
+    n_flagged = len(flagged["property is_ghost_water"].molecules())
+    assert n_flagged == sampler._num_ghost_waters
