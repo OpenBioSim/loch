@@ -383,5 +383,5 @@ inpcrd = AmberInpcrdFile("gcmc_system.inpcrd")
 
 * We thank the [Essex Lab](https://essexgroup.soton.ac.uk/) and
   [grand](https://github.com/essex-lab/grand) for the inspiration.
-* Many thanks to [Gregory Ross](https://github.com/GregRRoss) for clarifying
+* Many thanks to [Gregory Ross](https://github.com/gregoryross) for clarifying
   the parallelisation scheme described [here](https://doi.org/10.1021/acs.jctc.0c00660).
