@@ -979,7 +979,7 @@ class GCMCSampler:
         # Set the number of waters in the GCMC sphere to zero.
         self._N = 0
 
-    def num_waters(self) -> int:
+    def num_waters(self, context=None) -> int:
         """
         Return the number of waters in the GCMC region.
 
@@ -988,18 +988,29 @@ class GCMCSampler:
 
         num_waters: int
             The number of waters.
+
+        context: openmm.Context, optional
+            The OpenMM context to use for counting the waters. If None, then the
+            internal context will be used if available.
         """
 
-        # The last move was a bulk sampling move, so we need to recalculate
-        # the number of waters in the GCMC sphere.
-        if self._reference is not None and self._is_bulk:
-            if not self._openmm_context:
-                msg = "OpenMM context is not set!"
-                _logger.error(msg)
-                raise RuntimeError(msg)
+        # Whether we need to recalculate the number of waters in the GCMC sphere.
+        recalculate = context is not None or (
+            self._reference is not None and self._is_bulk
+        )
+
+        # We need to recalculate the number of waters.
+        if recalculate:
+            if context is None:
+                if not self._openmm_context:
+                    msg = "OpenMM context is not set!"
+                    _logger.error(msg)
+                    raise RuntimeError(msg)
+                else:
+                    context = self._openmm_context
 
             # Get the OpenMM state.
-            state = self._openmm_context.getState(getPositions=True)
+            state = context.getState(getPositions=True)
 
             # Get the current positions in Angstrom.
             positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
