@@ -287,6 +287,11 @@ class GCMCSampler:
         else:
             self._is_pme = False
 
+        # LRC state: initialised lazily on first move() call.
+        self._has_gcmc_lrc = False
+        self._lrc_w_solute = 0.0
+        self._lrc_ww_half = 0.0
+
         try:
             self._radius = self._validate_sire_unit("radius", radius, _sr.u("A"))
         except Exception as e:
@@ -707,7 +712,8 @@ class GCMCSampler:
 
         # Null the nonbonded forces.
         self._nonbonded_force = None
-        self._custom_nonbonded_force = None
+        self._custom_coulomb_force = None
+        self._custom_lj_force = None
 
         # Flag for whether the last move was a bulk sampling move.
         self._is_bulk = False
@@ -1148,7 +1154,8 @@ class GCMCSampler:
 
         # Clear the forces.
         self._nonbonded_force = None
-        self._custom_nonbonded_force = None
+        self._custom_coulomb_force = None
+        self._custom_lj_force = None
 
         # Clear the OpenMM context.
         self._openmm_context = None
@@ -1273,6 +1280,10 @@ class GCMCSampler:
                 # We only need to get the positions and initial energy for the first
                 # batch. These will be updated dynamically as moves are accepted.
                 if num_batches == 1:
+                    # Detect GCMC LRC parameters from context on first call.
+                    if not self._has_gcmc_lrc:
+                        self._init_gcmc_lrc(context)
+
                     # Get the OpenMM state.
                     state = context.getState(getPositions=True, getEnergy=self._is_pme)
 
@@ -1285,6 +1296,11 @@ class GCMCSampler:
                         initial_energy = state.getPotentialEnergy()
                     else:
                         initial_energy = None
+
+                    # Cache the box volume (NVT, so constant throughout).
+                    if self._has_gcmc_lrc:
+                        box = state.getPeriodicBoxVectors(asNumpy=True)
+                        v_nm3 = _np.linalg.det(box / _openmm.unit.nanometer)
 
                     # Sample within the GCMC sphere.
                     if self._reference is not None and not self._is_bulk:
@@ -1521,6 +1537,10 @@ class GCMCSampler:
 
                 # Insertion move.
                 if is_deletion[idx] == 0:
+                    # Capture n_w before the insertion for LRC delta calculation.
+                    if self._has_gcmc_lrc:
+                        n_w_before_insert = context.getParameter("n_w")
+
                     # Accept the move.
                     self._accept_insertion(
                         idx, idx_water, positions_openmm, positions_angstrom, context
@@ -1547,6 +1567,19 @@ class GCMCSampler:
                         final_energy = context.getState(
                             getEnergy=True
                         ).getPotentialEnergy()
+
+                        # Add the analytic LRC delta so the PME correction sees only
+                        # the RF→PME electrostatic difference.
+                        if self._has_gcmc_lrc:
+                            dLRC = (
+                                (
+                                    self._lrc_w_solute
+                                    + 2.0 * n_w_before_insert * self._lrc_ww_half
+                                )
+                                / v_nm3
+                                * _openmm.unit.kilojoules_per_mole
+                            )
+                            dE_RF += dLRC
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
@@ -1608,6 +1641,10 @@ class GCMCSampler:
 
                 # Deletion move.
                 else:
+                    # Capture n_w before the deletion for LRC delta calculation.
+                    if self._has_gcmc_lrc:
+                        n_w_before_delete = context.getParameter("n_w")
+
                     # Accept the move.
                     self._accept_deletion(candidates[idx], context)
 
@@ -1632,6 +1669,20 @@ class GCMCSampler:
                         final_energy = context.getState(
                             getEnergy=True
                         ).getPotentialEnergy()
+
+                        # Add the analytic LRC delta.
+                        if self._has_gcmc_lrc:
+                            dLRC = (
+                                -(
+                                    self._lrc_w_solute
+                                    + 2.0
+                                    * (n_w_before_delete - 1.0)
+                                    * self._lrc_ww_half
+                                )
+                                / v_nm3
+                                * _openmm.unit.kilojoules_per_mole
+                            )
+                            dE_RF += dLRC
 
                         # Compute the PME acceptance correction.
                         acc_prob = _np.exp(
@@ -2125,31 +2176,37 @@ class GCMCSampler:
             )
 
             # Flags for the required force.
-            has_gng = False
+            has_gng_coul = False
+            has_gng_lj = False
 
             # Find the required forces.
             for force in d.context().getSystem().getForces():
-                if force.getName() == "GhostNonGhostNonbondedForce":
-                    gng_force = force
-                    has_gng = True
-                    break
+                if force.getName() == "GhostNonGhostCoulombForce":
+                    gng_coul_force = force
+                    has_gng_coul = True
+                elif force.getName() == "GhostNonGhostLJForce":
+                    gng_lj_force = force
+                    has_gng_lj = True
 
             # Make sure the force was found.
-            if not has_gng:
+            if not has_gng_coul:
                 raise ValueError(
-                    "Could not find the GhostNonGhostNonbondedForce in the system"
+                    "Could not find the GhostNonGhostCoulombForce in the system"
+                )
+            if not has_gng_lj:
+                raise ValueError(
+                    "Could not find the GhostNonGhostLJForce in the system"
                 )
 
-            # Get the parameters for the GhostNonGhostNonbondedForce.
+            # Get the parameters for the GhostNonGhost nonbonded forces.
             charges = _np.zeros(self._num_atoms, dtype=_np.float32)
             sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
             epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
             alphas = _np.zeros(self._num_atoms, dtype=_np.float32)
-            for i in range(gng_force.getNumParticles()):
+            for i in range(gng_coul_force.getNumParticles()):
                 # Custom force parameters are returned as floats.
-                q, half_sigma, two_sqrt_epsilon, alpha, _ = (
-                    gng_force.getParticleParameters(i)
-                )
+                q, alpha, _ = gng_coul_force.getParticleParameters(i)
+                half_sigma, two_sqrt_epsilon, _ = gng_lj_force.getParticleParameters(i)
                 # Charge in |e|, sigma in nm, epsilon in kJ/mol.
                 charges[i] = q
                 # Rescale and convert units.
@@ -2321,6 +2378,15 @@ class GCMCSampler:
             (1, self._num_waters), _np.int32
         )
 
+    def _init_gcmc_lrc(self, context):
+        """Detect and cache GCMC LRC parameters from the OpenMM context."""
+        try:
+            self._lrc_w_solute = context.getParameter("lrc_w_solute")
+            self._lrc_ww_half = context.getParameter("lrc_ww_half")
+            self._has_gcmc_lrc = True
+        except Exception:
+            self._has_gcmc_lrc = False
+
     def _accept_insertion(
         self, idx, idx_water, positions_openmm, positions_angstrom, context
     ):
@@ -2374,13 +2440,19 @@ class GCMCSampler:
             )
             # Update the custom NonBondedForce parameters.
             if self._is_fep:
-                self._custom_nonbonded_force.setParticleParameters(
+                self._custom_coulomb_force.setParticleParameters(
                     start_idx + i,
                     (
                         self._water_charge[i],
+                        0.0,
+                        0.0,
+                    ),
+                )
+                self._custom_lj_force.setParticleParameters(
+                    start_idx + i,
+                    (
                         self._water_sigma_custom[i],
                         self._water_epsilon_custom[i],
-                        0.0,
                         0.0,
                     ),
                 )
@@ -2393,7 +2465,8 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_nonbonded_force.updateParametersInContext(context)
+            self._custom_coulomb_force.updateParametersInContext(context)
+            self._custom_lj_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2416,6 +2489,10 @@ class GCMCSampler:
 
         # Update the number of waters in the sampling volume.
         self._N += 1
+
+        # Update the GCMC LRC water count in the context.
+        if self._has_gcmc_lrc:
+            context.setParameter("n_w", context.getParameter("n_w") + 1.0)
 
     def _accept_deletion(self, idx, context):
         """
@@ -2445,12 +2522,18 @@ class GCMCSampler:
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
-                self._custom_nonbonded_force.setParticleParameters(
+                self._custom_coulomb_force.setParticleParameters(
                     start_idx + i,
                     (
                         0.0,
-                        self._water_sigma_custom[i],
                         0.0,
+                        0.0,
+                    ),
+                )
+                self._custom_lj_force.setParticleParameters(
+                    start_idx + i,
+                    (
+                        self._water_sigma_custom[i],
                         0.0,
                         0.0,
                     ),
@@ -2461,7 +2544,8 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_nonbonded_force.updateParametersInContext(context)
+            self._custom_coulomb_force.updateParametersInContext(context)
+            self._custom_lj_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2486,6 +2570,10 @@ class GCMCSampler:
 
         # Update the number of waters in the sampling volume.
         self._N -= 1
+
+        # Update the GCMC LRC water count in the context.
+        if self._has_gcmc_lrc:
+            context.setParameter("n_w", context.getParameter("n_w") - 1.0)
 
     def _reject_deletion(self, idx, context):
         """
@@ -2518,13 +2606,19 @@ class GCMCSampler:
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
-                self._custom_nonbonded_force.setParticleParameters(
+                self._custom_coulomb_force.setParticleParameters(
                     start_idx + i,
                     (
                         self._water_charge[i],
+                        0.0,
+                        0.0,
+                    ),
+                )
+                self._custom_lj_force.setParticleParameters(
+                    start_idx + i,
+                    (
                         self._water_sigma_custom[i],
                         self._water_epsilon_custom[i],
-                        0.0,
                         0.0,
                     ),
                 )
@@ -2534,7 +2628,8 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_nonbonded_force.updateParametersInContext(context)
+            self._custom_coulomb_force.updateParametersInContext(context)
+            self._custom_lj_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2559,6 +2654,10 @@ class GCMCSampler:
 
         # Update the number of waters in the sampling volume.
         self._N += 1
+
+        # Update the GCMC LRC water count in the context.
+        if self._has_gcmc_lrc:
+            context.setParameter("n_w", context.getParameter("n_w") + 1.0)
 
     def _set_water_state(self, context, indices=None, states=None, force=False):
         """
@@ -2597,7 +2696,8 @@ class GCMCSampler:
             # Assume the context has been recreated, so we need to get the
             # new forces.
             self._nonbonded_force = None
-            self._custom_nonbonded_force = None
+            self._custom_coulomb_force = None
+            self._custom_lj_force = None
             # Update even if the state is unchanged.
             force = True
 
@@ -2627,12 +2727,18 @@ class GCMCSampler:
                     )
                     # Update the CustomNonbondedForce parameters.
                     if self._is_fep:
-                        self._custom_nonbonded_force.setParticleParameters(
+                        self._custom_coulomb_force.setParticleParameters(
                             start_idx + i,
                             (
                                 0.0,
-                                self._water_sigma_custom[i],
                                 0.0,
+                                0.0,
+                            ),
+                        )
+                        self._custom_lj_force.setParticleParameters(
+                            start_idx + i,
+                            (
+                                self._water_sigma_custom[i],
                                 0.0,
                                 0.0,
                             ),
@@ -2674,13 +2780,19 @@ class GCMCSampler:
                     )
                     # Update the CustomNonBondedForce parameters.
                     if self._is_fep:
-                        self._custom_nonbonded_force.setParticleParameters(
+                        self._custom_coulomb_force.setParticleParameters(
                             start_idx + i,
                             (
                                 self._water_charge[i],
+                                0.0,
+                                0.0,
+                            ),
+                        )
+                        self._custom_lj_force.setParticleParameters(
+                            start_idx + i,
+                            (
                                 self._water_sigma_custom[i],
                                 self._water_epsilon_custom[i],
-                                0.0,
                                 0.0,
                             ),
                         )
@@ -2717,7 +2829,8 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_nonbonded_force.updateParametersInContext(context)
+            self._custom_coulomb_force.updateParametersInContext(context)
+            self._custom_lj_force.updateParametersInContext(context)
 
     def _set_nonbonded_forces(self, context):
         """
@@ -2730,13 +2843,15 @@ class GCMCSampler:
             The OpenMM context to use.
         """
         if self._nonbonded_force is None or (
-            self._is_fep and self._custom_nonbonded_force is None
+            self._is_fep and self._custom_coulomb_force is None
         ):
             for force in context.getSystem().getForces():
                 if isinstance(force, _openmm.NonbondedForce):
                     self._nonbonded_force = force
-                elif self._is_fep and force.getName() == "GhostNonGhostNonbondedForce":
-                    self._custom_nonbonded_force = force
+                elif self._is_fep and force.getName() == "GhostNonGhostCoulombForce":
+                    self._custom_coulomb_force = force
+                elif self._is_fep and force.getName() == "GhostNonGhostLJForce":
+                    self._custom_lj_force = force
                 elif "Barostat" in force.getName():
                     msg = (
                         f"GCMC must be used at constant volume: "
@@ -2750,7 +2865,9 @@ class GCMCSampler:
             _logger.error(msg)
             raise ValueError(msg)
 
-        if self._is_fep and self._custom_nonbonded_force is None:
+        if self._is_fep and (
+            self._custom_coulomb_force is None or self._custom_lj_force is None
+        ):
             msg = "Could not find a CustomNonbondedForce in the system"
             _logger.error(msg)
             raise ValueError(msg)
