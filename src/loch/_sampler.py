@@ -79,11 +79,11 @@ class GCMCSampler:
         lambda_value: float = 0.0,
         rest2_scale: float = 1.0,
         rest2_selection: _Optional[str] = None,
-        coulomb_power: float = 0.0,
         shift_coulomb: str = "1 A",
         shift_delta: str = "1.5 A",
         softcore_form: str = "zacharias",
         taylor_power: int = 1,
+        beutler_alpha: float = 0.5,
         swap_end_states: bool = False,
         restart: bool = False,
         overwrite: bool = False,
@@ -212,14 +212,19 @@ class GCMCSampler:
 
         softcore_form : str
             The soft-core potential form to use for alchemical interactions.
-            This can be either 'zacharias' or 'taylor'. The default is
-            'zacharias'.
+            Valid options are 'zacharias' (default), 'taylor', and 'beutler'.
+            The Beutler form is recommended for ABFE calculations.
 
         taylor_power : int
             The power to use for the alpha term in the Taylor soft-core LJ
             expression, i.e. sig6 = sigma^6 / (alpha^m * sigma^6 + r^6).
             Must be between 0 and 4. The default is 1. Only used when
             softcore_form is 'taylor'.
+
+        beutler_alpha : float
+            The dimensionless scale factor for the r^6 shift in the Beutler
+            soft-core form. Must be >= 0. The default is 0.5. Only used when
+            softcore_form is 'beutler'.
 
         swap_end_states: bool
             Whether to swap the end states of the alchemical systems.
@@ -495,12 +500,6 @@ class GCMCSampler:
         self._rest2_selection = rest2_selection
 
         try:
-            coulomb_power = float(coulomb_power)
-        except Exception:
-            raise ValueError("'coulomb_power' must be of type 'float'")
-        self._coulomb_power = float(coulomb_power)
-
-        try:
             self._shift_coulomb = self._validate_sire_unit(
                 "shift_coulomb", shift_coulomb, _sr.u("A")
             )
@@ -533,6 +532,14 @@ class GCMCSampler:
         if not 0 <= taylor_power <= 4:
             raise ValueError("'taylor_power' must be between 0 and 4")
         self._taylor_power = taylor_power
+
+        try:
+            beutler_alpha = float(beutler_alpha)
+        except Exception:
+            raise ValueError("'beutler_alpha' must be of type 'float'")
+        if beutler_alpha < 0.0:
+            raise ValueError("'beutler_alpha' must be >= 0")
+        self._beutler_alpha = beutler_alpha
 
         if not isinstance(swap_end_states, bool):
             raise ValueError("'swap_end_states' must be of type 'bool'")
@@ -781,7 +788,6 @@ class GCMCSampler:
             f"restart={self._restart}, "
             f"rest2_scale={self._rest2_scale}, "
             f"rest2_selection={self._rest2_selection}, "
-            f"coulomb_power={self._coulomb_power}, "
             f"shift_coulomb={self._shift_coulomb}, "
             f"shift_delta={self._shift_delta}, "
             f"overwrite={self._overwrite}, "
@@ -1458,10 +1464,10 @@ class GCMCSampler:
                 self._rf_kappa,
                 self._rf_correction,
                 self._sc_softcore_form,
-                self._sc_coulomb_power,
                 self._sc_shift_coulomb,
                 self._sc_shift_delta,
                 self._sc_taylor_power,
+                self._sc_beutler_alpha,
                 block=(self._num_threads, 1, 1),
                 grid=(self._atom_blocks, self._batch_size, 1),
             )
@@ -2157,6 +2163,9 @@ class GCMCSampler:
             if self._softcore_form == _SoftcoreForm.TAYLOR:
                 _map["use_taylor_softening"] = True
                 _map["taylor_power"] = self._taylor_power
+            elif self._softcore_form == _SoftcoreForm.BEUTLER:
+                _map["use_beutler_softening"] = True
+                _map["beutler_alpha"] = self._beutler_alpha
 
             # Create a dynamics object.
             d = mols.dynamics(
@@ -2325,10 +2334,10 @@ class GCMCSampler:
 
         # Store soft-core parameters as scalars.
         self._sc_softcore_form = _np.int32(int(self._softcore_form))
-        self._sc_coulomb_power = _np.float32(self._coulomb_power)
         self._sc_shift_coulomb = _np.float32(self._shift_coulomb.value())
         self._sc_shift_delta = _np.float32(self._shift_delta.value())
         self._sc_taylor_power = _np.int32(self._taylor_power)
+        self._sc_beutler_alpha = _np.float32(self._beutler_alpha)
 
         # Store immutable per-atom buffers on GPU.
         self._gpu_sigma = sigmas

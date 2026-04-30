@@ -29,3 +29,4 @@ class SoftcoreForm(IntEnum):
 
     ZACHARIAS = 0
     TAYLOR = 1
+    BEUTLER = 2

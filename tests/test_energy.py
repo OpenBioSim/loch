@@ -20,6 +20,7 @@ from loch import GCMCSampler, SoftcoreForm
         ("bpti", "zacharias"),
         ("sd12", "zacharias"),
         ("sd12", "taylor"),
+        ("sd12", "beutler"),
     ],
 )
 def test_energy(fixture, softcore_form, platform, request):
@@ -56,6 +57,9 @@ def test_energy(fixture, softcore_form, platform, request):
     dyn_map = {}
     if sampler._softcore_form == SoftcoreForm.TAYLOR:
         dyn_map["use_taylor_softening"] = True
+    elif sampler._softcore_form == SoftcoreForm.BEUTLER:
+        dyn_map["use_beutler_softening"] = True
+        dyn_map["beutler_alpha"] = sampler._beutler_alpha
 
     # Create a dynamics object using the modified GCMC system.
     d = sampler.system().dynamics(
@@ -67,7 +71,6 @@ def test_energy(fixture, softcore_form, platform, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=sampler._coulomb_power,
         shift_coulomb=str(sampler._shift_coulomb),
         shift_delta=str(sampler._shift_delta),
         platform=platform,
@@ -227,7 +230,6 @@ def test_platform_consistency(fixture, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=cuda_sampler._coulomb_power,
         shift_coulomb=str(cuda_sampler._shift_coulomb),
         shift_delta=str(cuda_sampler._shift_delta),
         platform="cuda",
@@ -242,7 +244,6 @@ def test_platform_consistency(fixture, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=opencl_sampler._coulomb_power,
         shift_coulomb=str(opencl_sampler._shift_coulomb),
         shift_delta=str(opencl_sampler._shift_delta),
         platform="opencl",
@@ -347,7 +348,6 @@ def test_energy_regression(fixture, platform, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=sampler._coulomb_power,
         shift_coulomb=str(sampler._shift_coulomb),
         shift_delta=str(sampler._shift_delta),
         platform=platform,
@@ -414,7 +414,6 @@ def test_cached_kernel_correctness(platform, water_box):
             timestep="2 fs",
             schedule=schedule,
             lambda_value=0.5,
-            coulomb_power=sampler._coulomb_power,
             shift_coulomb=str(sampler._shift_coulomb),
             shift_delta=str(sampler._shift_delta),
             platform=platform,
