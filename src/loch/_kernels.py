@@ -551,14 +551,13 @@ code = """
                                 const float e = sqrtf(e0 * e1);
                                 const float a = alpha[idx_atom];
 
-                                // Compute the distance between the atoms.
-                                float r = sqrtf(r2);
+                                // Clamp r2 to avoid singularities.
+                                const float r2_sc = (r2 < 1e-6f) ? 1e-6f : r2;
 
-                                // Truncate the distance.
-                                if (r < 0.001f)
-                                {
-                                    r = 0.001f;
-                                }
+                                // Precompute r^6 and sigma^6 using r2 directly (avoids sqrtf and powf).
+                                const float r6 = r2_sc * r2_sc * r2_sc;
+                                const float s2 = s * s;
+                                const float s6_val = s2 * s2 * s2;
 
                                 // Compute the LJ interaction using the chosen soft-core form.
                                 float sig6;
@@ -567,8 +566,6 @@ code = """
                                 {
                                     // Taylor soft-core LJ:
                                     //   sig6 = sigma^6 / (alpha^m * sigma^6 + r^6)
-                                    const float s6_val = powf(s, 6.0f);
-                                    const float r6 = r * r * r * r * r * r;
                                     const float alpha_m = (sc_taylor_power == 1) ? a
                                         : (sc_taylor_power == 0) ? 1.0f
                                         : powf(a, (float)sc_taylor_power);
@@ -579,8 +576,6 @@ code = """
                                     // Beutler soft-core LJ:
                                     //   sig6 = sigma^6 / (sc_beutler_alpha * sigma^6 * alpha + r^6)
                                     //   V_LJ = (1 - alpha) * 4 * epsilon * sig6 * (sig6 - 1)
-                                    const float s6_val = powf(s, 6.0f);
-                                    const float r6 = r * r * r * r * r * r;
                                     sig6 = s6_val / (sc_beutler_alpha * s6_val * a + r6);
                                     lj_prefactor = 1.0f - a;
                                 }
@@ -590,14 +585,15 @@ code = """
                                     //   sig6 = sigma^6 / (sigma*delta + r^2)^3
                                     //   delta = shift_delta * alpha
                                     const float delta_lj = sc_shift_delta * a;
-                                    sig6 = powf(s, 6.0f) / powf((s * delta_lj) + (r * r), 3.0f);
+                                    const float denom = (s * delta_lj) + r2_sc;
+                                    sig6 = s6_val / (denom * denom * denom);
                                 }
                                 energy_lj[idx] += lj_prefactor * 4.0f * e * sig6 * (sig6 - 1.0f);
 
                                 // Compute the Coulomb interaction.
                                 energy_coul[idx] += (q0 * q1) *
                                     ((1.0f / sqrtf((sc_shift_coulomb * sc_shift_coulomb * a)
-                                    + (r * r))) + (rf_kappa * r2) - rf_correction);
+                                    + r2_sc)) + (rf_kappa * r2) - rf_correction);
 
                             }
                         }
