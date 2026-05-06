@@ -719,8 +719,7 @@ class GCMCSampler:
 
         # Null the nonbonded forces.
         self._nonbonded_force = None
-        self._custom_coulomb_force = None
-        self._custom_lj_force = None
+        self._custom_nonbonded_force = None
 
         # Flag for whether the last move was a bulk sampling move.
         self._is_bulk = False
@@ -1160,8 +1159,7 @@ class GCMCSampler:
 
         # Clear the forces.
         self._nonbonded_force = None
-        self._custom_coulomb_force = None
-        self._custom_lj_force = None
+        self._custom_nonbonded_force = None
 
         # Clear the OpenMM context.
         self._openmm_context = None
@@ -2184,38 +2182,32 @@ class GCMCSampler:
                 map=_map,
             )
 
-            # Flags for the required force.
-            has_gng_coul = False
-            has_gng_lj = False
+            # Flag for the required force.
+            has_gng = False
 
             # Find the required forces.
             for force in d.context().getSystem().getForces():
-                if force.getName() == "GhostNonGhostCoulombForce":
-                    gng_coul_force = force
-                    has_gng_coul = True
-                elif force.getName() == "GhostNonGhostLJForce":
-                    gng_lj_force = force
-                    has_gng_lj = True
+                if force.getName() == "GhostNonGhostNonbondedForce":
+                    gng_force = force
+                    has_gng = True
+                    break
 
             # Make sure the force was found.
-            if not has_gng_coul:
+            if not has_gng:
                 raise ValueError(
-                    "Could not find the GhostNonGhostCoulombForce in the system"
-                )
-            if not has_gng_lj:
-                raise ValueError(
-                    "Could not find the GhostNonGhostLJForce in the system"
+                    "Could not find the GhostNonGhostNonbondedForce in the system"
                 )
 
-            # Get the parameters for the GhostNonGhost nonbonded forces.
+            # Get the parameters for the GhostNonGhostNonbondedForce.
             charges = _np.zeros(self._num_atoms, dtype=_np.float32)
             sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
             epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
             alphas = _np.zeros(self._num_atoms, dtype=_np.float32)
-            for i in range(gng_coul_force.getNumParticles()):
+            for i in range(gng_force.getNumParticles()):
                 # Custom force parameters are returned as floats.
-                q, alpha, _ = gng_coul_force.getParticleParameters(i)
-                half_sigma, two_sqrt_epsilon, _ = gng_lj_force.getParticleParameters(i)
+                q, half_sigma, two_sqrt_epsilon, alpha, _ = (
+                    gng_force.getParticleParameters(i)
+                )
                 # Charge in |e|, sigma in nm, epsilon in kJ/mol.
                 charges[i] = q
                 # Rescale and convert units.
@@ -2449,19 +2441,13 @@ class GCMCSampler:
             )
             # Update the custom NonBondedForce parameters.
             if self._is_fep:
-                self._custom_coulomb_force.setParticleParameters(
+                self._custom_nonbonded_force.setParticleParameters(
                     start_idx + i,
                     (
                         self._water_charge[i],
-                        0.0,
-                        0.0,
-                    ),
-                )
-                self._custom_lj_force.setParticleParameters(
-                    start_idx + i,
-                    (
                         self._water_sigma_custom[i],
                         self._water_epsilon_custom[i],
+                        0.0,
                         0.0,
                     ),
                 )
@@ -2474,8 +2460,7 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_coulomb_force.updateParametersInContext(context)
-            self._custom_lj_force.updateParametersInContext(context)
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2531,18 +2516,12 @@ class GCMCSampler:
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
-                self._custom_coulomb_force.setParticleParameters(
+                self._custom_nonbonded_force.setParticleParameters(
                     start_idx + i,
                     (
                         0.0,
-                        0.0,
-                        0.0,
-                    ),
-                )
-                self._custom_lj_force.setParticleParameters(
-                    start_idx + i,
-                    (
                         self._water_sigma_custom[i],
+                        0.0,
                         0.0,
                         0.0,
                     ),
@@ -2553,8 +2532,7 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_coulomb_force.updateParametersInContext(context)
-            self._custom_lj_force.updateParametersInContext(context)
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2615,19 +2593,13 @@ class GCMCSampler:
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
-                self._custom_coulomb_force.setParticleParameters(
+                self._custom_nonbonded_force.setParticleParameters(
                     start_idx + i,
                     (
                         self._water_charge[i],
-                        0.0,
-                        0.0,
-                    ),
-                )
-                self._custom_lj_force.setParticleParameters(
-                    start_idx + i,
-                    (
                         self._water_sigma_custom[i],
                         self._water_epsilon_custom[i],
+                        0.0,
                         0.0,
                     ),
                 )
@@ -2637,8 +2609,7 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_coulomb_force.updateParametersInContext(context)
-            self._custom_lj_force.updateParametersInContext(context)
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
         # Update the state of the water on the GPU.
         self._kernels["update_water"](
@@ -2705,8 +2676,7 @@ class GCMCSampler:
             # Assume the context has been recreated, so we need to get the
             # new forces.
             self._nonbonded_force = None
-            self._custom_coulomb_force = None
-            self._custom_lj_force = None
+            self._custom_nonbonded_force = None
             # Update even if the state is unchanged.
             force = True
 
@@ -2736,18 +2706,12 @@ class GCMCSampler:
                     )
                     # Update the CustomNonbondedForce parameters.
                     if self._is_fep:
-                        self._custom_coulomb_force.setParticleParameters(
+                        self._custom_nonbonded_force.setParticleParameters(
                             start_idx + i,
                             (
                                 0.0,
-                                0.0,
-                                0.0,
-                            ),
-                        )
-                        self._custom_lj_force.setParticleParameters(
-                            start_idx + i,
-                            (
                                 self._water_sigma_custom[i],
+                                0.0,
                                 0.0,
                                 0.0,
                             ),
@@ -2789,19 +2753,13 @@ class GCMCSampler:
                     )
                     # Update the CustomNonBondedForce parameters.
                     if self._is_fep:
-                        self._custom_coulomb_force.setParticleParameters(
+                        self._custom_nonbonded_force.setParticleParameters(
                             start_idx + i,
                             (
                                 self._water_charge[i],
-                                0.0,
-                                0.0,
-                            ),
-                        )
-                        self._custom_lj_force.setParticleParameters(
-                            start_idx + i,
-                            (
                                 self._water_sigma_custom[i],
                                 self._water_epsilon_custom[i],
+                                0.0,
                                 0.0,
                             ),
                         )
@@ -2838,8 +2796,7 @@ class GCMCSampler:
 
         # Update the CustomNonbondedForce parameters in the context.
         if self._is_fep:
-            self._custom_coulomb_force.updateParametersInContext(context)
-            self._custom_lj_force.updateParametersInContext(context)
+            self._custom_nonbonded_force.updateParametersInContext(context)
 
     def _set_nonbonded_forces(self, context):
         """
@@ -2852,15 +2809,13 @@ class GCMCSampler:
             The OpenMM context to use.
         """
         if self._nonbonded_force is None or (
-            self._is_fep and self._custom_coulomb_force is None
+            self._is_fep and self._custom_nonbonded_force is None
         ):
             for force in context.getSystem().getForces():
                 if isinstance(force, _openmm.NonbondedForce):
                     self._nonbonded_force = force
-                elif self._is_fep and force.getName() == "GhostNonGhostCoulombForce":
-                    self._custom_coulomb_force = force
-                elif self._is_fep and force.getName() == "GhostNonGhostLJForce":
-                    self._custom_lj_force = force
+                elif self._is_fep and force.getName() == "GhostNonGhostNonbondedForce":
+                    self._custom_nonbonded_force = force
                 elif "Barostat" in force.getName():
                     msg = (
                         f"GCMC must be used at constant volume: "
@@ -2874,9 +2829,7 @@ class GCMCSampler:
             _logger.error(msg)
             raise ValueError(msg)
 
-        if self._is_fep and (
-            self._custom_coulomb_force is None or self._custom_lj_force is None
-        ):
+        if self._is_fep and self._custom_nonbonded_force is None:
             msg = "Could not find a CustomNonbondedForce in the system"
             _logger.error(msg)
             raise ValueError(msg)
