@@ -395,10 +395,10 @@ code = """
             float rf_kappa,
             float rf_correction,
             int softcore_form,
-            float sc_coulomb_power,
             float sc_shift_coulomb,
             float sc_shift_delta,
-            int sc_taylor_power)
+            int sc_taylor_power,
+            float sc_beutler_alpha)
         {
             // Work out the atom index.
             const int idx_atom = GET_GLOBAL_ID(0);
@@ -561,6 +561,7 @@ code = """
 
                                 // Compute the LJ interaction using the chosen soft-core form.
                                 float sig6;
+                                float lj_prefactor = 1.0f;
                                 if (softcore_form == 1)
                                 {
                                     // Taylor soft-core LJ:
@@ -569,6 +570,14 @@ code = """
                                         : (sc_taylor_power == 0) ? 1.0f
                                         : powf(a, (float)sc_taylor_power);
                                     sig6 = s6_val / (alpha_m * s6_val + r6);
+                                }
+                                else if (softcore_form == 2)
+                                {
+                                    // Beutler soft-core LJ:
+                                    //   sig6 = sigma^6 / (sc_beutler_alpha * sigma^6 * alpha + r^6)
+                                    //   V_LJ = (1 - alpha) * 4 * epsilon * sig6 * (sig6 - 1)
+                                    sig6 = s6_val / (sc_beutler_alpha * s6_val * a + r6);
+                                    lj_prefactor = 1.0f - a;
                                 }
                                 else
                                 {
@@ -579,22 +588,11 @@ code = """
                                     const float denom = (s * delta_lj) + r2_sc;
                                     sig6 = s6_val / (denom * denom * denom);
                                 }
-                                energy_lj[idx] += 4.0f * e * sig6 * (sig6 - 1.0f);
-
-                                // Compute the Coulomb power expression.
-                                float cpe;
-                                if (sc_coulomb_power == 0.0f)
-                                {
-                                    cpe = 1.0f;
-                                }
-                                else
-                                {
-                                    cpe = powf((1.0f - a), sc_coulomb_power);
-                                }
+                                energy_lj[idx] += lj_prefactor * 4.0f * e * sig6 * (sig6 - 1.0f);
 
                                 // Compute the Coulomb interaction.
                                 energy_coul[idx] += (q0 * q1) *
-                                    ((cpe / sqrtf((sc_shift_coulomb * sc_shift_coulomb * a)
+                                    ((1.0f / sqrtf((sc_shift_coulomb * sc_shift_coulomb * a)
                                     + r2_sc)) + (rf_kappa * r2) - rf_correction);
 
                             }
