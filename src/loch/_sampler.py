@@ -545,6 +545,9 @@ class GCMCSampler:
             raise ValueError("'swap_end_states' must be of type 'bool'")
         self._swap_end_states = swap_end_states
 
+        if swap_end_states and self._lambda_schedule is not None:
+            self._lambda_schedule = self._lambda_schedule.reverse()
+
         # Check for waters and validate the template.
         try:
             self._water_template = system["water and not property is_perturbable"][0]
