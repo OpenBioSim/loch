@@ -6,6 +6,8 @@ Changelog
 
 * Add support for getting and restoring sampling statistics.
 * Handle XED force field virtual sites.
+* Add support for long-range Lennard-Jones dispersion correction.
+* Add support for Beutler soft-core Lennard-Jones form.
 
 [2025.2.0](https://github.com/openbiosim/loch/compare/2025.1.0...2025.2.0) - Feb 2026
 -------------------------------------------------------------------------------------
