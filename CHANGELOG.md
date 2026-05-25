@@ -8,6 +8,7 @@ Changelog
 * Handle XED force field virtual sites.
 * Add support for long-range Lennard-Jones dispersion correction.
 * Add support for Beutler soft-core Lennard-Jones form.
+* Fixed type check for ``water_template``.
 
 [2025.2.0](https://github.com/openbiosim/loch/compare/2025.1.0...2025.2.0) - Feb 2026
 -------------------------------------------------------------------------------------
