@@ -509,7 +509,7 @@ class GCMCSampler:
                     "Please provide a water template."
                 )
             else:
-                if not isinstance(water_template, _sr.molecule.Molecule):
+                if not isinstance(water_template, _sr.mol.Molecule):
                     raise ValueError(
                         "'water_template' must be of type 'sire.mol.Molecule'"
                     )
