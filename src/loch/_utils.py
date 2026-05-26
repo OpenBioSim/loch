@@ -161,7 +161,8 @@ def excess_chemical_potential(
             runtime=runtime,
             timestep="2 fs",
             h_mass_factor=1,
-            soft_core_form="beutler",
+            lambda_schedule="decouple",
+            softcore_form="beutler",
             use_dispersion_correction=use_dispersion_correction,
             output_directory=work_dir,
         )
@@ -180,33 +181,6 @@ def excess_chemical_potential(
     mol = sr.morph.decouple(mol, as_new_molecule=False)
     system.update(mol)
     system = sr.morph.link_to_reference(system)
-
-    # Get the lambda schedule from the molecule.
-    s = mol.property("schedule")
-
-    # Avoid scaling kappa during decouple stage.
-    s.set_equation(stage="decouple", lever="kappa", force="ghost/ghost", equation=0)
-    s.set_equation(stage="decouple", lever="kappa", force="ghost-14", equation=0)
-
-    # Add new discharging stage.
-    s.set_equation(stage="decouple", lever="charge", equation=s.final())
-    s.prepend_stage("decharge", s.initial())
-    s.set_equation(
-        stage="decharge",
-        lever="charge",
-        equation=s.lam() * s.final() + s.initial() * (1 - s.lam()),
-    )
-    s.set_equation(stage="decharge", force="ghost/ghost", equation=s.initial())
-    s.set_equation(stage="decharge", force="ghost-14", equation=s.initial())
-    s.set_equation(
-        stage="decharge", lever="kappa", force="ghost/ghost", equation=-s.lam() + 1
-    )
-    s.set_equation(
-        stage="decharge", lever="kappa", force="ghost-14", equation=-s.lam() + 1
-    )
-
-    # Update the schedule in the configuration.
-    config.lambda_schedule = s
 
     # Set up the runner.
     try:
