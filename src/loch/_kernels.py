@@ -272,7 +272,8 @@ code = """
             GLOBAL float* water_position,
             int is_target,
             GLOBAL float* randoms_rotation,
-            GLOBAL float* randoms_position,
+            GLOBAL float* randoms_position_sphere,
+            GLOBAL float* randoms_position_bulk,
             GLOBAL float* randoms_radius,
             GLOBAL const float* cell_matrix)
         {
@@ -319,9 +320,9 @@ code = """
                 if (is_target == 1)
                 {
                     // Generate a random position around the target using pre-generated normals.
-                    xyz[0] = randoms_position[tidx * 3];
-                    xyz[1] = randoms_position[tidx * 3 + 1];
-                    xyz[2] = randoms_position[tidx * 3 + 2];
+                    xyz[0] = randoms_position_sphere[tidx * 3];
+                    xyz[1] = randoms_position_sphere[tidx * 3 + 1];
+                    xyz[2] = randoms_position_sphere[tidx * 3 + 2];
 
                     float norm = sqrtf(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
                     xyz[0] /= norm;
@@ -337,9 +338,9 @@ code = """
                 {
                     // Use pre-generated uniform randoms for bulk sampling.
                     float r[3];
-                    r[0] = randoms_position[tidx * 3];
-                    r[1] = randoms_position[tidx * 3 + 1];
-                    r[2] = randoms_position[tidx * 3 + 2];
+                    r[0] = randoms_position_bulk[tidx * 3];
+                    r[1] = randoms_position_bulk[tidx * 3 + 1];
+                    r[2] = randoms_position_bulk[tidx * 3 + 2];
 
                     for (int i = 0; i < 3; i++)
                     {

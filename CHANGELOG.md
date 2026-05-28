@@ -10,6 +10,7 @@ Changelog
 * Add support for Beutler soft-core Lennard-Jones form.
 * Fixed type check for ``water_template``.
 * Add support for simulations in the osmotic ensemble.
+* Fixed non-uniform bulk insertion positions caused by use of normal rather than uniform random numbers.
 
 [2025.2.0](https://github.com/openbiosim/loch/compare/2025.1.0...2025.2.0) - Feb 2026
 -------------------------------------------------------------------------------------

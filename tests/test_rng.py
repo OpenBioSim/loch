@@ -11,12 +11,14 @@ class TestBatchRandoms:
         """Test that BatchRandoms has the expected fields."""
         batch = BatchRandoms(
             rotation=np.zeros((10, 3)),
-            position=np.zeros((10, 3)),
+            position_sphere=np.zeros((10, 3)),
+            position_bulk=np.zeros((10, 3)),
             radius=np.zeros(10),
             acceptance=np.zeros(10),
         )
         assert hasattr(batch, "rotation")
-        assert hasattr(batch, "position")
+        assert hasattr(batch, "position_sphere")
+        assert hasattr(batch, "position_bulk")
         assert hasattr(batch, "radius")
         assert hasattr(batch, "acceptance")
 
@@ -32,7 +34,8 @@ class TestRNGManager:
         batch = rng.get_batch_randoms()
 
         assert batch.rotation.shape == (batch_size, 3)
-        assert batch.position.shape == (batch_size, 3)
+        assert batch.position_sphere.shape == (batch_size, 3)
+        assert batch.position_bulk.shape == (batch_size, 3)
         assert batch.radius.shape == (batch_size,)
         assert batch.acceptance.shape == (batch_size,)
 
@@ -45,7 +48,8 @@ class TestRNGManager:
         batch = rng.get_batch_randoms()
 
         assert batch.rotation.dtype == np.float32
-        assert batch.position.dtype == np.float32
+        assert batch.position_sphere.dtype == np.float32
+        assert batch.position_bulk.dtype == np.float32
         assert batch.radius.dtype == np.float32
         assert batch.acceptance.dtype == np.float32
 
@@ -60,6 +64,7 @@ class TestRNGManager:
             batch = rng.get_batch_randoms()
 
             assert np.all(batch.rotation >= 0) and np.all(batch.rotation < 1)
+            assert np.all(batch.position_bulk >= 0) and np.all(batch.position_bulk < 1)
             assert np.all(batch.radius >= 0) and np.all(batch.radius < 1)
             assert np.all(batch.acceptance >= 0) and np.all(batch.acceptance < 1)
 
@@ -73,7 +78,7 @@ class TestRNGManager:
         samples = []
         for _ in range(10):
             batch = rng.get_batch_randoms()
-            samples.append(batch.position.flatten())
+            samples.append(batch.position_sphere.flatten())
 
         all_samples = np.concatenate(samples)
 
@@ -92,7 +97,8 @@ class TestRNGManager:
         batch2 = rng2.get_batch_randoms()
 
         np.testing.assert_array_equal(batch1.rotation, batch2.rotation)
-        np.testing.assert_array_equal(batch1.position, batch2.position)
+        np.testing.assert_array_equal(batch1.position_sphere, batch2.position_sphere)
+        np.testing.assert_array_equal(batch1.position_bulk, batch2.position_bulk)
         np.testing.assert_array_equal(batch1.radius, batch2.radius)
         np.testing.assert_array_equal(batch1.acceptance, batch2.acceptance)
 
