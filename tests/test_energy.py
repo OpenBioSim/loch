@@ -285,17 +285,17 @@ def test_platform_consistency(fixture, request):
     )
 
 
-# Reference energy values captured with seed=42 on the original kernel implementation.
+# Reference energy values captured with seed=42.
 # These anchor the kernel output to exact values so that refactors (e.g. moving from
 # __device__ static arrays to buffer arguments) can be validated.
 _REFERENCE_ENERGIES = {
     "water_box": {
-        "energy_coul": -9.45853172201302,
-        "energy_lj": 3.2191088,
+        "energy_coul": -4.674884,
+        "energy_lj": 0.82380486,
     },
     "bpti": {
-        "energy_coul": -15.377882774621897,
-        "energy_lj": -0.58867246,
+        "energy_coul": -13.205343,
+        "energy_lj": 5.061536,
     },
 }
 

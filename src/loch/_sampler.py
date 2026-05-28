@@ -1479,7 +1479,10 @@ class GCMCSampler:
             # Get pre-computed random numbers for this batch.
             batch_randoms = self._rng_manager.get_batch_randoms()
             randoms_rotation = self._backend.to_gpu(batch_randoms.rotation)
-            randoms_position = self._backend.to_gpu(batch_randoms.position)
+            randoms_position_sphere = self._backend.to_gpu(
+                batch_randoms.position_sphere
+            )
+            randoms_position_bulk = self._backend.to_gpu(batch_randoms.position_bulk)
             randoms_radius = self._backend.to_gpu(batch_randoms.radius)
 
             # Generate the random water positions and orientations.
@@ -1492,7 +1495,8 @@ class GCMCSampler:
                 self._water_positions,
                 is_target,
                 randoms_rotation,
-                randoms_position,
+                randoms_position_sphere,
+                randoms_position_bulk,
                 randoms_radius,
                 self._gpu_cell_matrix,
                 block=(self._num_threads, 1, 1),
