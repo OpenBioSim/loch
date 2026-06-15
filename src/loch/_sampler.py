@@ -863,6 +863,86 @@ class GCMCSampler:
         """
         return self._system.clone()
 
+    def update_system(self, context: _Optional[_openmm.Context] = None) -> _Any:
+        """
+        Update the system with the current water state and (optionally) positions.
+
+        Parameters
+        ----------
+
+        context: openmm.Context
+            The OpenMM context containing the current positions.
+
+        Returns
+        -------
+
+        system: sire.system.System
+            The updated GCMC system.
+        """
+
+        # Clone the system.
+        system = self._system.clone()
+
+        if context is not None:
+            if not isinstance(context, _openmm.Context):
+                raise ValueError("'context' must be of type 'openmm.Context'")
+
+            from sire.legacy.IO import setCoordinates
+
+            # Get the current OpenMM positions in Angstrom.
+            positions = (
+                context.getState(getPositions=True).getPositions(asNumpy=True)
+                / _openmm.unit.angstrom
+            ).tolist()
+
+            try:
+                # Update the system with the current positions.
+                system._system = setCoordinates(
+                    self._system._system,
+                    positions,
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Could not update the system with the current positions: {e}"
+                )
+
+        # Flag the ghost waters in the system according to the current water state.
+        system = self._flag_ghost_waters(system)
+
+        # Turn OFF interactions for ghost waters in the system. This is done
+        # by setting the charges and Lennard-Jones parameters of ghost waters
+        # to zero.
+        for mol in system["property is_ghost_water"].molecules():
+            cursor = mol.cursor()
+            for atom in cursor.atoms():
+                LJ = atom["LJ"]
+                atom["charge"] = 0.0 * _sr.units.mod_electron
+                atom["LJ"] = _sr.legacy.MM.LJParameter(
+                    LJ.sigma(), 0.0 * _sr.units.kcal_per_mol
+                )
+            mol = cursor.commit()
+            system.update(mol)
+
+        # Turn ON any ghost buffer waters that were inserted during sampling.
+        # These are waters in the last _num_ghost_waters slots that now have state=1.
+        first_ghost_buffer = self._num_waters - self._num_ghost_waters
+        for i in range(first_ghost_buffer, self._num_waters):
+            if self._water_state[i] == 1:
+                mol = system[
+                    system.atoms()[int(self._water_indices_sire[i])].molecule()
+                ]
+                cursor = mol.cursor()
+                for j, atom in enumerate(cursor.atoms()):
+                    atom["charge"] = self._water_charge[j] * _sr.units.mod_electron
+                    atom["LJ"] = _sr.legacy.MM.LJParameter(
+                        self._water_sigma[j] * _sr.units.angstrom,
+                        self._water_epsilon[j] * _sr.units.kcal_per_mol,
+                    )
+                mol = cursor.commit()
+                system.update(mol)
+
+        return system
+
     def compiler_log(self) -> str:
         """
         Return the GPU kernel compiler log.
@@ -3090,6 +3170,9 @@ class GCMCSampler:
 
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be a Sire system")
+
+        # Clone the system so that we don't modify the original.
+        system = system.clone()
 
         # Use the Sire atom indices (no vsite offset) so that lookups into the
         # input topology are correct regardless of virtual sites in the context.
