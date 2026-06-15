@@ -1,8 +1,10 @@
 import math
 import openmm
+import openmm.unit as omm_unit
 import os
 import pytest
 
+import numpy as np
 import sire as sr
 
 from loch import GCMCSampler, SoftcoreForm
@@ -457,4 +459,160 @@ def test_cached_kernel_correctness(platform, water_box):
     )
     assert math.isclose(energy1_lj, energy2_lj, abs_tol=1e-4), (
         f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"
+    )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_update_system_insertion(platform, water_box):
+    """
+    After an accepted insertion of a ghost buffer water, update_system() must:
+      - restore real LJ/charge parameters on the inserted water, and
+      - reflect the current OpenMM coordinates for that water.
+    """
+    mols, reference = water_box
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        platform=platform,
+    )
+
+    ctx = d.context()
+    first_ghost_buffer = sampler._num_waters - sampler._num_ghost_waters
+
+    # Loop until a ghost buffer water is inserted.
+    inserted_idx = None
+    while inserted_idx is None:
+        state_before = sampler.water_state()
+        moves = sampler.move(ctx)
+        if len(moves) == 0 or moves[0] != 0:
+            continue
+        state_after = sampler.water_state()
+        # Find a buffer-slot water that changed from 0 → 1.
+        for i in range(first_ghost_buffer, sampler._num_waters):
+            if state_before[i] == 0 and state_after[i] == 1:
+                inserted_idx = i
+                break
+
+    assert inserted_idx is not None, "No buffer water was inserted"
+
+    # Call update_system and get the returned system.
+    system = sampler.update_system(ctx)
+
+    # Get the sire atom index (no vsite offset) of the inserted water's oxygen.
+    o_idx = int(sampler._water_indices_sire[inserted_idx])
+    inserted_mol = system[system.atoms()[o_idx].molecule()]
+
+    # Check parameters are real (non-zero).
+    for j, atom in enumerate(inserted_mol.atoms()):
+        charge = atom.property("charge").value()
+        lj = atom.property("LJ")
+        epsilon = lj.epsilon().value()
+
+        assert charge == pytest.approx(sampler._water_charge[j], abs=1e-6), (
+            f"Atom {j} charge not restored: got {charge}, expected {sampler._water_charge[j]}"
+        )
+        assert epsilon == pytest.approx(sampler._water_epsilon[j], abs=1e-6), (
+            f"Atom {j} epsilon not restored: got {epsilon}, expected {sampler._water_epsilon[j]}"
+        )
+
+    # Check coordinates match the OpenMM context.
+    omm_positions = (
+        ctx.getState(getPositions=True, enforcePeriodicBox=False)
+        .getPositions(asNumpy=True)
+        .value_in_unit(omm_unit.angstrom)
+    )
+
+    # _water_indices uses the vsite-offset index into the OpenMM atom list.
+    omm_o_idx = int(sampler._water_indices[inserted_idx])
+
+    for j, atom in enumerate(inserted_mol.atoms()):
+        sire_coord = atom.property("coordinates")
+        sire_xyz = np.array(
+            [sire_coord.x().value(), sire_coord.y().value(), sire_coord.z().value()]
+        )
+        omm_xyz = omm_positions[omm_o_idx + j]
+        assert np.allclose(sire_xyz, omm_xyz, atol=1e-3), (
+            f"Atom {j} coordinates mismatch: sire={sire_xyz}, omm={omm_xyz}"
+        )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_finalise_system(platform, water_box):
+    """
+    After an accepted insertion of a ghost buffer water, finalise_system() must
+    return a system whose water count equals the number of real (non-ghost)
+    waters in the sampler.
+    """
+    mols, reference = water_box
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        platform=platform,
+    )
+
+    ctx = d.context()
+    first_ghost_buffer = sampler._num_waters - sampler._num_ghost_waters
+
+    # Loop until a ghost buffer water is inserted.
+    inserted = False
+    while not inserted:
+        state_before = sampler.water_state()
+        moves = sampler.move(ctx)
+        if len(moves) == 0 or moves[0] != 0:
+            continue
+        state_after = sampler.water_state()
+        for i in range(first_ghost_buffer, sampler._num_waters):
+            if state_before[i] == 0 and state_after[i] == 1:
+                inserted = True
+                break
+
+    system = sampler.finalise_system(ctx)
+
+    expected_waters = int(sampler._get_non_ghost_waters().size)
+    actual_waters = system["water"].num_molecules()
+
+    assert actual_waters == expected_waters, (
+        f"Water count mismatch: got {actual_waters}, expected {expected_waters}"
     )

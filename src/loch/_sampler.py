@@ -863,6 +863,136 @@ class GCMCSampler:
         """
         return self._system.clone()
 
+    def _system_from_context(self, context: _Optional[_openmm.Context]) -> _Any:
+        """
+        Clone the internal system and, if a context is provided, update
+        atomic coordinates and the periodic box from it.
+        """
+        system = self._system.clone()
+
+        if context is not None:
+            if not isinstance(context, _openmm.Context):
+                raise ValueError("'context' must be of type 'openmm.Context'")
+
+            from sire.legacy.IO import setCoordinates
+
+            state = context.getState(getPositions=True)
+            positions = (
+                state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+            ).tolist()
+
+            try:
+                system._system = setCoordinates(self._system._system, positions)
+            except Exception as e:
+                raise ValueError(
+                    f"Could not update the system with the current positions: {e}"
+                )
+
+            # Update the periodic box from the context.
+            box = state.getPeriodicBoxVectors()
+            v0 = [10 * box[0].x, 10 * box[0].y, 10 * box[0].z]
+            v1 = [10 * box[1].x, 10 * box[1].y, 10 * box[1].z]
+            v2 = [10 * box[2].x, 10 * box[2].y, 10 * box[2].z]
+            space = _sr.vol.TriclinicBox(
+                _sr.maths.Vector(*v0),
+                _sr.maths.Vector(*v1),
+                _sr.maths.Vector(*v2),
+            )
+            system.set_property("space", space)
+
+        return system
+
+    def update_system(self, context: _Optional[_openmm.Context] = None) -> _Any:
+        """
+        Update the system with the current water state and (optionally) positions.
+
+        Parameters
+        ----------
+
+        context: openmm.Context
+            The OpenMM context containing the current positions.
+
+        Returns
+        -------
+
+        system: sire.system.System
+            The updated GCMC system.
+        """
+
+        # Clone the system and update coordinates and box from the context.
+        system = self._system_from_context(context)
+
+        # Flag the ghost waters in the system according to the current water state.
+        system = self._flag_ghost_waters(system)
+
+        # Turn OFF interactions for ghost waters in the system. This is done
+        # by setting the charges and Lennard-Jones parameters of ghost waters
+        # to zero.
+        for mol in system["property is_ghost_water"].molecules():
+            cursor = mol.cursor()
+            for atom in cursor.atoms():
+                LJ = atom["LJ"]
+                atom["charge"] = 0.0 * _sr.units.mod_electron
+                atom["LJ"] = _sr.legacy.MM.LJParameter(
+                    LJ.sigma(), 0.0 * _sr.units.kcal_per_mol
+                )
+            mol = cursor.commit()
+            system.update(mol)
+
+        # Turn ON any ghost buffer waters that were inserted during sampling.
+        # These are waters in the last _num_ghost_waters slots that now have state=1.
+        first_ghost_buffer = self._num_waters - self._num_ghost_waters
+        for i in range(first_ghost_buffer, self._num_waters):
+            if self._water_state[i] == 1:
+                mol = system[
+                    system.atoms()[int(self._water_indices_sire[i])].molecule()
+                ]
+                cursor = mol.cursor()
+                for j, atom in enumerate(cursor.atoms()):
+                    atom["charge"] = self._water_charge[j] * _sr.units.mod_electron
+                    atom["LJ"] = _sr.legacy.MM.LJParameter(
+                        self._water_sigma[j] * _sr.units.angstrom,
+                        self._water_epsilon[j] * _sr.units.kcal_per_mol,
+                    )
+                mol = cursor.commit()
+                system.update(mol)
+
+        return system
+
+    def finalise_system(self, context: _Optional[_openmm.Context] = None) -> _Any:
+        """
+        Return the system with ghost waters removed and (optionally) positions
+        updated from an OpenMM context.
+
+        Unlike :meth:`update_system`, which retains ghost waters with zeroed
+        parameters, this method deletes them entirely so the returned system is
+        suitable for use as input to non-GCMC simulations or analyses.
+
+        Parameters
+        ----------
+
+        context: openmm.Context
+            The OpenMM context containing the current positions.
+
+        Returns
+        -------
+
+        system: sire.system.System
+            The system with ghost waters removed.
+        """
+
+        # Clone the system and update coordinates and box from the context.
+        system = self._system_from_context(context)
+
+        # Collect all ghost water molecules before removing any, since each
+        # removal shifts atom indices.
+        ghost_oxygens = self._water_indices_sire[self._get_ghost_waters()]
+        ghost_mols = [system[system.atoms()[int(i)].molecule()] for i in ghost_oxygens]
+        for mol in ghost_mols:
+            system.remove(mol)
+
+        return system
+
     def compiler_log(self) -> str:
         """
         Return the GPU kernel compiler log.
@@ -3090,6 +3220,9 @@ class GCMCSampler:
 
         if not isinstance(system, _sr.system.System):
             raise ValueError("'system' must be a Sire system")
+
+        # Clone the system so that we don't modify the original.
+        system = system.clone()
 
         # Use the Sire atom indices (no vsite offset) so that lookups into the
         # input topology are correct regardless of virtual sites in the context.
