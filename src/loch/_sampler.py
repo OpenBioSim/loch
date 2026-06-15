@@ -943,6 +943,62 @@ class GCMCSampler:
 
         return system
 
+    def finalise_system(self, context: _Optional[_openmm.Context] = None) -> _Any:
+        """
+        Return the system with ghost waters removed and (optionally) positions
+        updated from an OpenMM context.
+
+        Unlike :meth:`update_system`, which retains ghost waters with zeroed
+        parameters, this method deletes them entirely so the returned system is
+        suitable for use as input to non-GCMC simulations or analyses.
+
+        Parameters
+        ----------
+
+        context: openmm.Context
+            The OpenMM context containing the current positions.
+
+        Returns
+        -------
+
+        system: sire.system.System
+            The system with ghost waters removed.
+        """
+
+        # Clone the system.
+        system = self._system.clone()
+
+        if context is not None:
+            if not isinstance(context, _openmm.Context):
+                raise ValueError("'context' must be of type 'openmm.Context'")
+
+            from sire.legacy.IO import setCoordinates
+
+            # Get the current OpenMM positions in Angstrom.
+            positions = (
+                context.getState(getPositions=True).getPositions(asNumpy=True)
+                / _openmm.unit.angstrom
+            ).tolist()
+
+            try:
+                system._system = setCoordinates(
+                    self._system._system,
+                    positions,
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Could not update the system with the current positions: {e}"
+                )
+
+        # Collect all ghost water molecules before removing any, since each
+        # removal shifts atom indices.
+        ghost_oxygens = self._water_indices_sire[self._get_ghost_waters()]
+        ghost_mols = [system[system.atoms()[int(i)].molecule()] for i in ghost_oxygens]
+        for mol in ghost_mols:
+            system.remove(mol)
+
+        return system
+
     def compiler_log(self) -> str:
         """
         Return the GPU kernel compiler log.
