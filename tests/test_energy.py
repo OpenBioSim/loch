@@ -555,3 +555,64 @@ def test_update_system_insertion(platform, water_box):
         assert np.allclose(sire_xyz, omm_xyz, atol=1e-3), (
             f"Atom {j} coordinates mismatch: sire={sire_xyz}, omm={omm_xyz}"
         )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_finalise_system(platform, water_box):
+    """
+    After an accepted insertion of a ghost buffer water, finalise_system() must
+    return a system whose water count equals the number of real (non-ghost)
+    waters in the sampler.
+    """
+    mols, reference = water_box
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        platform=platform,
+    )
+
+    ctx = d.context()
+    first_ghost_buffer = sampler._num_waters - sampler._num_ghost_waters
+
+    # Loop until a ghost buffer water is inserted.
+    inserted = False
+    while not inserted:
+        state_before = sampler.water_state()
+        moves = sampler.move(ctx)
+        if len(moves) == 0 or moves[0] != 0:
+            continue
+        state_after = sampler.water_state()
+        for i in range(first_ghost_buffer, sampler._num_waters):
+            if state_before[i] == 0 and state_after[i] == 1:
+                inserted = True
+                break
+
+    system = sampler.finalise_system(ctx)
+
+    expected_waters = int(sampler._get_non_ghost_waters().size)
+    actual_waters = system["water"].num_molecules()
+
+    assert actual_waters == expected_waters, (
+        f"Water count mismatch: got {actual_waters}, expected {expected_waters}"
+    )
