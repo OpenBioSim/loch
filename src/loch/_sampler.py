@@ -863,6 +863,45 @@ class GCMCSampler:
         """
         return self._system.clone()
 
+    def _system_from_context(self, context: _Optional[_openmm.Context]) -> _Any:
+        """
+        Clone the internal system and, if a context is provided, update
+        atomic coordinates and the periodic box from it.
+        """
+        system = self._system.clone()
+
+        if context is not None:
+            if not isinstance(context, _openmm.Context):
+                raise ValueError("'context' must be of type 'openmm.Context'")
+
+            from sire.legacy.IO import setCoordinates
+
+            state = context.getState(getPositions=True)
+            positions = (
+                state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+            ).tolist()
+
+            try:
+                system._system = setCoordinates(self._system._system, positions)
+            except Exception as e:
+                raise ValueError(
+                    f"Could not update the system with the current positions: {e}"
+                )
+
+            # Update the periodic box from the context.
+            box = state.getPeriodicBoxVectors()
+            v0 = [10 * box[0].x, 10 * box[0].y, 10 * box[0].z]
+            v1 = [10 * box[1].x, 10 * box[1].y, 10 * box[1].z]
+            v2 = [10 * box[2].x, 10 * box[2].y, 10 * box[2].z]
+            space = _sr.vol.TriclinicBox(
+                _sr.maths.Vector(*v0),
+                _sr.maths.Vector(*v1),
+                _sr.maths.Vector(*v2),
+            )
+            system.set_property("space", space)
+
+        return system
+
     def update_system(self, context: _Optional[_openmm.Context] = None) -> _Any:
         """
         Update the system with the current water state and (optionally) positions.
@@ -880,31 +919,8 @@ class GCMCSampler:
             The updated GCMC system.
         """
 
-        # Clone the system.
-        system = self._system.clone()
-
-        if context is not None:
-            if not isinstance(context, _openmm.Context):
-                raise ValueError("'context' must be of type 'openmm.Context'")
-
-            from sire.legacy.IO import setCoordinates
-
-            # Get the current OpenMM positions in Angstrom.
-            positions = (
-                context.getState(getPositions=True).getPositions(asNumpy=True)
-                / _openmm.unit.angstrom
-            ).tolist()
-
-            try:
-                # Update the system with the current positions.
-                system._system = setCoordinates(
-                    self._system._system,
-                    positions,
-                )
-            except Exception as e:
-                raise ValueError(
-                    f"Could not update the system with the current positions: {e}"
-                )
+        # Clone the system and update coordinates and box from the context.
+        system = self._system_from_context(context)
 
         # Flag the ghost waters in the system according to the current water state.
         system = self._flag_ghost_waters(system)
@@ -965,30 +981,8 @@ class GCMCSampler:
             The system with ghost waters removed.
         """
 
-        # Clone the system.
-        system = self._system.clone()
-
-        if context is not None:
-            if not isinstance(context, _openmm.Context):
-                raise ValueError("'context' must be of type 'openmm.Context'")
-
-            from sire.legacy.IO import setCoordinates
-
-            # Get the current OpenMM positions in Angstrom.
-            positions = (
-                context.getState(getPositions=True).getPositions(asNumpy=True)
-                / _openmm.unit.angstrom
-            ).tolist()
-
-            try:
-                system._system = setCoordinates(
-                    self._system._system,
-                    positions,
-                )
-            except Exception as e:
-                raise ValueError(
-                    f"Could not update the system with the current positions: {e}"
-                )
+        # Clone the system and update coordinates and box from the context.
+        system = self._system_from_context(context)
 
         # Collect all ghost water molecules before removing any, since each
         # removal shifts atom indices.
