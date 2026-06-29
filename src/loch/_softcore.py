@@ -19,7 +19,14 @@
 # along with Loch. If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 
-from ._sampler import *
-from ._softcore import *
-from ._utils import *
-from ._version import __version__
+__all__ = ["SoftcoreForm"]
+
+from enum import IntEnum
+
+
+class SoftcoreForm(IntEnum):
+    """Enum for the soft-core potential form used for alchemical interactions."""
+
+    ZACHARIAS = 0
+    TAYLOR = 1
+    BEUTLER = 2

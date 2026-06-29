@@ -68,6 +68,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         device : int
             The CUDA device index to use.
 
@@ -113,6 +114,7 @@ class CUDAPlatform(_PlatformBackend):
         # Use the primary context (shared with OpenMM and other CUDA users).
         self._pycuda_context = self._cuda_device.retain_primary_context()
         self._pycuda_context.push()
+        self._push_count = 1
 
         self._device = self._pycuda_context.get_device()
 
@@ -134,6 +136,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
@@ -198,11 +201,13 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         array : numpy.ndarray
             Array to transfer to GPU.
 
         Returns
         -------
+
         pycuda.gpuarray.GPUArray
             GPU array containing the data.
         """
@@ -214,6 +219,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         shape : tuple
             Shape of the array to allocate.
 
@@ -222,6 +228,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         pycuda.gpuarray.GPUArray
             Allocated GPU array.
         """
@@ -233,11 +240,13 @@ class CUDAPlatform(_PlatformBackend):
 
         Parameters
         ----------
+
         buffer : pycuda.gpuarray.GPUArray
             GPU array to transfer from.
 
         Returns
         -------
+
         numpy.ndarray
             Array containing the data from GPU.
         """
@@ -248,22 +257,26 @@ class CUDAPlatform(_PlatformBackend):
         Push the primary context onto the calling thread's context stack.
         """
         self._pycuda_context.push()
+        self._push_count += 1
 
     def pop_context(self):
         """
         Pop the primary context from the calling thread's context stack.
         """
         self._pycuda_context.pop()
+        self._push_count -= 1
 
     def cleanup(self):
         """
-        Clean up CUDA resources and pop the context pushed during __init__.
+        Clean up CUDA resources and pop all outstanding context pushes.
         """
         if self._pycuda_context is not None:
-            try:
-                self._pycuda_context.pop()
-            except Exception:
-                pass
+            for _ in range(self._push_count):
+                try:
+                    self._pycuda_context.pop()
+                except Exception:
+                    pass
+            self._push_count = 0
             self._pycuda_context = None
 
     @property
@@ -273,6 +286,7 @@ class CUDAPlatform(_PlatformBackend):
 
         Returns
         -------
+
         str
             Platform name ('cuda').
         """

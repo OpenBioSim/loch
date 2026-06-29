@@ -1,11 +1,13 @@
 import math
 import openmm
+import openmm.unit as omm_unit
 import os
 import pytest
 
+import numpy as np
 import sire as sr
 
-from loch import GCMCSampler
+from loch import GCMCSampler, SoftcoreForm
 
 
 @pytest.mark.skipif(
@@ -13,8 +15,17 @@ from loch import GCMCSampler
     reason="Requires CUDA enabled GPU.",
 )
 @pytest.mark.parametrize("platform", ["cuda", "opencl"])
-@pytest.mark.parametrize("fixture", ["water_box", "bpti", "sd12"])
-def test_energy(fixture, platform, request):
+@pytest.mark.parametrize(
+    "fixture,softcore_form",
+    [
+        ("water_box", "zacharias"),
+        ("bpti", "zacharias"),
+        ("sd12", "zacharias"),
+        ("sd12", "taylor"),
+        ("sd12", "beutler"),
+    ],
+)
+def test_energy(fixture, softcore_form, platform, request):
     """
     Test that the RF energy difference agrees with OpenMM.
     """
@@ -36,12 +47,21 @@ def test_energy(fixture, platform, request):
         reference=reference,
         lambda_schedule=schedule,
         lambda_value=lambda_value,
+        softcore_form=softcore_form,
         log_level="debug",
         ghost_file=None,
         log_file=None,
         test=True,
         platform=platform,
     )
+
+    # Build map of extra options for the dynamics object.
+    dyn_map = {}
+    if sampler._softcore_form == SoftcoreForm.TAYLOR:
+        dyn_map["use_taylor_softening"] = True
+    elif sampler._softcore_form == SoftcoreForm.BEUTLER:
+        dyn_map["use_beutler_softening"] = True
+        dyn_map["beutler_alpha"] = sampler._beutler_alpha
 
     # Create a dynamics object using the modified GCMC system.
     d = sampler.system().dynamics(
@@ -53,10 +73,10 @@ def test_energy(fixture, platform, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=sampler._coulomb_power,
         shift_coulomb=str(sampler._shift_coulomb),
         shift_delta=str(sampler._shift_delta),
         platform=platform,
+        map=dyn_map,
     )
 
     # Loop until we accept an insertion move.
@@ -212,7 +232,6 @@ def test_platform_consistency(fixture, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=cuda_sampler._coulomb_power,
         shift_coulomb=str(cuda_sampler._shift_coulomb),
         shift_delta=str(cuda_sampler._shift_delta),
         platform="cuda",
@@ -227,7 +246,6 @@ def test_platform_consistency(fixture, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=opencl_sampler._coulomb_power,
         shift_coulomb=str(opencl_sampler._shift_coulomb),
         shift_delta=str(opencl_sampler._shift_delta),
         platform="opencl",
@@ -264,22 +282,22 @@ def test_platform_consistency(fixture, request):
     relative_diff = abs(cuda_energy - opencl_energy) / max(
         abs(cuda_energy), abs(opencl_energy), 1.0
     )
-    assert (
-        relative_diff < 0.001
-    ), f"Platform energies differ: CUDA={cuda_energy:.6f}, OpenCL={opencl_energy:.6f}, relative_diff={relative_diff:.6f}"
+    assert relative_diff < 0.001, (
+        f"Platform energies differ: CUDA={cuda_energy:.6f}, OpenCL={opencl_energy:.6f}, relative_diff={relative_diff:.6f}"
+    )
 
 
-# Reference energy values captured with seed=42 on the original kernel implementation.
+# Reference energy values captured with seed=42.
 # These anchor the kernel output to exact values so that refactors (e.g. moving from
 # __device__ static arrays to buffer arguments) can be validated.
 _REFERENCE_ENERGIES = {
     "water_box": {
-        "energy_coul": -9.45853172201302,
-        "energy_lj": 3.2191088,
+        "energy_coul": -4.674884,
+        "energy_lj": 0.82380486,
     },
     "bpti": {
-        "energy_coul": -15.377882774621897,
-        "energy_lj": -0.58867246,
+        "energy_coul": -13.205343,
+        "energy_lj": 5.061536,
     },
 }
 
@@ -332,7 +350,6 @@ def test_energy_regression(fixture, platform, request):
         timestep="2 fs",
         schedule=schedule,
         lambda_value=lambda_value,
-        coulomb_power=sampler._coulomb_power,
         shift_coulomb=str(sampler._shift_coulomb),
         shift_delta=str(sampler._shift_delta),
         platform=platform,
@@ -351,12 +368,12 @@ def test_energy_regression(fixture, platform, request):
 
     # Check against reference values.
     ref = _REFERENCE_ENERGIES[fixture]
-    assert math.isclose(
-        energy_coul, ref["energy_coul"], abs_tol=1e-4
-    ), f"Coulomb energy changed: {energy_coul!r} != {ref['energy_coul']!r}"
-    assert math.isclose(
-        energy_lj, ref["energy_lj"], abs_tol=1e-4
-    ), f"LJ energy changed: {energy_lj!r} != {ref['energy_lj']!r}"
+    assert math.isclose(energy_coul, ref["energy_coul"], abs_tol=1e-4), (
+        f"Coulomb energy changed: {energy_coul!r} != {ref['energy_coul']!r}"
+    )
+    assert math.isclose(energy_lj, ref["energy_lj"], abs_tol=1e-4), (
+        f"LJ energy changed: {energy_lj!r} != {ref['energy_lj']!r}"
+    )
 
 
 @pytest.mark.skipif(
@@ -399,7 +416,6 @@ def test_cached_kernel_correctness(platform, water_box):
             timestep="2 fs",
             schedule=schedule,
             lambda_value=0.5,
-            coulomb_power=sampler._coulomb_power,
             shift_coulomb=str(sampler._shift_coulomb),
             shift_delta=str(sampler._shift_delta),
             platform=platform,
@@ -438,9 +454,165 @@ def test_cached_kernel_correctness(platform, water_box):
     energy2_coul = sampler2._debug["energy_coul"]
     energy2_lj = sampler2._debug["energy_lj"]
 
-    assert math.isclose(
-        energy1_coul, energy2_coul, abs_tol=1e-4
-    ), f"Coulomb energy mismatch: {energy1_coul!r} vs {energy2_coul!r}"
-    assert math.isclose(
-        energy1_lj, energy2_lj, abs_tol=1e-4
-    ), f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"
+    assert math.isclose(energy1_coul, energy2_coul, abs_tol=1e-4), (
+        f"Coulomb energy mismatch: {energy1_coul!r} vs {energy2_coul!r}"
+    )
+    assert math.isclose(energy1_lj, energy2_lj, abs_tol=1e-4), (
+        f"LJ energy mismatch: {energy1_lj!r} vs {energy2_lj!r}"
+    )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_update_system_insertion(platform, water_box):
+    """
+    After an accepted insertion of a ghost buffer water, update_system() must:
+      - restore real LJ/charge parameters on the inserted water, and
+      - reflect the current OpenMM coordinates for that water.
+    """
+    mols, reference = water_box
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        platform=platform,
+    )
+
+    ctx = d.context()
+    first_ghost_buffer = sampler._num_waters - sampler._num_ghost_waters
+
+    # Loop until a ghost buffer water is inserted.
+    inserted_idx = None
+    while inserted_idx is None:
+        state_before = sampler.water_state()
+        moves = sampler.move(ctx)
+        if len(moves) == 0 or moves[0] != 0:
+            continue
+        state_after = sampler.water_state()
+        # Find a buffer-slot water that changed from 0 → 1.
+        for i in range(first_ghost_buffer, sampler._num_waters):
+            if state_before[i] == 0 and state_after[i] == 1:
+                inserted_idx = i
+                break
+
+    assert inserted_idx is not None, "No buffer water was inserted"
+
+    # Call update_system and get the returned system.
+    system = sampler.update_system(ctx)
+
+    # Get the sire atom index (no vsite offset) of the inserted water's oxygen.
+    o_idx = int(sampler._water_indices_sire[inserted_idx])
+    inserted_mol = system[system.atoms()[o_idx].molecule()]
+
+    # Check parameters are real (non-zero).
+    for j, atom in enumerate(inserted_mol.atoms()):
+        charge = atom.property("charge").value()
+        lj = atom.property("LJ")
+        epsilon = lj.epsilon().value()
+
+        assert charge == pytest.approx(sampler._water_charge[j], abs=1e-6), (
+            f"Atom {j} charge not restored: got {charge}, expected {sampler._water_charge[j]}"
+        )
+        assert epsilon == pytest.approx(sampler._water_epsilon[j], abs=1e-6), (
+            f"Atom {j} epsilon not restored: got {epsilon}, expected {sampler._water_epsilon[j]}"
+        )
+
+    # Check coordinates match the OpenMM context.
+    omm_positions = (
+        ctx.getState(getPositions=True, enforcePeriodicBox=False)
+        .getPositions(asNumpy=True)
+        .value_in_unit(omm_unit.angstrom)
+    )
+
+    # _water_indices uses the vsite-offset index into the OpenMM atom list.
+    omm_o_idx = int(sampler._water_indices[inserted_idx])
+
+    for j, atom in enumerate(inserted_mol.atoms()):
+        sire_coord = atom.property("coordinates")
+        sire_xyz = np.array(
+            [sire_coord.x().value(), sire_coord.y().value(), sire_coord.z().value()]
+        )
+        omm_xyz = omm_positions[omm_o_idx + j]
+        assert np.allclose(sire_xyz, omm_xyz, atol=1e-3), (
+            f"Atom {j} coordinates mismatch: sire={sire_xyz}, omm={omm_xyz}"
+        )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_finalise_system(platform, water_box):
+    """
+    After an accepted insertion of a ghost buffer water, finalise_system() must
+    return a system whose water count equals the number of real (non-ghost)
+    waters in the sampler.
+    """
+    mols, reference = water_box
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        platform=platform,
+    )
+
+    ctx = d.context()
+    first_ghost_buffer = sampler._num_waters - sampler._num_ghost_waters
+
+    # Loop until a ghost buffer water is inserted.
+    inserted = False
+    while not inserted:
+        state_before = sampler.water_state()
+        moves = sampler.move(ctx)
+        if len(moves) == 0 or moves[0] != 0:
+            continue
+        state_after = sampler.water_state()
+        for i in range(first_ghost_buffer, sampler._num_waters):
+            if state_before[i] == 0 and state_after[i] == 1:
+                inserted = True
+                break
+
+    system = sampler.finalise_system(ctx)
+
+    expected_waters = int(sampler._get_non_ghost_waters().size)
+    actual_waters = system["water"].num_molecules()
+
+    assert actual_waters == expected_waters, (
+        f"Water count mismatch: got {actual_waters}, expected {expected_waters}"
+    )

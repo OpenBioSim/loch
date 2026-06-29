@@ -36,6 +36,7 @@ def excess_chemical_potential(
     runtime: str = "5 ns",
     num_lambda: int = 24,
     replica_exchange: bool = False,
+    use_dispersion_correction: bool = False,
     work_dir: _Optional[str] = None,
 ) -> float:
     """
@@ -65,6 +66,9 @@ def excess_chemical_potential(
 
     replica_exchange: bool, optional
         Whether to use replica exchange during the calculation (default is False).
+
+    use_dispersion_correction: bool, optional
+        Whether to include the long-range dispersion correction (default is False).
 
     work_dir: str, optional
         Working directory for the decoupling simulation (default is None,
@@ -120,6 +124,9 @@ def excess_chemical_potential(
     if not isinstance(replica_exchange, bool):
         raise TypeError("'replica_exchange' must be a of type 'bool'.")
 
+    if not isinstance(use_dispersion_correction, bool):
+        raise TypeError("'use_dispersion_correction' must be a of type 'bool'.")
+
     if work_dir is not None:
         if not isinstance(work_dir, str):
             raise TypeError("'work_dir' must be a of type 'str'.")
@@ -154,7 +161,9 @@ def excess_chemical_potential(
             runtime=runtime,
             timestep="2 fs",
             h_mass_factor=1,
-            shift_delta="2.25 A",
+            lambda_schedule="decouple",
+            softcore_form="beutler",
+            use_dispersion_correction=use_dispersion_correction,
             output_directory=work_dir,
         )
     except Exception as e:
@@ -172,33 +181,6 @@ def excess_chemical_potential(
     mol = sr.morph.decouple(mol, as_new_molecule=False)
     system.update(mol)
     system = sr.morph.link_to_reference(system)
-
-    # Get the lambda schedule from the molecule.
-    s = mol.property("schedule")
-
-    # Avoid scaling kappa during decouple stage.
-    s.set_equation(stage="decouple", lever="kappa", force="ghost/ghost", equation=0)
-    s.set_equation(stage="decouple", lever="kappa", force="ghost-14", equation=0)
-
-    # Add new discharging stage.
-    s.set_equation(stage="decouple", lever="charge", equation=s.final())
-    s.prepend_stage("decharge", s.initial())
-    s.set_equation(
-        stage="decharge",
-        lever="charge",
-        equation=s.lam() * s.final() + s.initial() * (1 - s.lam()),
-    )
-    s.set_equation(stage="decharge", force="ghost/ghost", equation=s.initial())
-    s.set_equation(stage="decharge", force="ghost-14", equation=s.initial())
-    s.set_equation(
-        stage="decharge", lever="kappa", force="ghost/ghost", equation=-s.lam() + 1
-    )
-    s.set_equation(
-        stage="decharge", lever="kappa", force="ghost-14", equation=-s.lam() + 1
-    )
-
-    # Update the schedule in the configuration.
-    config.lambda_schedule = s
 
     # Set up the runner.
     try:
@@ -229,6 +211,7 @@ def standard_volume(
     cutoff: str = "10 A",
     num_samples: int = 5000,
     sample_interval: str = "1 ps",
+    use_dispersion_correction: bool = False,
 ) -> float:
     """
     Calculate the standard volume of water at the given temperature and pressure.
@@ -239,20 +222,23 @@ def standard_volume(
     system: sire.system.System
         The bulk water system.
 
-    temperature : str, optional
+    temperature: str, optional
         Temperature of the system (default is "298 K").
 
-    pressure : str, optional
+    pressure: str, optional
         Pressure of the system (default is "1 bar").
 
-    cutoff : str, optional
+    cutoff: str, optional
         Non-bonded interaction cutoff distance (default is "10 A").
 
-    num_samples : int, optional
+    num_samples: int, optional
         Number of volume samples to collect (default is 5000).
 
-    sample_interval : str, optional
+    sample_interval: str, optional
         Interval at which to sample the volume (default is "1 ps").
+
+    use_dispersion_correction: bool, optional
+        Whether to include the long-range dispersion correction (default is False).
 
     Returns
     -------
@@ -304,6 +290,9 @@ def standard_volume(
     if not u.has_same_units(sr.units.picosecond):
         raise ValueError("'sample_interval' has incorrect units.")
 
+    if not isinstance(use_dispersion_correction, bool):
+        raise TypeError("'use_dispersion_correction' must be a of type 'bool'.")
+
     # Disable the dynamics progress bar.
     sr.base.ProgressBar.set_silent()
 
@@ -319,7 +308,12 @@ def standard_volume(
 
     # Set up the NPT simulation.
     try:
-        d = system.dynamics(temperature=temperature, pressure=pressure, timestep="2 fs")
+        d = system.dynamics(
+            temperature=temperature,
+            pressure=pressure,
+            timestep="2 fs",
+            map={"use_dispersion_correction": use_dispersion_correction},
+        )
     except Exception as e:
         raise ValueError(f"Unable to set up NPT dynamics: {e}")
 

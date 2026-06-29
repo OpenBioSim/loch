@@ -272,7 +272,8 @@ code = """
             GLOBAL float* water_position,
             int is_target,
             GLOBAL float* randoms_rotation,
-            GLOBAL float* randoms_position,
+            GLOBAL float* randoms_position_sphere,
+            GLOBAL float* randoms_position_bulk,
             GLOBAL float* randoms_radius,
             GLOBAL const float* cell_matrix)
         {
@@ -319,9 +320,9 @@ code = """
                 if (is_target == 1)
                 {
                     // Generate a random position around the target using pre-generated normals.
-                    xyz[0] = randoms_position[tidx * 3];
-                    xyz[1] = randoms_position[tidx * 3 + 1];
-                    xyz[2] = randoms_position[tidx * 3 + 2];
+                    xyz[0] = randoms_position_sphere[tidx * 3];
+                    xyz[1] = randoms_position_sphere[tidx * 3 + 1];
+                    xyz[2] = randoms_position_sphere[tidx * 3 + 2];
 
                     float norm = sqrtf(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
                     xyz[0] /= norm;
@@ -337,9 +338,9 @@ code = """
                 {
                     // Use pre-generated uniform randoms for bulk sampling.
                     float r[3];
-                    r[0] = randoms_position[tidx * 3];
-                    r[1] = randoms_position[tidx * 3 + 1];
-                    r[2] = randoms_position[tidx * 3 + 2];
+                    r[0] = randoms_position_bulk[tidx * 3];
+                    r[1] = randoms_position_bulk[tidx * 3 + 1];
+                    r[2] = randoms_position_bulk[tidx * 3 + 2];
 
                     for (int i = 0; i < 3; i++)
                     {
@@ -394,9 +395,11 @@ code = """
             float rf_cutoff,
             float rf_kappa,
             float rf_correction,
-            float sc_coulomb_power,
+            int softcore_form,
             float sc_shift_coulomb,
-            float sc_shift_delta)
+            float sc_shift_delta,
+            int sc_taylor_power,
+            float sc_beutler_alpha)
         {
             // Work out the atom index.
             const int idx_atom = GET_GLOBAL_ID(0);
@@ -538,7 +541,7 @@ code = """
                                 energy_coul[idx] += (q0 * q1) * (r_inv + (rf_kappa * r2) - rf_correction);
                             }
 
-                            // Zacharias soft-core potential.
+                            // Soft-core potential for ghost atoms.
                             else
                             {
                                 // Store required parameters.
@@ -549,35 +552,49 @@ code = """
                                 const float e = sqrtf(e0 * e1);
                                 const float a = alpha[idx_atom];
 
-                                // Compute the distance between the atoms.
-                                float r = sqrtf(r2);
+                                // Clamp r2 to avoid singularities.
+                                const float r2_sc = (r2 < 1e-6f) ? 1e-6f : r2;
 
-                                // Truncate the distance.
-                                if (r < 0.001f)
+                                // Precompute r^6 and sigma^6 using r2 directly (avoids sqrtf and powf).
+                                const float r6 = r2_sc * r2_sc * r2_sc;
+                                const float s2 = s * s;
+                                const float s6_val = s2 * s2 * s2;
+
+                                // Compute the LJ interaction using the chosen soft-core form.
+                                float sig6;
+                                float lj_prefactor = 1.0f;
+                                if (softcore_form == 1)
                                 {
-                                    r = 0.001f;
+                                    // Taylor soft-core LJ:
+                                    //   sig6 = sigma^6 / (alpha^m * sigma^6 + r^6)
+                                    const float alpha_m = (sc_taylor_power == 1) ? a
+                                        : (sc_taylor_power == 0) ? 1.0f
+                                        : powf(a, (float)sc_taylor_power);
+                                    sig6 = s6_val / (alpha_m * s6_val + r6);
                                 }
-
-                                // Compute the Lennard-Jones interaction.
-                                const float delta_lj = sc_shift_delta * a;
-                                const float s6 = powf(s, 6.0f) / powf((s * delta_lj) + (r * r), 3.0f);
-                                energy_lj[idx] += 4.0f * e * s6 * (s6 - 1.0f);
-
-                                // Compute the Coulomb power expression.
-                                float cpe;
-                                if (sc_coulomb_power == 0.0f)
+                                else if (softcore_form == 2)
                                 {
-                                    cpe = 1.0f;
+                                    // Beutler soft-core LJ:
+                                    //   sig6 = sigma^6 / (sc_beutler_alpha * sigma^6 * alpha + r^6)
+                                    //   V_LJ = (1 - alpha) * 4 * epsilon * sig6 * (sig6 - 1)
+                                    sig6 = s6_val / (sc_beutler_alpha * s6_val * a + r6);
+                                    lj_prefactor = 1.0f - a;
                                 }
                                 else
                                 {
-                                    cpe = powf((1.0f - a), sc_coulomb_power);
+                                    // Zacharias soft-core LJ:
+                                    //   sig6 = sigma^6 / (sigma*delta + r^2)^3
+                                    //   delta = shift_delta * alpha
+                                    const float delta_lj = sc_shift_delta * a;
+                                    const float denom = (s * delta_lj) + r2_sc;
+                                    sig6 = s6_val / (denom * denom * denom);
                                 }
+                                energy_lj[idx] += lj_prefactor * 4.0f * e * sig6 * (sig6 - 1.0f);
 
                                 // Compute the Coulomb interaction.
                                 energy_coul[idx] += (q0 * q1) *
-                                    ((cpe / sqrtf((sc_shift_coulomb * sc_shift_coulomb * a)
-                                    + (r * r))) + (rf_kappa * r2) - rf_correction);
+                                    ((1.0f / sqrtf((sc_shift_coulomb * sc_shift_coulomb * a)
+                                    + r2_sc)) + (rf_kappa * r2) - rf_correction);
 
                             }
                         }

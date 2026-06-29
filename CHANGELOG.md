@@ -1,6 +1,18 @@
 Changelog
 =========
 
+[2026.1.0](https://github.com/openbiosim/loch/compare/2025.2.0...2026.1.0) - Jun 2026
+-------------------------------------------------------------------------------------
+
+* Add support for getting and restoring sampling statistics.
+* Handle XED force field virtual sites [#17](https://github.com/OpenBioSim/loch/pull/17).
+* Add support for long-range Lennard-Jones dispersion correction [#18](https://github.com/OpenBioSim/loch/pull/18).
+* Add support for Beutler soft-core Lennard-Jones form [#18](https://github.com/OpenBioSim/loch/pull/18).
+* Fixed type check for ``water_template`` [#19](https://github.com/OpenBioSim/loch/pull/19).
+* Add support for simulations in the osmotic ensemble [#22](https://github.com/OpenBioSim/loch/pull/22).
+* Fixed non-uniform bulk insertion positions caused by use of normal rather than uniform random numbers [#24](https://github.com/OpenBioSim/loch/pull/24).
+* Add methods to update the system with the current water state and return system without ghost waters [#26](https://github.com/OpenBioSim/loch/pull/26).
+
 [2025.2.0](https://github.com/openbiosim/loch/compare/2025.1.0...2025.2.0) - Feb 2026
 -------------------------------------------------------------------------------------
 
