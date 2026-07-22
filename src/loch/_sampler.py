@@ -731,6 +731,8 @@ class GCMCSampler:
         # Null the nonbonded forces.
         self._nonbonded_force = None
         self._custom_nonbonded_force = None
+        self._integration_groups = None
+        self._pme_groups = None
 
         # Flag for whether the last move was a bulk sampling move.
         self._is_bulk = False
@@ -1353,6 +1355,8 @@ class GCMCSampler:
         # Clear the forces.
         self._nonbonded_force = None
         self._custom_nonbonded_force = None
+        self._integration_groups = None
+        self._pme_groups = None
 
         # Clear the OpenMM context.
         self._openmm_context = None
@@ -1482,7 +1486,11 @@ class GCMCSampler:
                         self._init_gcmc_lrc(context)
 
                     # Get the OpenMM state.
-                    state = context.getState(getPositions=True, getEnergy=self._is_pme)
+                    state = context.getState(
+                        getPositions=True,
+                        getEnergy=self._is_pme,
+                        groups=self._pme_groups,
+                    )
 
                     # Get the current positions in OpenMM format and in Angstrom.
                     positions_openmm = state.getPositions(asNumpy=True)
@@ -1768,7 +1776,7 @@ class GCMCSampler:
 
                         # Get the new energy.
                         final_energy = context.getState(
-                            getEnergy=True
+                            getEnergy=True, groups=self._pme_groups
                         ).getPotentialEnergy()
 
                         # Add the analytic LRC delta so the PME correction sees only
@@ -1870,7 +1878,7 @@ class GCMCSampler:
 
                         # Get the new energy.
                         final_energy = context.getState(
-                            getEnergy=True
+                            getEnergy=True, groups=self._pme_groups
                         ).getPotentialEnergy()
 
                         # Add the analytic LRC delta.
@@ -3007,12 +3015,19 @@ class GCMCSampler:
         context: openmm.Context
             The OpenMM context to use.
         """
+        if self._integration_groups is None:
+            self._integration_groups = (
+                context.getIntegrator().getIntegrationForceGroups()
+            )
+
         if self._nonbonded_force is None or (
             self._is_fep and self._custom_nonbonded_force is None
         ):
             for force in context.getSystem().getForces():
                 if isinstance(force, _openmm.NonbondedForce):
-                    self._nonbonded_force = force
+                    # Only accept a force actually used for integration.
+                    if self._integration_groups & (1 << force.getForceGroup()):
+                        self._nonbonded_force = force
                 elif self._is_fep and force.getName() == "GhostNonGhostNonbondedForce":
                     self._custom_nonbonded_force = force
                 elif self._pressure is None and "Barostat" in force.getName():
@@ -3033,6 +3048,12 @@ class GCMCSampler:
             msg = "Could not find a CustomNonbondedForce in the system"
             _logger.error(msg)
             raise ValueError(msg)
+
+        if self._pme_groups is None:
+            groups = 1 << self._nonbonded_force.getForceGroup()
+            if self._is_fep:
+                groups |= 1 << self._custom_nonbonded_force.getForceGroup()
+            self._pme_groups = groups
 
     def _get_target_position(self, positions):
         """

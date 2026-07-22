@@ -5,6 +5,7 @@ Changelog
 --------------------------------------------------------------------------------------
 
 * Please add an item to this CHANGELOG for any new features or bug fixes when creating a PR.
+* Restrict PME energy calculation to required force groups [#29](https://github.com/OpenBioSim/loch/pull/29).
 
 [2026.1.0](https://github.com/openbiosim/loch/compare/2025.2.0...2026.1.0) - Jun 2026
 -------------------------------------------------------------------------------------
