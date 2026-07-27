@@ -89,6 +89,8 @@ class GCMCSampler:
         lambda_schedule: _Optional[_Any] = None,
         lambda_value: float = 0.0,
         rest2_scale: float = 1.0,
+        lambda_values: _Optional[list[float]] = None,
+        rest2_scales: _Optional[list[float]] = None,
         rest2_selection: _Optional[str] = None,
         shift_coulomb: str = "1 A",
         shift_delta: str = "1.5 A",
@@ -204,6 +206,16 @@ class GCMCSampler:
             The scaling factor if using Replica Exchange with Solute Tempering
             (REST2) for alchemical systems. This should specify the temperature
             of the REST2 system relative to the rest of the system.
+
+        lambda_values: [float]
+            The lambda values that the sampler will be switched between via
+            set_lambda(). The non-bonded parameters for each are cached at
+            construction, so that switching later doesn't need to build an
+            OpenMM context. If None, only 'lambda_value' is cached.
+
+        rest2_scales: [float]
+            The REST2 scaling factor for each entry of 'lambda_values'. If
+            None, 'rest2_scale' is used for all of them.
 
         rest2_selection: str
             A selection string for atoms to include in the REST2 region in
@@ -506,6 +518,37 @@ class GCMCSampler:
             raise ValueError("'rest2_scale' must be greater than or equal to 1.0")
         self._rest2_scale = rest2_scale
 
+        # Cache of the lambda dependent non-bonded parameters, keyed by
+        # (lambda_value, rest2_scale). Populated below and consumed by
+        # set_lambda().
+        self._lambda_params = {}
+
+        if lambda_values is None:
+            self._lambda_values = None
+        else:
+            try:
+                self._lambda_values = [float(x) for x in lambda_values]
+            except:
+                raise ValueError("'lambda_values' must be a list of 'float'")
+            if not all(0.0 <= x <= 1.0 for x in self._lambda_values):
+                raise ValueError("'lambda_values' must be between 0 and 1")
+
+            if rest2_scales is None:
+                self._rest2_scales = [rest2_scale] * len(self._lambda_values)
+            else:
+                try:
+                    self._rest2_scales = [float(x) for x in rest2_scales]
+                except:
+                    raise ValueError("'rest2_scales' must be a list of 'float'")
+                if len(self._rest2_scales) != len(self._lambda_values):
+                    raise ValueError(
+                        "'rest2_scales' must be the same length as 'lambda_values'"
+                    )
+                if any(x < 1.0 for x in self._rest2_scales):
+                    raise ValueError(
+                        "'rest2_scales' must be greater than or equal to 1.0"
+                    )
+
         if rest2_selection is not None:
             if not isinstance(rest2_selection, str):
                 raise ValueError("'rest2_selection' must be of type 'str'")
@@ -694,6 +737,17 @@ class GCMCSampler:
         self._water_blocks = self._num_waters // self._num_threads + 1
 
         # Initialise the GPU memory.
+        # Cache the non-bonded parameters for every lambda value that the
+        # sampler will be switched to, so that set_lambda() never has to build
+        # an OpenMM context mid-simulation. This is done before the GPU memory
+        # is initialised, so that the current lambda value is part of the same
+        # scan rather than needing a context of its own.
+        if self._lambda_values is not None:
+            self._precompute_lambdas(
+                [self._lambda_value] + self._lambda_values,
+                [self._rest2_scale] + self._rest2_scales,
+            )
+
         self._initialise_gpu_memory()
 
         # Set the box information.
@@ -2296,6 +2350,210 @@ class GCMCSampler:
             _np.array(water_residues),
         )
 
+    def _precompute_lambdas(
+        self, lambda_values: list[float], rest2_scales: list[float]
+    ) -> None:
+        """
+        Cache the lambda dependent non-bonded parameters for a set of lambda
+        values, so that set_lambda() can switch between them without touching
+        OpenMM.
+
+        The system only holds the end-state properties, so the parameters are
+        obtained from an OpenMM context built using the specified lambda
+        schedule. A single context is created and scanned over the requested
+        lambda values, re-reading the GhostNonGhostNonbondedForce at each one,
+        since building the context is by far the expensive part.
+
+        This is a no-op for non-alchemical systems, and for lambda values that
+        have already been cached.
+
+        Parameters
+        ----------
+
+        lambda_values: [float]
+            The lambda values to cache.
+
+        rest2_scales: [float]
+            The REST2 scaling factor for each lambda value.
+        """
+
+        if not self._is_fep:
+            return
+
+        # Only build a context if something is actually missing.
+        wanted = []
+        for lambda_value, rest2_scale in zip(lambda_values, rest2_scales):
+            key = (float(lambda_value), float(rest2_scale))
+            if key not in self._lambda_params and key not in wanted:
+                wanted.append(key)
+
+        if not wanted:
+            return
+
+        # Link to the reference state.
+        mols = _sr.morph.link_to_reference(self._system)
+
+        # Build map of extra options for the dynamics object.
+        _map = {}
+        if self._softcore_form == _SoftcoreForm.TAYLOR:
+            _map["use_taylor_softening"] = True
+            _map["taylor_power"] = self._taylor_power
+        elif self._softcore_form == _SoftcoreForm.BEUTLER:
+            _map["use_beutler_softening"] = True
+            _map["beutler_alpha"] = self._beutler_alpha
+
+        # Create a single dynamics object, which is then scanned over the
+        # requested lambda values.
+        d = mols.dynamics(
+            cutoff_type=self._cutoff,
+            cutoff=self._cutoff,
+            lambda_value=wanted[0][0],
+            schedule=self._lambda_schedule,
+            pressure=None,
+            timestep="2fs",
+            constraint="h_bonds",
+            perturbable_constraint="h_bonds_not_heavy_perturbed",
+            rest2_scale=wanted[0][1],
+            rest2_selection=self._rest2_selection,
+            swap_end_states=self._swap_end_states,
+            platform="cpu",
+            map=_map,
+        )
+
+        # Find the required force. set_lambda() updates it in place, so it
+        # only needs to be located once.
+        gng_force = None
+        for force in d.context().getSystem().getForces():
+            if force.getName() == "GhostNonGhostNonbondedForce":
+                gng_force = force
+                break
+
+        if gng_force is None:
+            raise ValueError(
+                "Could not find the GhostNonGhostNonbondedForce in the system"
+            )
+
+        num_particles = gng_force.getNumParticles()
+
+        for lambda_value, rest2_scale in wanted:
+            d.set_lambda(lambda_value, rest2_scale=rest2_scale)
+
+            # Get the parameters for the GhostNonGhostNonbondedForce.
+            charges = _np.zeros(self._num_atoms, dtype=_np.float32)
+            sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
+            epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
+            alphas = _np.zeros(self._num_atoms, dtype=_np.float32)
+            for i in range(num_particles):
+                # Custom force parameters are returned as floats.
+                q, half_sigma, two_sqrt_epsilon, alpha, _ = (
+                    gng_force.getParticleParameters(i)
+                )
+                # Charge in |e|, sigma in nm, epsilon in kJ/mol.
+                charges[i] = q
+                # Rescale and convert units.
+                sigmas[i] = _sr.u(f"{2.0 * half_sigma} nm").to("angstrom")
+                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon) ** 2} kJ/mol").to(
+                    "kcal/mol"
+                )
+                # Store the softening parameter.
+                alphas[i] = alpha
+
+            self._lambda_params[(lambda_value, rest2_scale)] = (
+                charges,
+                sigmas,
+                epsilons,
+                alphas,
+            )
+
+    def set_lambda(
+        self, lambda_value: float, rest2_scale: _Optional[float] = None
+    ) -> None:
+        """
+        Set the lambda value for the sampler, updating the non-bonded
+        parameters used to evaluate insertion and deletion energies.
+
+        Parameters for lambda values passed to the constructor are already
+        cached. Any other value is computed here, which requires building an
+        OpenMM context and is slow, though the result is then cached too.
+
+        This must be kept consistent with the lambda value of the OpenMM
+        context that the sampler is used with.
+
+        Parameters
+        ----------
+
+        lambda_value: float
+            The lambda value.
+
+        rest2_scale: float
+            The REST2 scaling factor. If None, the current value is retained.
+        """
+
+        try:
+            lambda_value = float(lambda_value)
+        except:
+            raise ValueError("'lambda_value' must be of type 'float'")
+        if not 0.0 <= lambda_value <= 1.0:
+            raise ValueError("'lambda_value' must be between 0 and 1")
+
+        if rest2_scale is None:
+            rest2_scale = self._rest2_scale
+        else:
+            try:
+                rest2_scale = float(rest2_scale)
+            except:
+                raise ValueError("'rest2_scale' must be of type 'float'")
+            if rest2_scale < 1.0:
+                raise ValueError("'rest2_scale' must be greater than or equal to 1.0")
+
+        # Nothing to do.
+        if lambda_value == self._lambda_value and rest2_scale == self._rest2_scale:
+            return
+
+        # There are no lambda dependent parameters for a non-alchemical system.
+        if not self._is_fep:
+            self._lambda_value = lambda_value
+            self._rest2_scale = rest2_scale
+            return
+
+        # Make sure the parameters are cached. This builds an OpenMM context,
+        # so is slow; pass 'lambda_values' to the constructor to avoid it.
+        self._precompute_lambdas([lambda_value], [rest2_scale])
+
+        charges, sigmas, epsilons, alphas = self._lambda_params[
+            (lambda_value, rest2_scale)
+        ]
+
+        # Upload the new parameters to the GPU.
+        self._gpu_charge = self._backend.to_gpu(charges)
+        self._gpu_sigma = self._backend.to_gpu(sigmas)
+        self._gpu_epsilon = self._backend.to_gpu(epsilons)
+        self._gpu_alpha = self._backend.to_gpu(alphas)
+
+        self._lambda_value = lambda_value
+        self._rest2_scale = rest2_scale
+
+    def set_ghost_file(self, ghost_file: _Optional[str]) -> None:
+        """
+        Set the file that write_ghost_residues() appends to.
+
+        Unlike the constructor, this does not create or truncate the file,
+        since it is intended for switching between files that are already
+        being written to.
+
+        Parameters
+        ----------
+
+        ghost_file: str
+            The path to the ghost residue file. If None, ghost residues
+            cannot be written.
+        """
+
+        if ghost_file is not None and not isinstance(ghost_file, str):
+            raise TypeError("'ghost_file' must be of type 'str'")
+
+        self._ghost_file = ghost_file
+
     def _initialise_gpu_memory(self):
         """
         Initialise the GPU memory.
@@ -2360,76 +2618,19 @@ class GCMCSampler:
         # schedule and value, then extract the required properties from the forces
         # within the context. (The system just contains the end-state properties.)
         else:
-            # Link to the reference state.
-            mols = _sr.morph.link_to_reference(self._system)
+            # Cache the host arrays so that set_lambda() can switch back to
+            # this lambda value without rebuilding an OpenMM context.
+            self._precompute_lambdas([self._lambda_value], [self._rest2_scale])
 
-            # Build map of extra options for the dynamics object.
-            _map = {}
-            if self._softcore_form == _SoftcoreForm.TAYLOR:
-                _map["use_taylor_softening"] = True
-                _map["taylor_power"] = self._taylor_power
-            elif self._softcore_form == _SoftcoreForm.BEUTLER:
-                _map["use_beutler_softening"] = True
-                _map["beutler_alpha"] = self._beutler_alpha
-
-            # Create a dynamics object.
-            d = mols.dynamics(
-                cutoff_type=self._cutoff,
-                cutoff=self._cutoff,
-                lambda_value=self._lambda_value,
-                schedule=self._lambda_schedule,
-                pressure=None,
-                timestep="2fs",
-                constraint="h_bonds",
-                perturbable_constraint="h_bonds_not_heavy_perturbed",
-                rest2_scale=self._rest2_scale,
-                rest2_selection=self._rest2_selection,
-                swap_end_states=self._swap_end_states,
-                platform="cpu",
-                map=_map,
-            )
-
-            # Flag for the required force.
-            has_gng = False
-
-            # Find the required forces.
-            for force in d.context().getSystem().getForces():
-                if force.getName() == "GhostNonGhostNonbondedForce":
-                    gng_force = force
-                    has_gng = True
-                    break
-
-            # Make sure the force was found.
-            if not has_gng:
-                raise ValueError(
-                    "Could not find the GhostNonGhostNonbondedForce in the system"
-                )
-
-            # Get the parameters for the GhostNonGhostNonbondedForce.
-            charges = _np.zeros(self._num_atoms, dtype=_np.float32)
-            sigmas = _np.zeros(self._num_atoms, dtype=_np.float32)
-            epsilons = _np.zeros(self._num_atoms, dtype=_np.float32)
-            alphas = _np.zeros(self._num_atoms, dtype=_np.float32)
-            for i in range(gng_force.getNumParticles()):
-                # Custom force parameters are returned as floats.
-                q, half_sigma, two_sqrt_epsilon, alpha, _ = (
-                    gng_force.getParticleParameters(i)
-                )
-                # Charge in |e|, sigma in nm, epsilon in kJ/mol.
-                charges[i] = q
-                # Rescale and convert units.
-                sigmas[i] = _sr.u(f"{2.0 * half_sigma} nm").to("angstrom")
-                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon) ** 2} kJ/mol").to(
-                    "kcal/mol"
-                )
-                # Store the softening parameter.
-                alphas[i] = alpha
+            charges, sigmas, epsilons, alphas = self._lambda_params[
+                (self._lambda_value, self._rest2_scale)
+            ]
 
             # Convert to GPU arrays.
-            charges = self._backend.to_gpu(charges.astype(_np.float32))
-            sigmas = self._backend.to_gpu(sigmas.astype(_np.float32))
-            epsilons = self._backend.to_gpu(epsilons.astype(_np.float32))
-            alphas = self._backend.to_gpu(alphas.astype(_np.float32))
+            charges = self._backend.to_gpu(charges)
+            sigmas = self._backend.to_gpu(sigmas)
+            epsilons = self._backend.to_gpu(epsilons)
+            alphas = self._backend.to_gpu(alphas)
 
             # Create the ghost atom array.
             is_ghost_fep = _np.zeros(self._num_atoms, dtype=_np.int32)
