@@ -775,12 +775,17 @@ class GCMCSampler:
         # Zero the number of waters in the sampling volume.
         self._N = 0
 
-        # Zero the statistics.
+        # Zero the statistics for the current lambda value.
         self._num_moves = 0
         self._num_accepted = 0
         self._num_accepted_attempts = 0
         self._num_insertions = 0
         self._num_deletions = 0
+
+        # Statistics for lambda values other than the current one, keyed by
+        # formatted lambda value. The current one is held in the counters above
+        # and archived here by set_lambda().
+        self._stats = {}
 
         # Null the nonbonded forces.
         self._nonbonded_force = None
@@ -1397,14 +1402,9 @@ class GCMCSampler:
         """
         Reset the sampler.
         """
-        # Zero the number of accepted moves.
-        self._num_accepted = 0
-        self._num_insertions = 0
-        self._num_deletions = 0
-        self._num_moves = 0
-        self._num_accepted_attempts = 0
-        self._num_accepted_insertions = 0
-        self._num_accepted_deletions = 0
+        # Zero the number of accepted moves, for every lambda value.
+        self._zero_stats()
+        self._stats = {}
 
         # Clear the forces.
         self._nonbonded_force = None
@@ -1415,33 +1415,73 @@ class GCMCSampler:
         # Clear the OpenMM context.
         self._openmm_context = None
 
-    def restore_stats(self, stats: dict) -> None:
+    @staticmethod
+    def stats_key(lambda_value: float) -> str:
         """
-        Restore sampler statistics from a dictionary.
+        Return the key used to store statistics for a lambda value.
 
         Parameters
         ----------
 
-        stats : dict
-            Dictionary of sampler statistics as returned by ``get_stats()``.
-        """
-        self._num_moves = stats["num_moves"]
-        self._num_accepted = stats["num_accepted"]
-        self._num_insertions = stats["num_insertions"]
-        self._num_deletions = stats["num_deletions"]
-        self._num_accepted_attempts = stats["num_accepted_attempts"]
-        self._num_accepted_insertions = stats["num_accepted_insertions"]
-        self._num_accepted_deletions = stats["num_accepted_deletions"]
-
-    def get_stats(self) -> dict:
-        """
-        Return the current sampler statistics as a dictionary.
+        lambda_value: float
+            The lambda value.
 
         Returns
         -------
 
-        dict
-            Dictionary of sampler statistics.
+        str
+            The key.
+        """
+        return f"{float(lambda_value):.5f}"
+
+    def _zero_stats(self) -> None:
+        """
+        Zero the statistics for the current lambda value.
+        """
+        self._num_moves = 0
+        self._num_accepted = 0
+        self._num_insertions = 0
+        self._num_deletions = 0
+        self._num_accepted_attempts = 0
+
+    def _stats_keys(self) -> set:
+        """
+        Return the keys of the lambda values that this sampler visits.
+        """
+        keys = {self.stats_key(self._lambda_value)}
+
+        if self._lambda_values is not None:
+            keys.update(self.stats_key(x) for x in self._lambda_values)
+
+        return keys
+
+    def _switch_stats(self, lambda_value: float) -> None:
+        """
+        Archive the statistics for the current lambda value and load those for
+        a new one, zeroing them if it hasn't been visited before.
+
+        Parameters
+        ----------
+
+        lambda_value: float
+            The lambda value being switched to.
+        """
+        old_key = self.stats_key(self._lambda_value)
+        new_key = self.stats_key(lambda_value)
+
+        if old_key == new_key:
+            return
+
+        self._stats[old_key] = self._get_current_stats()
+
+        if new_key in self._stats:
+            self._set_current_stats(self._stats.pop(new_key))
+        else:
+            self._zero_stats()
+
+    def _get_current_stats(self) -> dict:
+        """
+        Return the statistics for the current lambda value.
         """
         return {
             "num_moves": self._num_moves,
@@ -1449,9 +1489,63 @@ class GCMCSampler:
             "num_insertions": self._num_insertions,
             "num_deletions": self._num_deletions,
             "num_accepted_attempts": self._num_accepted_attempts,
-            "num_accepted_insertions": self._num_accepted_insertions,
-            "num_accepted_deletions": self._num_accepted_deletions,
         }
+
+    def _set_current_stats(self, stats: dict) -> None:
+        """
+        Set the statistics for the current lambda value. Unrecognised entries
+        are ignored, so that statistics written by an older version can still
+        be restored.
+        """
+        self._num_moves = stats["num_moves"]
+        self._num_accepted = stats["num_accepted"]
+        self._num_insertions = stats["num_insertions"]
+        self._num_deletions = stats["num_deletions"]
+        self._num_accepted_attempts = stats["num_accepted_attempts"]
+
+    def restore_stats(self, stats: dict) -> None:
+        """
+        Restore sampler statistics.
+
+        Parameters
+        ----------
+
+        stats : dict
+            Statistics as returned by ``get_stats()``, i.e. keyed by lambda
+            value. Entries for lambda values that this sampler doesn't visit
+            are ignored, so it is safe to pass the statistics for a whole
+            simulation to each of several samplers. Were they retained, a
+            sampler would report stale statistics for another's lambda values,
+            which could then overwrite the live ones when merged.
+        """
+        keys = self._stats_keys()
+        self._stats = {key: dict(value) for key, value in stats.items() if key in keys}
+
+        # Load the statistics for the current lambda value, if present.
+        key = self.stats_key(self._lambda_value)
+        if key in self._stats:
+            self._set_current_stats(self._stats.pop(key))
+        else:
+            self._zero_stats()
+
+    def get_stats(self) -> dict:
+        """
+        Return the sampler statistics, keyed by lambda value.
+
+        A sampler may be switched between lambda values via ``set_lambda()``,
+        and accumulates statistics for each of them separately. Non-alchemical
+        systems have a single key, for the lambda value the sampler was created
+        with.
+
+        Returns
+        -------
+
+        dict
+            Dictionary of sampler statistics for each lambda value.
+        """
+        stats = {key: dict(value) for key, value in self._stats.items()}
+        stats[self.stats_key(self._lambda_value)] = self._get_current_stats()
+        return stats
 
     def ghost_residues(self) -> _np.ndarray:
         """
@@ -2509,6 +2603,10 @@ class GCMCSampler:
         # Nothing to do.
         if lambda_value == self._lambda_value and rest2_scale == self._rest2_scale:
             return
+
+        # Statistics are accumulated per lambda value, so archive those for the
+        # current one and load those for the new one.
+        self._switch_stats(lambda_value)
 
         # There are no lambda dependent parameters for a non-alchemical system.
         if not self._is_fep:
