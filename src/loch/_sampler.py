@@ -2529,6 +2529,11 @@ class GCMCSampler:
 
         num_particles = gng_force.getNumParticles()
 
+        # Resolve the unit conversions once. Doing this per atom, by formatting
+        # and re-parsing a string, dominates the setup time for large systems.
+        nm_to_angstrom = _sr.u("1 nm").to("angstrom")
+        kj_per_mol_to_kcal_per_mol = _sr.u("1 kJ/mol").to("kcal/mol")
+
         for lambda_value, rest2_scale in wanted:
             d.set_lambda(lambda_value, rest2_scale=rest2_scale)
 
@@ -2545,10 +2550,8 @@ class GCMCSampler:
                 # Charge in |e|, sigma in nm, epsilon in kJ/mol.
                 charges[i] = q
                 # Rescale and convert units.
-                sigmas[i] = _sr.u(f"{2.0 * half_sigma} nm").to("angstrom")
-                epsilons[i] = _sr.u(f"{(0.5 * two_sqrt_epsilon) ** 2} kJ/mol").to(
-                    "kcal/mol"
-                )
+                sigmas[i] = 2.0 * half_sigma * nm_to_angstrom
+                epsilons[i] = (0.5 * two_sqrt_epsilon) ** 2 * kj_per_mol_to_kcal_per_mol
                 # Store the softening parameter.
                 alphas[i] = alpha
 
