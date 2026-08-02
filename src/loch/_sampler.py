@@ -1253,6 +1253,13 @@ class GCMCSampler:
         """
         Return the number of waters in the GCMC region.
 
+        With no region there is nothing to recount. self._N then comes from
+        self._water_state, an occupancy array that only insertion and deletion
+        modify, rather than from a geometric test against a sphere centre as
+        the region count is. A water cannot leave the box, so dynamics cannot
+        change it, and consulting the context would cost a state fetch and a
+        kernel launch to arrive at the same number.
+
         Parameters
         ----------
 
@@ -1268,9 +1275,9 @@ class GCMCSampler:
             The number of waters.
         """
 
-        # Without a region every move samples the whole box, so the count that
-        # move() maintains is already the answer. There is also no reference to
-        # take a sphere centre from.
+        # Without a region the count that move() maintains is already the
+        # answer, and there is no reference to take a sphere centre from. See
+        # the docstring for why the context is not consulted.
         if self._reference is None:
             return self._N
 
@@ -2848,6 +2855,11 @@ class GCMCSampler:
         self._ghost_waters_cache = None
         self._non_ghost_waters_cache = None
         self._invalidate_water_caches()
+
+        # Seed the water count. Every move sets this for the volume that it
+        # samples, but with no region num_waters() reports it directly, and
+        # would otherwise report zero until the first move has run.
+        self._N = len(self._non_ghost_waters_cache)
 
         # Pre-allocate zero target array for bulk sampling.
         self._zero_target_gpu = self._backend.to_gpu(_np.zeros(3, dtype=_np.float32))
