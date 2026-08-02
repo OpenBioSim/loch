@@ -735,6 +735,11 @@ class GCMCSampler:
         # Flag for whether the last move was a bulk sampling move.
         self._is_bulk = False
 
+        # The number of waters in the GCMC region, as of the last count. This
+        # is what num_waters() reports, and is separate from self._N, which is
+        # the count for the volume that move() samples. None when unknown.
+        self._N_region = None
+
         import sys
 
         # Create a logger that writes to stderr and the log file.
@@ -1187,74 +1192,88 @@ class GCMCSampler:
         """
         Return the number of waters in the GCMC region.
 
+        Parameters
+        ----------
+
+        context: openmm.Context, optional
+            The OpenMM context to count the waters from. If None, then the
+            internal context is used if one is available, otherwise the count
+            from the last move is returned.
+
         Returns
         -------
 
         num_waters: int
             The number of waters.
-
-        context: openmm.Context, optional
-            The OpenMM context to use for counting the waters. If None, then the
-            internal context will be used if available.
         """
 
-        # Whether we need to recalculate the number of waters in the GCMC sphere.
-        recalculate = context is not None or (
-            self._reference is not None and self._is_bulk
+        # Without a region every move samples the whole box, so the count that
+        # move() maintains is already the answer. There is also no reference to
+        # take a sphere centre from.
+        if self._reference is None:
+            return self._N
+
+        # Fall back to the internal context, which is stored by a bulk move.
+        if context is None:
+            context = self._openmm_context
+
+        # There is nothing to count from, so return the count from the last
+        # move. A bulk move clears this, since it counts the whole box rather
+        # than the region, and cannot answer for the region.
+        if context is None:
+            if self._N_region is None:
+                msg = "OpenMM context is not set!"
+                _logger.error(msg)
+                raise RuntimeError(msg)
+
+            return self._N_region
+
+        # Recount. The positions change outside of the sampler's control, via
+        # dynamics between moves, or a context being handed to another replica,
+        # so a stored count cannot be re-used when there is a context to count
+        # from.
+
+        # Get the OpenMM state.
+        state = context.getState(getPositions=True)
+
+        # Get the current positions in Angstrom.
+        positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+
+        # Get the position of the GCMC sphere centre.
+        target = self._backend.to_gpu(
+            self._get_target_position(positions).astype(_np.float32)
         )
 
-        # We need to recalculate the number of waters.
-        if recalculate:
-            if context is None:
-                if not self._openmm_context:
-                    msg = "OpenMM context is not set!"
-                    _logger.error(msg)
-                    raise RuntimeError(msg)
-                else:
-                    context = self._openmm_context
+        # Upload atom positions to GPU. This is re-uploaded by the next move,
+        # so overwriting it here is safe.
+        self._gpu_position = self._backend.to_gpu(_as_float32(positions).flatten())
 
-            # Get the OpenMM state.
-            state = context.getState(getPositions=True)
+        # Find the non-ghost waters within the GCMC region.
+        self._kernels["deletion"](
+            _np.int32(self._num_waters),
+            self._deletion_candidates,
+            self._backend.to_gpu(target.astype(_np.float32)),
+            _np.float32(self._radius.value()),
+            self._gpu_position,
+            self._gpu_water_idx,
+            self._gpu_water_state,
+            self._gpu_cell_matrix_inverse,
+            self._gpu_M,
+            block=(self._num_threads, 1, 1),
+            grid=(self._water_blocks, 1, 1),
+        )
 
-            # Get the current positions in Angstrom.
-            positions = state.getPositions(asNumpy=True) / _openmm.unit.angstrom
+        # Get the candidates.
+        candidates = self._backend.from_gpu(self._deletion_candidates).flatten()
 
-            # Get the position of the GCMC sphere centre.
-            target = self._backend.to_gpu(
-                self._get_target_position(positions).astype(_np.float32)
-            )
+        # Find the waters within the GCMC sphere.
+        candidates = _np.where(candidates == 1)[0]
 
-            # Upload atom positions to GPU.
-            self._gpu_position = self._backend.to_gpu(_as_float32(positions).flatten())
+        # Store the number of waters in the region. self._N is left alone, as
+        # it belongs to move(), where it must match the volume being sampled.
+        self._N_region = len(candidates)
 
-            # Find the non-ghost waters within the GCMC region.
-            self._kernels["deletion"](
-                _np.int32(self._num_waters),
-                self._deletion_candidates,
-                self._backend.to_gpu(target.astype(_np.float32)),
-                _np.float32(self._radius.value()),
-                self._gpu_position,
-                self._gpu_water_idx,
-                self._gpu_water_state,
-                self._gpu_cell_matrix_inverse,
-                self._gpu_M,
-                block=(self._num_threads, 1, 1),
-                grid=(self._water_blocks, 1, 1),
-            )
-
-            # Get the candidates.
-            candidates = self._backend.from_gpu(self._deletion_candidates).flatten()
-
-            # Find the waters within the GCMC sphere.
-            candidates = _np.where(candidates == 1)[0]
-
-            # Set the number of waters.
-            self._N = len(candidates)
-
-            # Reset the bulk sampling flag.
-            self._is_bulk = False
-
-        return self._N
+        return self._N_region
 
     def num_accepted_moves(self) -> int:
         """
@@ -1356,6 +1375,9 @@ class GCMCSampler:
 
         # Clear the OpenMM context.
         self._openmm_context = None
+
+        # The stored region count refers to the cleared context.
+        self._N_region = None
 
     def restore_stats(self, stats: dict) -> None:
         """
@@ -1564,6 +1586,13 @@ class GCMCSampler:
 
                 # Set the number of waters.
                 self._N = len(deletion_candidates)
+
+                # A bulk move counts the whole box, so it cannot report the
+                # region. Anything else counts the region directly.
+                if self._is_bulk:
+                    self._N_region = None
+                else:
+                    self._N_region = self._N
 
             # Reset the batch acceptance flag.
             is_accepted = False
