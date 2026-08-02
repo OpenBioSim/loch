@@ -1266,7 +1266,10 @@ class GCMCSampler:
         context: openmm.Context, optional
             The OpenMM context to count the waters from. If None, then the
             internal context is used if one is available, otherwise the count
-            from the last move is returned.
+            from the last move is returned. Only omit this immediately after a
+            move. Pass a context if dynamics have been run since, otherwise
+            waters will have crossed the region boundary and the stored count
+            will be out of date.
 
         Returns
         -------
