@@ -9,6 +9,7 @@ Changelog
 * Add `set_lambda` and `_precompute_lambdas` so that a sampler can be re-used across lambda values without rebuilding an OpenMM context [#30](https://github.com/OpenBioSim/loch/pull/30).
 * Resolve unit conversions once when extracting the lambda dependent non-bonded parameters, rather than per atom, which dominated sampler setup [#33](https://github.com/OpenBioSim/loch/pull/33).
 * Recount the waters in the GCMC region rather than returning a cached count that was not invalidated when the positions changed, and return the whole box count directly when no region is defined, which previously raised [#36](https://github.com/OpenBioSim/loch/pull/36).
+* Stop uploading the GCMC region centre to the GPU twice in `delete_waters` and `num_waters`, which raised on the OpenCL platform, and make `delete_waters` a no-op when no region is defined, which previously raised [#39](https://github.com/OpenBioSim/loch/pull/39).
 
 [2026.1.0](https://github.com/openbiosim/loch/compare/2025.2.0...2026.1.0) - Jun 2026
 -------------------------------------------------------------------------------------

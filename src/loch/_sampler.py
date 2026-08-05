@@ -1195,12 +1195,18 @@ class GCMCSampler:
         """
         Delete any waters within the GCMC sphere. (Convert to ghosts.)
 
+        This does nothing when there is no sphere.
+
         Parameters
         ----------
 
         context: openmm.Context
             The OpenMM context to use.
         """
+
+        # There is no sphere to empty.
+        if self._reference is None:
+            return
 
         # Set the NonBondedForce(s).
         self._set_nonbonded_forces(context)
@@ -1223,7 +1229,7 @@ class GCMCSampler:
         self._kernels["deletion"](
             _np.int32(self._num_waters),
             self._deletion_candidates,
-            self._backend.to_gpu(target.astype(_np.float32)),
+            target,
             _np.float32(self._radius.value()),
             self._gpu_position,
             self._gpu_water_idx,
@@ -1323,7 +1329,7 @@ class GCMCSampler:
         self._kernels["deletion"](
             _np.int32(self._num_waters),
             self._deletion_candidates,
-            self._backend.to_gpu(target.astype(_np.float32)),
+            target,
             _np.float32(self._radius.value()),
             self._gpu_position,
             self._gpu_water_idx,
