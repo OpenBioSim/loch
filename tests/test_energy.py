@@ -48,6 +48,9 @@ def test_energy(fixture, softcore_form, platform, request):
         lambda_schedule=schedule,
         lambda_value=lambda_value,
         softcore_form=softcore_form,
+        # Sample within the region when there is one. Without a reference
+        # every move is a bulk move regardless.
+        bulk_sampling_probability=0.0 if reference is not None else 0.1,
         log_level="debug",
         ghost_file=None,
         log_file=None,
@@ -78,6 +81,10 @@ def test_energy(fixture, softcore_form, platform, request):
         platform=platform,
         map=dyn_map,
     )
+
+    # Empty the region, since at equilibrium it is full and insertions into it
+    # are rejected. A no-op when there is no region.
+    sampler.delete_waters(d.context())
 
     # Loop until we accept an insertion move.
     is_accepted = False
@@ -679,3 +686,105 @@ def test_set_lambda_uploads_parameters(sd12, platform):
             )
     finally:
         sampler.pop()
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_energy_after_set_lambda(sd12, platform):
+    """
+    Test that the RF energy difference agrees with OpenMM after the sampler has
+    been switched to a different lambda value.
+
+    This checks the uploaded parameters through the physics rather than by
+    inspecting them, so it also covers the kernel using them correctly.
+
+    The move has to happen where the perturbation is. Bulk sampling would
+    place the water anywhere in the box, typically tens of Angstrom from the
+    perturbable molecule, where the lambda dependent parameters contribute
+    nothing and the comparison holds however wrong they are. The sphere is
+    emptied first, since at equilibrium it is full and insertions into it are
+    rejected.
+    """
+
+    mols, reference = sd12
+
+    schedule = sr.cas.LambdaSchedule.standard_morph()
+
+    # The end states, so that the parameters differ as much as they can.
+    build_lambda = 0.0
+    run_lambda = 1.0
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        lambda_schedule=schedule,
+        lambda_value=build_lambda,
+        lambda_values=[run_lambda],
+        bulk_sampling_probability=0.0,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    sampler.set_lambda(run_lambda)
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        schedule=schedule,
+        lambda_value=run_lambda,
+        shift_coulomb=str(sampler._shift_coulomb),
+        shift_delta=str(sampler._shift_delta),
+        platform=platform,
+    )
+
+    def potential_energy():
+        return (
+            d.context()
+            .getState(getEnergy=True)
+            .getPotentialEnergy()
+            .value_in_unit(openmm.unit.kilocalories_per_mole)
+        )
+
+    # Empty the sphere so that the next accepted move is an insertion into it.
+    sampler.delete_waters(d.context())
+
+    for _ in range(50):
+        initial_energy = potential_energy()
+        moves = sampler.move(d.context())
+        if moves:
+            break
+    else:
+        pytest.fail("no GCMC move was accepted")
+
+    energy_difference = potential_energy() - initial_energy
+    sampler_energy = sampler._debug["energy_coul"] + sampler._debug["energy_lj"]
+
+    # The move must be near the atoms whose parameters perturb, otherwise the
+    # comparison cannot see them.
+    charges0 = np.asarray(sampler._lambda_params[(build_lambda, 1.0)][0])
+    charges1 = np.asarray(sampler._lambda_params[(run_lambda, 1.0)][0])
+    changed = np.where(np.abs(charges0 - charges1) > 1e-9)[0]
+    positions = (
+        d.context().getState(getPositions=True).getPositions(asNumpy=True)
+        / omm_unit.angstrom
+    )
+    oxygen = positions[sampler._water_indices[sampler._debug["idx"]]]
+    distances = np.linalg.norm(positions[changed] - oxygen, axis=1)
+    assert (distances <= 10).any(), (
+        "no perturbing atom within the cutoff of the move, so the lambda "
+        "dependent parameters are not being tested"
+    )
+
+    assert math.isclose(energy_difference, sampler_energy, abs_tol=1e-2)
