@@ -616,3 +616,66 @@ def test_finalise_system(platform, water_box):
     assert actual_waters == expected_waters, (
         f"Water count mismatch: got {actual_waters}, expected {expected_waters}"
     )
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_set_lambda_uploads_parameters(sd12, platform):
+    """
+    Test that set_lambda() uploads the parameters for the new lambda value.
+
+    A sampler may be re-used across lambda values, re-uploading the lambda
+    dependent non-bonded parameters rather than rebuilding a context. If the
+    upload were skipped, or the wrong entry taken from the cache, the sampler
+    would evaluate insertion and deletion energies against the parameters of
+    the lambda value it was built at, while reporting the new one.
+    """
+
+    mols, reference = sd12
+
+    # The end states, so that the parameters differ as much as they can.
+    build_lambda = 0.0
+    run_lambda = 1.0
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        lambda_schedule=sr.cas.LambdaSchedule.standard_morph(),
+        lambda_value=build_lambda,
+        lambda_values=[run_lambda],
+        log_level="error",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    assert sampler._is_fep, "the test system must be perturbable"
+
+    names = ("_gpu_charge", "_gpu_sigma", "_gpu_epsilon", "_gpu_alpha")
+    built = sampler._lambda_params[(build_lambda, sampler._rest2_scale)]
+    wanted = sampler._lambda_params[(run_lambda, sampler._rest2_scale)]
+
+    # The two end points must differ, otherwise the test cannot tell whether
+    # the upload happened.
+    assert any(not np.allclose(a, b) for a, b in zip(built, wanted)), (
+        "the parameters are the same at both lambda values"
+    )
+
+    sampler.set_lambda(run_lambda)
+    assert sampler._lambda_value == run_lambda
+
+    sampler.push()
+    try:
+        for name, expected in zip(names, wanted):
+            on_gpu = np.asarray(sampler._backend.from_gpu(getattr(sampler, name)))
+            assert np.allclose(on_gpu, expected), (
+                f"{name} does not hold the parameters for lambda {run_lambda}"
+            )
+    finally:
+        sampler.pop()
