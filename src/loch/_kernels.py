@@ -32,7 +32,7 @@ code = """
         #define CONSTANT __constant
         #define LOCAL __local
         #define GET_GLOBAL_ID(dim) get_global_id(dim)
-        #define BLOCK_ID_Y get_group_id(1)  // OpenCL: work-group ID in dimension 1
+        #define BLOCK_ID_Y get_global_id(1)  // OpenCL: y block size is 1, and the runtime picks the work-group shape
         // Map CUDA-style function names to OpenCL names
         #define sqrtf sqrt
         #define powf pow
