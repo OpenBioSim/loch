@@ -207,7 +207,11 @@ class OpenCLPlatform(_PlatformBackend):
                 grid = kwargs.get("grid", (1, 1, 1))
 
                 global_size = tuple(b * g for b, g in zip(block, grid))
-                local_size = block
+
+                # OpenCL caps the work-group size per device (e.g. 256 on AMD),
+                # below common CUDA block sizes. The kernels use no local memory
+                # or barriers, so let the runtime pick the partitioning.
+                local_size = None
 
                 processed_args = []
                 for arg in args:
