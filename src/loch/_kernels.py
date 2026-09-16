@@ -29,6 +29,7 @@ code = """
         #define KERNEL __kernel
         #define DEVICE
         #define GLOBAL __global
+        #define CONSTANT __constant
         #define LOCAL __local
         #define GET_GLOBAL_ID(dim) get_global_id(dim)
         #define BLOCK_ID_Y get_group_id(1)  // OpenCL: work-group ID in dimension 1
@@ -48,14 +49,15 @@ code = """
         #define KERNEL extern "C" __global__
         #define DEVICE __device__
         #define GLOBAL
+        #define CONSTANT const
         #define LOCAL __shared__
         #define GET_GLOBAL_ID(dim) (threadIdx.x + blockIdx.x * blockDim.x)
         #define BLOCK_ID_Y blockIdx.y  // CUDA: block index in y dimension
     #endif
 
     // Constants.
-    const float pi = 3.14159265359f;
-    const float prefactor = 332.0637090025476f;
+    CONSTANT float pi = 3.14159265359f;
+    CONSTANT float prefactor = 332.0637090025476f;
 
     // Maximum number of atoms per water molecule (for stack array sizing).
     #define MAX_POINTS 5
@@ -708,9 +710,16 @@ code = """
                     v[1] = position[3 * idx + 1];
                     v[2] = position[3 * idx + 2];
 
+                    // Copy the target into private memory so the pointer address space
+                    // matches the distance2 signature on OpenCL.
+                    float tgt[3];
+                    tgt[0] = target[0];
+                    tgt[1] = target[1];
+                    tgt[2] = target[2];
+
                     // Calculate the distance between the water and the target.
                     float r2;
-                    distance2(v, target, &r2, cell_matrix_inverse, metric_matrix);
+                    distance2(v, tgt, &r2, cell_matrix_inverse, metric_matrix);
 
                     // The water is within the GCMC sphere. Flag it as a candidate.
                     if (r2 < radius * radius)

@@ -5,6 +5,7 @@ Changelog
 ---------------------------------------------------------------------------------
 
 * Please add an item to this CHANGELOG for any new features or bug fixes when creating a PR.
+* Fix OpenCL kernel address-space errors on AMD GPUs by placing program-scope constants in `__constant` memory and copying the GCMC target into private memory before calling `distance2` [#45](https://github.com/OpenBioSim/loch/pull/45).
 
 [2026.2.0](https://github.com/openbiosim/loch/compare/2026.1.0...2026.2.0) - Sep 2026
 --------------------------------------------------------------------------------------
