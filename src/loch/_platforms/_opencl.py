@@ -81,7 +81,8 @@ class OpenCLPlatform(_PlatformBackend):
             Total number of atoms in the system.
 
         num_threads : int
-            Work-group size (threads per work-group).
+            Granularity of the global work size. The work-group size is
+            chosen by the OpenCL runtime.
 
         nvcc : str, optional
             Ignored for OpenCL (included for API compatibility).
