@@ -112,7 +112,8 @@ def create_backend(
         Total number of atoms in the system.
 
     num_threads : int
-        Number of threads per block/work-group.
+        Number of threads per block (CUDA) or granularity of the global
+        work size (OpenCL, where the runtime picks the work-group size).
 
     nvcc : str, optional
         Path to NVCC compiler (CUDA only).
