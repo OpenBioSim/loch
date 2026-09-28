@@ -259,8 +259,8 @@ class GCMCSampler:
             Whether to swap the end states of the alchemical systems.
 
         restart: bool
-            Whether this is a restart simulation. If True, then data will
-            be appended to existing log files.
+            Whether this is a restart simulation. If True, then ghost
+            residues will be appended to an existing 'ghost_file'.
 
         overwrite: bool
             Overwrite existing log files.
@@ -413,12 +413,11 @@ class GCMCSampler:
             if not isinstance(ghost_file, str):
                 raise ValueError("'ghost_file' must be of type 'str'")
             self._ghost_file = ghost_file
-            if not isinstance(ghost_file, str):
-                raise ValueError("'ghost_file' must be of type 'str'")
-            self._ghost_file = ghost_file
 
-            if _os.path.exists(self._ghost_file):
-                if not self._restart and not self._overwrite:
+            # On restart, keep the existing ghost residues so that they stay
+            # aligned with the trajectory frames written before the restart.
+            if _os.path.exists(self._ghost_file) and not self._restart:
+                if not self._overwrite:
                     raise ValueError(
                         "'ghost_file' already exists. Use 'overwrite=True' to overwrite it."
                     )
