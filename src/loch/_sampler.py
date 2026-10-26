@@ -2813,6 +2813,17 @@ class GCMCSampler:
                             omm_idx = sire_idx + int(self._vsite_atom_offsets[sire_idx])
                             is_ghost_fep[omm_idx] = 1
 
+                # Virtual sites follow the molecule's atoms and inherit the
+                # ghost status of their parent atom, matching Sire.
+                if mol.number() in self._mol_vsite_charges:
+                    sire_start = atoms.find(mol.atoms()[0])
+                    omm_start = sire_start + int(self._vsite_atom_offsets[sire_start])
+                    vsites = mol.property("virtual_sites")
+                    for k in range(len(self._mol_vsite_charges[mol.number()])):
+                        parent = int(vsites[str(k)]["vs_indices"][0])
+                        if is_ghost_fep[omm_start + parent] == 1:
+                            is_ghost_fep[omm_start + mol.num_atoms() + k] = 1
+
             # Convert to GPU array.
             is_ghost_fep = self._backend.to_gpu(is_ghost_fep.astype(_np.int32))
 

@@ -208,3 +208,76 @@ def test_flag_ghost_waters_sire_indices(bpti, platform):
     # Every initially-ghost water molecule should be flagged.
     n_flagged = len(flagged["property is_ghost_water"].molecules())
     assert n_flagged == sampler._num_ghost_waters
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_fep_vsite_ghost_flags(sd12, platform):
+    """
+    Virtual sites on a perturbable molecule inherit the ghost status of their
+    parent atom, so that they use soft-core interactions with the waters.
+    """
+    import numpy as np
+
+    mols, reference = sd12
+
+    lig = mols["property is_perturbable"].molecules()[0]
+    n_atoms = lig.num_atoms()
+
+    ghost = [
+        i
+        for i, atom in enumerate(lig.atoms())
+        if np.isclose(atom.property("charge0").value(), 0.0)
+        and np.isclose(atom.property("LJ0").epsilon().value(), 0.0)
+    ]
+    real = [i for i in range(n_atoms) if i not in ghost]
+    assert len(ghost) > 0
+
+    # Virtual site 0 is parented to a ghost atom, virtual site 1 to a real atom.
+    vsite_dict = {}
+    for k, parent in enumerate([ghost[0], real[0]]):
+        vsite_dict[str(k)] = {
+            "vs_indices": [parent] + [i for i in real if i != parent][:2],
+            "vs_ows": [1, 0, 0],
+            "vs_xs": [1, -1, 0],
+            "vs_ys": [0, 1, -1],
+            "vs_local": [0.03, 0, 0],
+        }
+    parents = {str(i): [] for i in range(n_atoms)}
+    parents[str(ghost[0])] = [0]
+    parents[str(real[0])] = [1]
+
+    cursor = lig.cursor()
+    cursor.set("n_virtual_sites", 2)
+    for name in ("vs_charges", "vs_charges0", "vs_charges1"):
+        cursor.set(name, [0.1, -0.1])
+    cursor.set("virtual_sites", vsite_dict)
+    cursor.set("parents", parents)
+
+    mols_with_vs = mols.clone()
+    mols_with_vs.update(cursor.commit())
+
+    sampler = GCMCSampler(
+        mols_with_vs,
+        reference=reference,
+        cutoff_type="rf",
+        cutoff="10 A",
+        lambda_schedule=sr.cas.LambdaSchedule.standard_morph(),
+        lambda_value=0.5,
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+        seed=42,
+    )
+
+    is_ghost_fep = sampler._backend.from_gpu(sampler._gpu_is_ghost_fep)
+
+    lig_start = mols_with_vs.atoms().find(lig.atoms()[0])
+    vsite_start = lig_start + sampler._vsite_atom_offsets[lig_start] + n_atoms
+
+    assert is_ghost_fep[vsite_start] == 1
+    assert is_ghost_fep[vsite_start + 1] == 0
