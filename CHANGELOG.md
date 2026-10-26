@@ -8,6 +8,7 @@ Changelog
 * Fix OpenCL kernel address-space errors on AMD GPUs by placing program-scope constants in `__constant` memory and copying the GCMC target into private memory before calling `distance2` [#45](https://github.com/OpenBioSim/loch/pull/45).
 * Let the OpenCL runtime choose the work-group size rather than passing the CUDA block size, which exceeds the limit on AMD GPUs [#47](https://github.com/OpenBioSim/loch/pull/47).
 * Keep an existing ghost residue file on restart rather than clearing it, so that it stays aligned with the trajectory frames written before the restart [#50](https://github.com/OpenBioSim/loch/pull/50).
+* Flag virtual sites on perturbable molecules as ghosts when their parent atom is a ghost, so that they use soft-core rather than full Coulomb interactions with the waters [#53](https://github.com/OpenBioSim/loch/pull/53).
 
 [2026.2.0](https://github.com/openbiosim/loch/compare/2026.1.0...2026.2.0) - Sep 2026
 --------------------------------------------------------------------------------------
