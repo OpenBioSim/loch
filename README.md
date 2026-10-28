@@ -158,7 +158,10 @@ rather than just within the GCMC sphere.
 The GPU platform is controlled via the `platform` argument, which can be set to
 `"cuda"`, `"opencl"` or `"auto"` (default). When set to `"auto"`, `loch` will
 attempt to use the CUDA platform first, falling back to OpenCL if CUDA is not
-available.
+available. When using OpenCL alongside OpenMM, set `opencl_platform_index` to
+the same value as OpenMM's `OpenCLPlatformIndex` property so that `device`
+refers to the same device as OpenMM's `DeviceIndex`. Otherwise, `device`
+indexes the GPUs from all OpenCL platforms.
 
 1) Get the GCMC system:
 

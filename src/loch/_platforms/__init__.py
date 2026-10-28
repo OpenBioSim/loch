@@ -86,6 +86,7 @@ def create_backend(
     num_threads: int,
     nvcc: _Optional[str] = None,
     compiler_optimisations: bool = True,
+    opencl_platform_index: _Optional[int] = None,
 ) -> _PlatformBackend:
     """
     Create a GPU platform backend instance.
@@ -121,6 +122,10 @@ def create_backend(
     compiler_optimisations : bool, optional
         Enable compiler optimisations for faster math operations.
         Default: True (matches OpenMM defaults).
+
+    opencl_platform_index : int, optional
+        OpenCL platform index (OpenCL only). If None, GPU devices from all
+        OpenCL platforms are used.
 
     Returns
     -------
@@ -158,6 +163,7 @@ def create_backend(
             num_threads,
             nvcc,
             compiler_optimisations,
+            opencl_platform_index,
         )
     else:
         raise ValueError(
