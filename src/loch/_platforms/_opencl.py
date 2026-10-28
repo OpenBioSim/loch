@@ -58,6 +58,7 @@ class OpenCLPlatform(_PlatformBackend):
         num_threads,
         nvcc=None,
         compiler_optimisations=True,
+        platform_index=None,
     ):
         """
         Initialize the OpenCL platform backend.
@@ -66,7 +67,9 @@ class OpenCLPlatform(_PlatformBackend):
         ----------
 
         device : int
-            The OpenCL device index to use.
+            The index of the GPU device on the chosen OpenCL platform, or in
+            the list of GPU devices from all platforms if 'platform_index' is
+            None.
 
         num_points : int
             Number of atoms per water molecule (typically 3).
@@ -91,9 +94,24 @@ class OpenCLPlatform(_PlatformBackend):
             Enable compiler optimisations for faster math operations.
             When True, passes -cl-mad-enable and -cl-no-signed-zeros to the compiler.
             Default: True (matches OpenMM defaults).
+
+        platform_index : int, optional
+            The index of the OpenCL platform to use, matching OpenMM's
+            OpenCLPlatformIndex. If None, GPU devices from all platforms
+            are used.
         """
         # Get platforms and devices
         platforms = _cl.get_platforms()
+
+        if platform_index is not None:
+            if not isinstance(platform_index, int):
+                raise ValueError("'platform_index' must be of type 'int'")
+            if platform_index < 0 or platform_index >= len(platforms):
+                raise ValueError(
+                    f"'platform_index' must be between 0 and {len(platforms) - 1}"
+                )
+            platforms = [platforms[platform_index]]
+
         devices = []
         for platform in platforms:
             devices.extend(platform.get_devices(device_type=_cl.device_type.GPU))
@@ -111,6 +129,7 @@ class OpenCLPlatform(_PlatformBackend):
         else:
             self._device_index = 0
         self._device = devices[self._device_index]
+        self._platform_index = platform_index
 
         # Create context and command queue
         self._context = _cl.Context([self._device])
@@ -137,7 +156,11 @@ class OpenCLPlatform(_PlatformBackend):
         dict
             Dictionary mapping kernel names to callable kernel functions.
         """
-        cache_key = (self._device_index, self._compiler_optimisations)
+        cache_key = (
+            self._platform_index,
+            self._device_index,
+            self._compiler_optimisations,
+        )
 
         # Build compiler options
         build_options = []

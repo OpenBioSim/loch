@@ -85,6 +85,7 @@ class GCMCSampler:
         water_template: _Optional[_Any] = None,
         device: _Optional[int] = None,
         platform: str = "auto",
+        opencl_platform_index: _Optional[int] = None,
         tolerance: float = 0.0,
         lambda_schedule: _Optional[_Any] = None,
         lambda_value: float = 0.0,
@@ -189,6 +190,12 @@ class GCMCSampler:
             The GPU platform to use. Options are 'auto' (default), 'cuda',
             or 'opencl'. When 'auto', CUDA will be preferred if available,
             falling back to OpenCL.
+
+        opencl_platform_index: int
+            The OpenCL platform index, matching OpenMM's OpenCLPlatformIndex,
+            so that 'device' refers to the same GPU as the OpenMM context.
+            If None, devices from all OpenCL platforms are used. Ignored for
+            CUDA.
 
         tolerance: float
             The tolerance for the acceptance probability, i.e. the minimum
@@ -703,6 +710,11 @@ class GCMCSampler:
                 raise ValueError("'device' must be of type 'int'")
         self._device = device
 
+        if opencl_platform_index is not None:
+            if not isinstance(opencl_platform_index, int):
+                raise ValueError("'opencl_platform_index' must be of type 'int'")
+        self._opencl_platform_index = opencl_platform_index
+
         if not isinstance(compiler_optimisations, bool):
             raise ValueError("'compiler_optimisations' must be of type 'bool'")
         self._compiler_optimisations = compiler_optimisations
@@ -718,6 +730,7 @@ class GCMCSampler:
             num_threads=self._num_threads,
             nvcc=self._nvcc,
             compiler_optimisations=self._compiler_optimisations,
+            opencl_platform_index=self._opencl_platform_index,
         )
 
         # Compile kernels
@@ -852,6 +865,7 @@ class GCMCSampler:
             f"water_template={self._water_template}, "
             f"platform={self._platform}, "
             f"device={self._device}, "
+            f"opencl_platform_index={self._opencl_platform_index}, "
             f"tolerance={self._tolerance}, "
             f"nvcc={self._nvcc}, "
             f"compiler_optimisations={self._compiler_optimisations}, "
