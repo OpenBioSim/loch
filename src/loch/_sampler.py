@@ -193,7 +193,7 @@ class GCMCSampler:
 
         opencl_platform_index: int
             The OpenCL platform index, matching OpenMM's OpenCLPlatformIndex,
-            so that 'device' refers to the same GPU as the OpenMM context.
+            so that 'device' refers to the same device as the OpenMM context.
             If None, devices from all OpenCL platforms are used. Ignored for
             CUDA.
 
