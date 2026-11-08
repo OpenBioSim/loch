@@ -10,6 +10,7 @@ Changelog
 * Keep an existing ghost residue file on restart rather than clearing it, so that it stays aligned with the trajectory frames written before the restart [#50](https://github.com/OpenBioSim/loch/pull/50).
 * Flag virtual sites on perturbable molecules as ghosts when their parent atom is a ghost, so that they use soft-core rather than full Coulomb interactions with the waters [#53](https://github.com/OpenBioSim/loch/pull/53).
 * Add an `opencl_platform_index` option so that the OpenCL device is chosen from the same platform as the OpenMM context [#55](https://github.com/OpenBioSim/loch/pull/55).
+* Give a trial water that overlaps a non-ghost atom in an alchemical system the overlap energy, rather than inf or NaN [#57](https://github.com/OpenBioSim/loch/pull/57).
 
 [2026.2.0](https://github.com/openbiosim/loch/compare/2026.1.0...2026.2.0) - Sep 2026
 --------------------------------------------------------------------------------------
