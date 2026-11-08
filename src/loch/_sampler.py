@@ -1834,40 +1834,7 @@ class GCMCSampler:
             )
 
             # Perform the energy calculation.
-            self._kernels["energy"](
-                _np.int32(self._num_points),
-                _np.int32(self._batch_size),
-                _np.int32(self._num_atoms),
-                self._water_positions,
-                self._energy_coul,
-                self._energy_lj,
-                candidates_gpu,
-                is_deletion_gpu,
-                _np.int32(self._is_fep),
-                self._gpu_position,
-                self._gpu_charge,
-                self._gpu_sigma,
-                self._gpu_epsilon,
-                self._gpu_alpha,
-                self._gpu_is_ghost_water,
-                self._gpu_is_ghost_fep,
-                self._gpu_sigma_water,
-                self._gpu_epsilon_water,
-                self._gpu_charge_water,
-                self._gpu_water_idx,
-                self._gpu_cell_matrix_inverse,
-                self._gpu_M,
-                self._rf_cutoff,
-                self._rf_kappa,
-                self._rf_correction,
-                self._sc_softcore_form,
-                self._sc_shift_coulomb,
-                self._sc_shift_delta,
-                self._sc_taylor_power,
-                self._sc_beutler_alpha,
-                block=(self._num_threads, 1, 1),
-                grid=(self._atom_blocks, self._batch_size, 1),
-            )
+            self._compute_energy(candidates_gpu, is_deletion_gpu)
 
             # Transfer pre-computed acceptance randoms to GPU.
             randoms_acceptance = self._backend.to_gpu(batch_randoms.acceptance)
@@ -2173,6 +2140,54 @@ class GCMCSampler:
             self._openmm_context = context
 
         return moves
+
+    def _compute_energy(self, candidates_gpu: _Any, is_deletion_gpu: _Any) -> None:
+        """
+        Compute the interaction energy of each trial water with the system.
+
+        Parameters
+        ----------
+
+        candidates_gpu: GPU array
+            The deletion candidate for each trial.
+
+        is_deletion_gpu: GPU array
+            Whether each trial is a deletion (1) or an insertion (0).
+        """
+        self._kernels["energy"](
+            _np.int32(self._num_points),
+            _np.int32(self._batch_size),
+            _np.int32(self._num_atoms),
+            self._water_positions,
+            self._energy_coul,
+            self._energy_lj,
+            candidates_gpu,
+            is_deletion_gpu,
+            _np.int32(self._is_fep),
+            self._gpu_position,
+            self._gpu_charge,
+            self._gpu_sigma,
+            self._gpu_epsilon,
+            self._gpu_alpha,
+            self._gpu_is_ghost_water,
+            self._gpu_is_ghost_fep,
+            self._gpu_sigma_water,
+            self._gpu_epsilon_water,
+            self._gpu_charge_water,
+            self._gpu_water_idx,
+            self._gpu_cell_matrix_inverse,
+            self._gpu_M,
+            self._rf_cutoff,
+            self._rf_kappa,
+            self._rf_correction,
+            self._sc_softcore_form,
+            self._sc_shift_coulomb,
+            self._sc_shift_delta,
+            self._sc_taylor_power,
+            self._sc_beutler_alpha,
+            block=(self._num_threads, 1, 1),
+            grid=(self._atom_blocks, self._batch_size, 1),
+        )
 
     def bind_dynamics(self, dynamics: _Any) -> None:
         """

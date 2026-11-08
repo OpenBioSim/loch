@@ -512,7 +512,7 @@ code = """
                     if (r2 < cutoff2)
                     {
                         // Don't divide by zero.
-                        if (!is_fep && r2 < 1e-6)
+                        if (!is_ghost_atom && r2 < 1e-6)
                         {
                             energy_coul[idx] = 1e6;
                             energy_lj[idx] = 1e6;
