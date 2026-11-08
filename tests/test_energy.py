@@ -788,3 +788,76 @@ def test_energy_after_set_lambda(sd12, platform):
     )
 
     assert math.isclose(energy_difference, sampler_energy, abs_tol=1e-2)
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+@pytest.mark.parametrize("platform", ["cuda", "opencl"])
+def test_overlap_in_alchemical_system(sd12, platform):
+    """
+    Test that a trial water on top of a non-ghost atom in an alchemical system
+    gets the overlap energy, rather than inf or NaN.
+    """
+
+    mols, reference = sd12
+
+    schedule = sr.cas.LambdaSchedule.standard_morph()
+
+    sampler = GCMCSampler(
+        mols,
+        cutoff_type="rf",
+        cutoff="10 A",
+        reference=reference,
+        lambda_schedule=schedule,
+        lambda_value=0.5,
+        log_level="debug",
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform=platform,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        temperature="298 K",
+        pressure=None,
+        constraint="h_bonds",
+        timestep="2 fs",
+        schedule=schedule,
+        lambda_value=0.5,
+        platform=platform,
+    )
+
+    # A move uploads the atom positions to the GPU.
+    sampler.move(d.context())
+
+    backend = sampler._backend
+    positions = backend.from_gpu(sampler._gpu_position).reshape(-1, 3)
+    is_ghost_fep = backend.from_gpu(sampler._gpu_is_ghost_fep).flatten()
+    is_ghost_water = backend.from_gpu(sampler._gpu_is_ghost_water).flatten()
+    epsilon = backend.from_gpu(sampler._gpu_epsilon).flatten()
+
+    # A non-ghost atom with LJ, so the hard LJ path would diverge.
+    atom = np.where((is_ghost_fep == 0) & (is_ghost_water == 0) & (epsilon > 0))[0][0]
+
+    # Put the oxygen of every trial water on the atom.
+    water = np.zeros((sampler._num_points, 3), dtype=np.float32)
+    water[:] = positions[atom]
+    water[1:, 0] += 1.0
+    water_positions = np.tile(water.flatten(), sampler._batch_size)
+    sampler._water_positions = backend.to_gpu(water_positions.astype(np.float32))
+
+    zeros = backend.to_gpu(np.zeros(sampler._batch_size, dtype=np.int32))
+    sampler._compute_energy(zeros, zeros)
+
+    num_atoms = sampler._num_atoms
+    energy_coul = backend.from_gpu(sampler._energy_coul).reshape(-1, num_atoms)
+    energy_lj = backend.from_gpu(sampler._energy_lj).reshape(-1, num_atoms)
+
+    assert energy_coul[0, atom] == pytest.approx(1e6)
+    assert energy_lj[0, atom] == pytest.approx(1e6)
+    assert np.isfinite(energy_coul[0]).all()
+    assert np.isfinite(energy_lj[0]).all()
