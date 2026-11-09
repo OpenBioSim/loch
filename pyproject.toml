@@ -9,7 +9,7 @@ authors = [
 ]
 description = "An open-source engine for Grand-Canonical Monte Carlo (GCMC) water sampling."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = {text = "GPL-3.0-or-later"}
 dynamic = ["version"]
 
