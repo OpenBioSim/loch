@@ -39,16 +39,6 @@ from ._platforms import create_backend as _create_backend
 from ._platforms._rng import RNGManager as _RNGManager
 from ._softcore import SoftcoreForm as _SoftcoreForm
 
-import sys as _sys
-
-try:
-    "μ".encode(_sys.stdout.encoding or "utf-8")
-    _mu_sym = "μ"
-except (UnicodeEncodeError, LookupError):
-    _mu_sym = "mu"
-
-del _sys
-
 
 def _as_float32(arr: _np.ndarray) -> _np.ndarray:
     """Convert array to float32 only if not already float32."""
@@ -75,7 +65,6 @@ class GCMCSampler:
         excess_chemical_potential: str = "-6.09 kcal/mol",
         standard_volume: str = "30.543 A^3",
         temperature: str = "298 K",
-        pressure: _Optional[str] = None,
         adams_shift: _Union[int, float] = 0.0,
         num_ghost_waters: int = 20,
         batch_size: int = 1000,
@@ -138,12 +127,6 @@ class GCMCSampler:
 
         temperature: str
             The temperature of the system.
-
-        pressure: str
-            The pressure for NPT simulation, e.g. "1 atm". If None (default),
-            the simulation runs in the μVT ensemble with a fixed box. When set,
-            the box is updated from the context at each move and the Adams value
-            is recomputed accordingly, sampling the μpT (osmotic) ensemble.
 
         adams_shift: float
             The Adams shift.
@@ -358,16 +341,6 @@ class GCMCSampler:
             )
         except Exception as e:
             raise ValueError(f"Could not validate the 'temperature': {e}")
-
-        if pressure is not None:
-            try:
-                self._pressure = self._validate_sire_unit(
-                    "pressure", pressure, _sr.u("atm")
-                )
-            except Exception as e:
-                raise ValueError(f"Could not validate the 'pressure': {e}")
-        else:
-            self._pressure = None
 
         if not isinstance(num_ghost_waters, int):
             raise ValueError("'num_ghost_waters' must be of type 'int'")
@@ -765,8 +738,8 @@ class GCMCSampler:
             * _openmm.unit.kelvin
         )
 
-        # Compute the Adams values from the current box and sphere volume.
-        self._compute_adams_values(self._system)
+        # Compute the Adams values from the box and sphere volume.
+        self._compute_adams_values()
 
         # Coulomb energy prefactor.
         self._prefactor = 1.0 / (4.0 * _np.pi * _sr.units.epsilon0.value())
@@ -842,7 +815,6 @@ class GCMCSampler:
             f"excess_chemical_potential={self._excess_chemical_potential}, "
             f"standard_volume={self._standard_volume}, "
             f"temperature={self._temperature}, "
-            f"pressure={self._pressure}, "
             f"num_ghost_waters={self._num_ghost_waters}, "
             f"adams_shift={self._adams_shift}, "
             f"batch_size={self._batch_size}, "
@@ -1073,32 +1045,14 @@ class GCMCSampler:
         """
         return self._backend.compiler_log
 
-    def _compute_adams_values(self, system: _Any) -> None:
+    def _compute_adams_values(self) -> None:
         """
-        Compute the Adams values from the current box and sphere volume.
+        Compute the Adams values from the box and sphere volume.
 
         Updates self._exp_B, self._exp_minus_B, self._exp_B_bulk, and
         self._exp_minus_B_bulk.
-
-        Parameters
-        ----------
-
-        system: sire.system.System, openmm.Context, openmm.State
-            The molecular system, OpenMM context, or OpenMM state.
         """
-        if isinstance(system, _sr.system.System):
-            volume = system.property("space").volume().value()
-        elif isinstance(system, _openmm.Context):
-            box = system.getState().getPeriodicBoxVectors(asNumpy=True)
-            volume = _np.linalg.det(box / _openmm.unit.angstrom)
-        elif isinstance(system, _openmm.State):
-            box = system.getPeriodicBoxVectors(asNumpy=True)
-            volume = _np.linalg.det(box / _openmm.unit.angstrom)
-        else:
-            raise ValueError(
-                "'system' must be of type 'sire.system.System', 'openmm.Context', "
-                "or 'openmm.State'"
-            )
+        volume = self._space.volume().value()
 
         gcmc_volume = (4.0 * _np.pi * self._radius.value() ** 3) / 3.0
 
@@ -1129,8 +1083,8 @@ class GCMCSampler:
         Parameters
         ----------
 
-        system: sire.system.System, openmm.Context, openmm.State
-            The molecular system, OpenMM context, or OpenMM state.
+        system: sire.system.System, openmm.Context
+            The molecular system, or OpenMM context.
         """
 
         # Get the space property from the system.
@@ -1140,12 +1094,8 @@ class GCMCSampler:
             except Exception:
                 raise ValueError("'system' must contain a 'space' property")
         # Create a Sire TriclinicBox from the OpenMM box vectors.
-        elif isinstance(system, (_openmm.Context, _openmm.State)):
-            box = (
-                system.getState().getPeriodicBoxVectors()
-                if isinstance(system, _openmm.Context)
-                else system.getPeriodicBoxVectors()
-            )
+        elif isinstance(system, _openmm.Context):
+            box = system.getState().getPeriodicBoxVectors()
             v0 = [10 * box[0].x, 10 * box[0].y, 10 * box[0].z]
             v1 = [10 * box[1].x, 10 * box[1].y, 10 * box[1].z]
             v2 = [10 * box[2].x, 10 * box[2].y, 10 * box[2].z]
@@ -1154,8 +1104,7 @@ class GCMCSampler:
             )
         else:
             raise ValueError(
-                "'system' must be of type 'sire.system.System', 'openmm.Context', "
-                "or 'openmm.State'"
+                "'system' must be of type 'sire.system.System' or 'openmm.Context'"
             )
 
         # Get the box information.
@@ -1686,13 +1635,6 @@ class GCMCSampler:
                         initial_energy = state.getPotentialEnergy()
                     else:
                         initial_energy = None
-
-                    # For NPT (μpT), update the box and recompute Adams values
-                    # from the current context state so that volume fluctuations
-                    # driven by the barostat are reflected in the acceptance criterion.
-                    if self._pressure is not None:
-                        self.set_box(state)
-                        self._compute_adams_values(state)
 
                     # Sample within the GCMC sphere.
                     if self._reference is not None and not self._is_bulk:
@@ -3407,11 +3349,10 @@ class GCMCSampler:
                         self._nonbonded_force = force
                 elif self._is_fep and force.getName() == "GhostNonGhostNonbondedForce":
                     self._custom_nonbonded_force = force
-                elif self._pressure is None and "Barostat" in force.getName():
+                elif "Barostat" in force.getName():
                     msg = (
-                        f"A barostat was detected but no pressure was set: "
-                        f"'{force.getName()}' is not supported in the {_mu_sym}VT ensemble. "
-                        f"Pass pressure= to enable {_mu_sym}pT (osmotic) sampling."
+                        f"GCMC must be used at constant volume: "
+                        f"'{force.getName()}' is not supported."
                     )
                     _logger.error(msg)
                     raise TypeError(msg)
