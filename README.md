@@ -196,21 +196,9 @@ d = gcmc_system.dynamics(
 > for an example of how to perform an OpenMM-to-Sire roundtrip.
 
 > [!Note]
-> By default, GCMC sampling is performed in the μVT ensemble with a fixed box,
-> hence the pressure is set to `None` in the above example. Bulk sampling moves
-> can be used as an effective barostat. Alternatively, to sample the μpT
-> (osmotic) ensemble, pass the same `pressure` to both the `GCMCSampler` and
-> the dynamics object, e.g. `pressure="1 atm"`. The box volume is then read
-> from the context at each move.
-
-> [!Warning]
-> In the μpT ensemble, moves within the entire box are only well behaved when
-> the chemical potential of the water depends strongly on how much is present,
-> e.g. when water is adsorbed into a material or is one component of a mixture.
-> When the water is the solvent of a dilute system, such as a solvated protein,
-> its chemical potential is almost that of pure water, so the number of waters
-> is barely fixed and can drift. For such systems, sample within a GCMC sphere,
-> i.e. set a `reference`, and set `bulk_sampling_probability=0`.
+> GCMC sampling must be performed in the NVT ensemble, hence the pressure
+> is set to `None` in the above example. However, bulk sampling moves can
+> be used as an effective barostat.
 
 In order to enable crash recovery during dynamics, we next need to bind
 the `GCMCSampler` to the Sire dynamics object. This makes sure that the

@@ -11,6 +11,7 @@ Changelog
 * Flag virtual sites on perturbable molecules as ghosts when their parent atom is a ghost, so that they use soft-core rather than full Coulomb interactions with the waters [#53](https://github.com/OpenBioSim/loch/pull/53).
 * Add an `opencl_platform_index` option so that the OpenCL device is chosen from the same platform as the OpenMM context [#55](https://github.com/OpenBioSim/loch/pull/55).
 * Give a trial water that overlaps a non-ghost atom in an alchemical system the overlap energy, rather than inf or NaN [#57](https://github.com/OpenBioSim/loch/pull/57).
+* Remove support for the osmotic ensemble, which isn't valid for GCMC of solvent water: the number of waters is barely fixed, so it drifts. A barostat is rejected again [#63](https://github.com/OpenBioSim/loch/pull/63).
 
 [2026.2.0](https://github.com/openbiosim/loch/compare/2026.1.0...2026.2.0) - Sep 2026
 --------------------------------------------------------------------------------------
