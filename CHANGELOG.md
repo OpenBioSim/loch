@@ -12,7 +12,7 @@ Changelog
 * Add an `opencl_platform_index` option so that the OpenCL device is chosen from the same platform as the OpenMM context [#55](https://github.com/OpenBioSim/loch/pull/55).
 * Give a trial water that overlaps a non-ghost atom in an alchemical system the overlap energy, rather than inf or NaN [#57](https://github.com/OpenBioSim/loch/pull/57).
 * Remove support for the osmotic ensemble, which isn't valid for GCMC of solvent water: the number of waters is barely fixed, so it drifts. A barostat is rejected again [#63](https://github.com/OpenBioSim/loch/pull/63).
-* Added support for Python 3.13 and 3.14, and dropped support for Python 3.10 and 3.11.
+* Added support for Python 3.13 and 3.14, and dropped support for Python 3.10 and 3.11 [#65](https://github.com/OpenBioSim/loch/pull/65).
 
 [2026.2.0](https://github.com/openbiosim/loch/compare/2026.1.0...2026.2.0) - Sep 2026
 --------------------------------------------------------------------------------------
