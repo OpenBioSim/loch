@@ -335,6 +335,17 @@ Free Energy Perturbation (FEP) with GCMC using `loch` is supported via the
   `GCMCSampler` constructor. Depending on your setup, you may also need to install the
   `cuda-nvvm` package from `conda-forge`.
 
+> [!Note]
+> `nvcc` only supports host compilers up to a certain version, so compiling the
+> CUDA kernels fails with `unsupported GNU version` if the C++ compiler in your
+> environment, e.g. one installed by conda or pixi, is too new. To use a
+> supported compiler that's in your `PATH`, e.g. one provided by a module, pass
+> it to `nvcc` with the `NVCC_PREPEND_FLAGS` environment variable:
+>
+> ```bash
+> export NVCC_PREPEND_FLAGS="-ccbin g++-13"
+> ```
+
 * OpenMM-to-Sire roundtrip example:
 
 ```python
