@@ -2821,6 +2821,18 @@ class GCMCSampler:
             self._water_sigma = _np.array(sigma_water)
             self._water_epsilon = _np.array(epsilon_water)
 
+            # NonbondedForce parameters in OpenMM units, since cuPotential's
+            # NonbondedForce doesn't accept unit quantities.
+            self._water_nonbonded = [
+                (float(q), 0.1 * float(s), 4.184 * float(e))
+                for q, s, e in zip(
+                    self._water_charge, self._water_sigma, self._water_epsilon
+                )
+            ]
+            self._ghost_nonbonded = [
+                (0.0, 0.1 * float(s), 0.0) for s in self._water_sigma
+            ]
+
             # Convert sigma and epsilon for use in custom forces.
             # These are half-sigma in nanometers and 2 * sqrt(epsilon) in kJ/mol.
             self._water_sigma_custom = 0.05 * self._water_sigma
@@ -2970,7 +2982,7 @@ class GCMCSampler:
         self._invalidate_water_caches()
 
         # Get the starting atom index.
-        start_idx = self._water_indices[idx_water]
+        start_idx = int(self._water_indices[idx_water])
 
         # Update the water positions and NonBondedForce.
         for i in range(self._num_points):
@@ -2981,10 +2993,7 @@ class GCMCSampler:
             positions_angstrom[start_idx + i] = water_positions[i]
             # Update the NonBondedForce parameters.
             self._nonbonded_force.setParticleParameters(
-                start_idx + i,
-                self._water_charge[i] * _openmm.unit.elementary_charge,
-                self._water_sigma[i] * _openmm.unit.angstrom,
-                self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
+                start_idx + i, *self._water_nonbonded[i]
             )
             # Update the custom NonBondedForce parameters.
             if self._is_fep:
@@ -3054,12 +3063,12 @@ class GCMCSampler:
         self._invalidate_water_caches()
 
         # Get the starting atom index.
-        start_idx = self._water_indices[idx]
+        start_idx = int(self._water_indices[idx])
 
         for i in range(self._num_points):
             # Update the NonBondedForce parameters.
             self._nonbonded_force.setParticleParameters(
-                start_idx + i, 0.0, self._water_sigma[i] * _openmm.unit.angstrom, 0.0
+                start_idx + i, *self._ghost_nonbonded[i]
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
@@ -3128,15 +3137,12 @@ class GCMCSampler:
         self._invalidate_water_caches()
 
         # Get the starting atom index.
-        start_idx = self._water_indices[idx]
+        start_idx = int(self._water_indices[idx])
 
         for i in range(self._num_points):
             # Update the NonBondedForce parameters.
             self._nonbonded_force.setParticleParameters(
-                start_idx + i,
-                self._water_charge[i] * _openmm.unit.elementary_charge,
-                self._water_sigma[i] * _openmm.unit.angstrom,
-                self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
+                start_idx + i, *self._water_nonbonded[i]
             )
             # Update the CustomNonBondedForce parameters.
             if self._is_fep:
@@ -3239,17 +3245,14 @@ class GCMCSampler:
             _logger.debug(f"Updating water {idx} to state {state}")
 
             # Get the water starting index.
-            start_idx = self._water_indices[idx]
+            start_idx = int(self._water_indices[idx])
 
             # Ghost water.
             if state == 0:
                 for i in range(self._num_points):
                     # Update the NonbondedForce parameters.
                     self._nonbonded_force.setParticleParameters(
-                        start_idx + i,
-                        0.0,
-                        self._water_sigma[i] * _openmm.unit.angstrom,
-                        0.0,
+                        start_idx + i, *self._ghost_nonbonded[i]
                     )
                     # Update the CustomNonbondedForce parameters.
                     if self._is_fep:
@@ -3293,10 +3296,7 @@ class GCMCSampler:
                 for i in range(self._num_points):
                     # Update the NonbondedForce parameters.
                     self._nonbonded_force.setParticleParameters(
-                        start_idx + i,
-                        self._water_charge[i] * _openmm.unit.elementary_charge,
-                        self._water_sigma[i] * _openmm.unit.angstrom,
-                        self._water_epsilon[i] * _openmm.unit.kilocalories_per_mole,
+                        start_idx + i, *self._water_nonbonded[i]
                     )
                     # Update the CustomNonBondedForce parameters.
                     if self._is_fep:
@@ -3363,8 +3363,15 @@ class GCMCSampler:
         if self._nonbonded_force is None or (
             self._is_fep and self._custom_nonbonded_force is None
         ):
+            import sys
+
+            # The NonbondedForce may be cuPotential's equivalent.
+            nonbonded_types = (_openmm.NonbondedForce,)
+            if "nv_openmm_plugin" in sys.modules:
+                nonbonded_types += (sys.modules["nv_openmm_plugin"].NonbondedForce,)
+
             for force in context.getSystem().getForces():
-                if isinstance(force, _openmm.NonbondedForce):
+                if isinstance(force, nonbonded_types):
                     # Only accept a force actually used for integration.
                     if self._integration_groups & (1 << force.getForceGroup()):
                         self._nonbonded_force = force
