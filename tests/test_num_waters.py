@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from loch import GCMCSampler
@@ -73,3 +75,40 @@ def test_num_waters_refuses_a_whole_box_count():
 
     with pytest.raises(RuntimeError, match="OpenMM context is not set"):
         sampler.num_waters()
+
+
+@pytest.mark.skipif(
+    "CUDA_VISIBLE_DEVICES" not in os.environ,
+    reason="Requires CUDA enabled GPU.",
+)
+def test_num_waters_after_a_region_move(bpti):
+    """
+    A sampler with a region must report the stored count after a move without
+    a context, before any bulk move has stored one.
+    """
+    mols, reference = bpti
+
+    sampler = GCMCSampler(
+        mols,
+        reference=reference,
+        cutoff_type="rf",
+        cutoff="10 A",
+        bulk_sampling_probability=0.0,
+        ghost_file=None,
+        log_file=None,
+        test=True,
+        platform="cuda",
+        seed=42,
+    )
+
+    d = sampler.system().dynamics(
+        cutoff_type="rf",
+        cutoff="10 A",
+        pressure=None,
+        constraint="h_bonds",
+        platform="cuda",
+    )
+
+    sampler.move(d.context())
+
+    assert sampler.num_waters() == sampler.num_waters(d.context())
