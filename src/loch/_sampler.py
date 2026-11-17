@@ -773,6 +773,9 @@ class GCMCSampler:
         # the count for the volume that move() samples. None when unknown.
         self._N_region = None
 
+        # The context stored by a bulk move, which num_waters() falls back to.
+        self._openmm_context = None
+
         import sys
 
         # Create a logger that writes to stderr and the log file.
@@ -2063,9 +2066,9 @@ class GCMCSampler:
                 if self._is_pme:
                     initial_energy = final_energy
 
-                # Return immediately if we're in test mode.
+                # Stop after the first accepted move if we're in test mode.
                 if self._is_test:
-                    return moves
+                    break
             # If no moves were accepted at the PME level, then update the
             # number of attempts by the batch size.
             else:
@@ -2080,6 +2083,10 @@ class GCMCSampler:
         # calls self.num_waters() after the move.
         if self._reference is not None and self._is_bulk:
             self._openmm_context = context
+
+        # Accepted moves update self._N, so refresh the region count to match.
+        if not self._is_bulk:
+            self._N_region = self._N
 
         return moves
 
